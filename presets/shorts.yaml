@@ -1,0 +1,44 @@
+# YouTube Shorts / 抖音 / 快手 竖屏版本 9:16
+stages:
+  h2v_convert: true
+  stabilize: false          # 低分辨率手持拍摄stabilization会放大抖动，禁用
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  intro_outro: true        # 片头片尾（片头=最高能量片段，片尾=关注引导）
+  ken_burns: false          # 竖版裁切后放大倍数大，运镜会放大抖动，禁用
+  body_warp: true
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+
+output:
+  width: 1080
+  height: 1920
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+energy_bar:
+  width: 16
+  margin_right: 20
+  margin_bottom: 120
+  height: 400
+  smoothing: 0.85
+  min_fill_ratio: 0.15
+
+ken_burns:
+  mode: smooth
+  zoom_range: [1.0, 1.03]
+
+intro_outro:
+  channel_name: "胭脂虎健身团"
+  cta_text: "关注不迷路"
+  intro_duration: 4.0
+  outro_duration: 5.0
+  audio_fade_out: 3.0

@@ -1,0 +1,46 @@
+# 健身短视频处理流水线 — 默认配置
+# 用法: python main.py input.mp4 -c config.yaml
+
+stages:
+  pose_detect: true
+  stabilize: false   # vidstab 对手持运镜视频有副作用，默认关闭
+  h2v_convert: false
+  ken_burns: false
+  body_warp: true
+  color_grade: true
+  export: true
+
+pose_backend: yolo   # yolo | mediapipe
+pose_model: yolov8n-pose  # yolov8n-pose (默认快) | yolov8s-pose (更准)
+
+h2v:
+  target_ratio: 0.5625  # 9/16
+
+body_warp:
+  leg_lengthen: 1.0     # 1.0=不变, 1.2=拉长20%
+  leg_slim: 1.0         # 1.0=不变, 0.85=瘦15%
+  waist_slim: 1.0       # 1.0=不变, 0.9=瘦10%
+  head_ratio: 1.0       # 1.0=不变
+  overall_slim: 1.0     # 1.0=不变, 0.9=整体瘦10%
+
+color_grade:
+  brightness: 0         # -100 ~ 100
+  contrast: 1.0         # 0.5 ~ 2.0
+  saturation: 1.0       # 0.0 ~ 2.0
+  warmth: 0             # -50 ~ 50
+  clahe: true           # 自适应直方图均衡
+
+ken_burns:
+  mode: smooth          # smooth | dual
+  zoom_range: [1.0, 1.1]
+
+stabilize:
+  shakiness: 5
+  accuracy: 10
+
+preview: false
+preview_seconds: 3
+
+output:
+  width: 1920
+  height: 1080

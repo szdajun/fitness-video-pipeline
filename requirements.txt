@@ -1,0 +1,17 @@
+# 核心依赖
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+
+# 姿态检测（可选，推荐安装）
+ultralytics>=8.0.0
+
+# GPU 加速（可选）
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# 视频稳定（可选）
+# vidstab 不需要额外安装，由 FFmpeg 提供
+
+# 音频处理（可选）
+# ffmpeg-python>=0.2.0

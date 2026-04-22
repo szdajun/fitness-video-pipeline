@@ -1,0 +1,46 @@
+# 运镜风格 — 纯 Ken Burns 双场景，无体型调整
+# 适合不想改变体型的场景，或单人近景视频
+
+body_warp:
+  leg_lengthen: 1.00
+  leg_slim: 1.00
+  waist_slim: 1.00
+  overall_slim: 1.00
+  chest_enlarge: 1.00
+  head_ratio: 1.00
+  neck_lengthen: 1.00
+
+color_grade:
+  brightness: 3
+  contrast: 1.05
+  saturation: 1.05
+  warmth: 1
+  clahe: false
+  sharpen: 0.1
+  shadow: 0.3
+  auto_wb: false
+  adaptive_contrast: 0
+
+ken_burns:
+  mode: dual
+  dual_close_zoom: 1.06
+  dual_close_zoom_v: 1.12
+  dual_cycle_seconds: 8
+  dual_pan_amplitude: 10
+  dual_motion_response: 0.5
+  dual_dwell: 0.3
+
+stages:
+  stabilize: false
+  ken_burns: true
+  body_warp: false
+  face_warp: false
+  audio: false
+
+audio:
+  enabled: false
+  target_lufs: -14.0
+  fade_in: 2.0
+  fade_out: 2.0
+  denoise: 4
+  ducking: 6   # 人声时背景音乐压低强度（0=关闭, 3=轻, 6=普通）

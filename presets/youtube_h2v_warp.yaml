@@ -1,0 +1,45 @@
+# YouTube 横屏版 + h2v裁切 + 身材变形
+stages:
+  h2v_convert: true
+  stabilize: false
+  beat_flash: true
+  highlight: false
+  energy_bar: true
+  intro_outro: true
+  ken_burns: false
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+
+output:
+  width: 1920
+  height: 1080
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+# 身材变形参数
+body_warp:
+  waist_slim: 0.85      # 腰细15%
+  leg_lengthen: 1.12    # 腿长12%
+  overall_slim: 0.92     # 整体瘦身8%
+
+energy_bar:
+  width: 16
+  margin_right: 20
+  margin_bottom: 60
+  height: 300
+  smoothing: 0.85
+  min_fill_ratio: 0.15
+
+intro_outro:
+  channel_name: "胭脂虎健身团"
+  cta_text: "关注不迷路"
+  intro_duration: 4.0
+  outro_duration: 5.0
+  audio_fade_out: 3.0

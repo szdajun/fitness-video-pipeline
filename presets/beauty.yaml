@@ -1,0 +1,46 @@
+# 美颜风格 — V脸+大眼+磨皮+运镜+色彩
+face_warp:
+  v_face_strength: 0.4
+  eye_enlarge: 1.25
+  skin_smooth_strength: 0.3
+  skin_smooth_d: 7
+  skin_smooth_sigmaColor: 15
+  skin_smooth_sigmaSpace: 15
+
+body_warp:
+  leg_lengthen: 1.20
+  leg_slim: 0.90
+  waist_slim: 1.00
+  overall_slim: 1.00
+
+color_grade:
+  brightness: 5
+  contrast: 1.08
+  saturation: 1.10
+  warmth: 2
+  clahe: true
+  sharpen: 0.15
+  shadow: 0.5          # 阴影修正 (0~1)
+  auto_wb: false       # 自动白平衡
+  adaptive_contrast: 0 # 自适应对比度 (0=关闭, 0.5=中等, 1.0=强)
+
+ken_burns:
+  mode: dual
+  dual_close_zoom: 1.06
+  dual_close_zoom_v: 1.12
+  dual_cycle_seconds: 10
+  dual_pan_amplitude: 12
+
+stages:
+  stabilize: false
+  ken_burns: false
+  face_warp: true
+  audio: false
+
+audio:
+  enabled: false
+  target_lufs: -14.0
+  fade_in: 2.0
+  fade_out: 2.0
+  # bg_music: "C:/path/to/bgm.mp3"
+  # bg_volume: 0.25

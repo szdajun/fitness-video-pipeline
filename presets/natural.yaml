@@ -1,0 +1,13 @@
+# 自然风格 — 微调，保留原始画面感
+color_grade:
+  brightness: 5
+  contrast: 1.05
+  saturation: 1.1
+  warmth: 5
+  clahe: true
+
+body_warp:
+  leg_lengthen: 1.05
+  leg_slim: 0.97
+  waist_slim: 0.97
+  overall_slim: 0.98

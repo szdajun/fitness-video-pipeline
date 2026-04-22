@@ -1,0 +1,30 @@
+# YouTube 横屏版本 — 保持原始 16:9 比例
+stages:
+  h2v_convert: false
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+
+output:
+  width: 1920
+  height: 1080
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+energy_bar:
+  width: 16
+  margin_right: 20
+  margin_bottom: 60
+  height: 300
+  smoothing: 0.85
+  min_fill_ratio: 0.15
