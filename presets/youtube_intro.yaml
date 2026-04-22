@@ -1,0 +1,39 @@
+# YouTube 横屏版本 + 片头片尾
+stages:
+  h2v_convert: false
+  stabilize: false
+  beat_flash: true
+  highlight: false
+  energy_bar: true
+  intro_outro: true
+  ken_burns: false
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+
+output:
+  width: 1920
+  height: 1080
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+energy_bar:
+  width: 16
+  margin_right: 20
+  margin_bottom: 60
+  height: 300
+  smoothing: 0.85
+  min_fill_ratio: 0.15
+
+intro_outro:
+  channel_name: "胭脂虎健身团"
+  cta_text: "关注不迷路"
+  intro_duration: 4.0
+  outro_duration: 5.0
+  audio_fade_out: 3.0

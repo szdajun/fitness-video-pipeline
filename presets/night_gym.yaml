@@ -1,0 +1,22 @@
+# 夜景健身增强 — 提亮+去暖色+降噪+细节增强
+# 适用于晚上室内健身视频，光线不理想的情况
+
+color_grade:
+  brightness: 15       # 整体提亮
+  contrast: 1.15        # 对比度增强，让轮廓更清晰
+  saturation: 1.10     # 饱和度微增
+  warmth: -5           # 抵消室内黄灯暖色
+  clahe: true          # CLAHE自适应直方图均衡，暗部细节
+  sharpen: 0.08        # 轻度锐化
+  temporal_smooth: 0.2 # 时序平滑，减少噪点闪烁
+
+# 不做短视频处理，只做色彩增强
+stages:
+  stabilize: false
+  h2v_convert: false   # 不做横屏转竖屏，保留原始比例
+  body_warp: false     # 不做人体变形
+  ken_burns: false     # 不做Ken Burns效果
+  color_grade: true
+
+output:
+  crf: 18

@@ -1,0 +1,13 @@
+# 干净风格 — 提亮、低饱和、轻度调整
+color_grade:
+  brightness: 15
+  contrast: 1.1
+  saturation: 0.85
+  warmth: 0
+  clahe: true
+
+body_warp:
+  leg_lengthen: 1.0
+  leg_slim: 0.95
+  waist_slim: 0.95
+  overall_slim: 0.97

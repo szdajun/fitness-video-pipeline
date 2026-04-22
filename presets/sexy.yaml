@@ -1,0 +1,60 @@
+# 性感风格 — 腿拉长+腰收窄+整体瘦身（胸/脖子因色块冲突暂时关闭）
+body_warp:
+  leg_lengthen: 1.05
+  leg_slim: 0.85
+  waist_slim: 0.75
+  overall_slim: 0.90
+  chest_enlarge: 1.15
+  # neck_lengthen: 1.15    # 关闭：与胸部放大在同区域冲突，产生色块
+
+color_grade:
+  brightness: 5
+  contrast: 1.05
+  saturation: 1.05
+  warmth: 3
+  clahe: true
+  sharpen: 0
+  temporal_smooth: 0.25
+
+ken_burns:
+  mode: smooth
+  zoom_range: [1.0, 1.0]
+
+output:
+  width: 1080
+  height: 1920
+  crf: 18
+  video_fade_out: 0
+
+stages:
+  stabilize: false
+  h2v_convert: true
+  body_warp: true
+  ken_burns: true
+  energy_bar: true
+  intro_outro: true
+  audio: true
+
+energy_bar:
+  width: 32
+  margin_right: 20
+  margin_bottom: 60
+  height: 400
+  smoothing: 0.85
+  min_fill_ratio: 0.15
+  motion_scale: 200
+
+intro_outro:
+  intro_duration: 4.0
+  outro_duration: 2.5
+  channel_name: "胭脂虎健身团"
+  cta_text: "关注不迷路"
+  audio_fade_out: 3.0
+
+audio:
+  enabled: true
+  target_lufs: -14.0
+  fade_in: 0.5
+  fade_out: 1.0
+  denoise: 0
+  ducking: 0

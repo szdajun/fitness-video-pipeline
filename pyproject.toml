@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fitness-video-pipeline"
+version = "1.0.0"
+description = "健身短视频处理流水线 — 横拍转竖版、体型调整、运镜效果"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "User"}
+]
+keywords = ["video", "fitness", "9x16", "portrait", "竖版视频"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "ultralytics>=8.0.0",
+    "torch>=2.0.0",
+]
+yolo = [
+    "ultralytics>=8.0.0",
+]
+full = [
+    "ultralytics>=8.0.0",
+    "filterpy>=1.4.5",
+    "mediapipe>=0.10.0",
+]
+
+[project.scripts]
+fitness-pipeline = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/user/fitness-video-pipeline"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pipeline*", "stages*", "lib*"]
+
+[tool.setuptools.package-data]
+"*": ["*.yaml", "*.yml", "*.json"]
