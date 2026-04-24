@@ -42,9 +42,9 @@ def add_energy_bars():
     bar_bottom = H - bar_margin_bottom
     bar_top = bar_bottom - bar_height
 
-    EB_SMOOTH = 0.70
+    EB_SMOOTH = 0.50
     EB_MIN_FILL = 0.05
-    EB_MAX = 0.3
+    EB_MAX = 0.15
 
     cap = cv2.VideoCapture(str(OUT / "_h_rescaled.mp4"))
     motion_smooth = 0.0
