@@ -92,7 +92,7 @@ class DenoiseStage:
                 frame = cv2.fastNlMeansDenoisingColored(
                     frame, None,
                     h=strength,
-                    hForColorComponents=strength,
+                    hColor=strength,
                     templateWindowSize=7,
                     searchWindowSize=21
                 )
