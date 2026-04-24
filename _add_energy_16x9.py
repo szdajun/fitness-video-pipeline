@@ -1,4 +1,4 @@
-"""横版16x9主视频：Ken Burns双场景缩放 + 能量条"""
+"""横版16x9主视频：Ken Burns双场景缩放 + 能量条 + 节拍闪光"""
 import cv2, numpy as np, subprocess, shutil, os, tempfile, json, math
 from pathlib import Path
 
@@ -29,9 +29,9 @@ def add_energy_bars():
     W, H = 1920, 1080
 
     # Ken Burns 参数
-    KB_CYCLE = 8.0          # 一个完整周期的秒数
-    KB_CLOSE_ZOOM = 1.2     # 特写放大倍数
-    KB_PAN_AMP = 10         # 特写时微平移幅度(px)
+    KB_CYCLE = 8.0
+    KB_CLOSE_ZOOM = 1.2
+    KB_PAN_AMP = 10
 
     # 能量条参数
     bar_w = 40
@@ -48,7 +48,9 @@ def add_energy_bars():
 
     cap = cv2.VideoCapture(str(OUT / "_h_rescaled.mp4"))
     motion_smooth = 0.0
+    beat_brightness = 0.0
     prev_kps = None
+    prev_raw = 0.0
     frame_idx = 0
 
     tmpdir = Path(tempfile.mkdtemp(dir=TEMP, prefix="eb_"))
@@ -80,7 +82,7 @@ def add_energy_bars():
         if frame_kb.shape[0] != H or frame_kb.shape[1] != W:
             frame_kb = cv2.resize(scaled, (W, H))
 
-        # === 能量条 ===
+        # === 计算运动量（用于能量条和节拍闪光）===
         raw_motion = 0.0
         fd = kp_data.get(str(frame_idx))
         if fd and fd[0]:
@@ -102,6 +104,14 @@ def add_energy_bars():
                     gray = cv2.cvtColor(frame_kb, cv2.COLOR_BGR2GRAY)
                     raw_motion = float(np.mean(np.abs(gray.astype(float) - prev_gray.astype(float))))
 
+        # === 节拍闪光：运动突变触发亮度脉冲 ===
+        delta = abs(raw_motion - prev_raw)
+        beat_brightness = max(delta * 8.0, beat_brightness * 0.85)
+        prev_raw = raw_motion
+        brightness = 1.0 + 0.15 * beat_brightness
+        frame_kb = np.clip(frame_kb * brightness, 0, 255).astype(np.uint8)
+
+        # === 能量条 ===
         motion_smooth = EB_SMOOTH * motion_smooth + (1 - EB_SMOOTH) * raw_motion
         fill_ratio = max(min(motion_smooth / EB_MAX, 1.0), EB_MIN_FILL)
 
