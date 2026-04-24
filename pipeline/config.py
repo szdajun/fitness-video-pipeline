@@ -30,7 +30,12 @@ DEFAULT_CONFIG = {
         "saturation": 1.0,
         "warmth": 0,
         "clahe": True,
+    },
+    "skin_tone_filter": {
         "pink_filter": 1.0,
+        "warm_filter": 0.0,
+        "cool_filter": 0.0,
+        "soft_glow": 0.0,
     },
     "ken_burns": {
         "mode": "smooth",
