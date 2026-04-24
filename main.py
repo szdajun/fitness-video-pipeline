@@ -54,6 +54,7 @@ HighlightStage = _import_stage("18_highlight", "HighlightStage")
 EnergyBarStage = _import_stage("19_energy_bar", "EnergyBarStage")
 IntroOutroStage = _import_stage("20_intro_outro", "IntroOutroStage")
 SkinToneFilterStage = _import_stage("22_skin_tone_filter", "SkinToneFilterStage")
+DenoiseStage = _import_stage("23_denoise", "DenoiseStage")
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -106,6 +107,7 @@ def build_single_parser():
     p.add_argument("--warm-filter", type=float, default=None, help="暖色调强度 (0~1)")
     p.add_argument("--cool-filter", type=float, default=None, help="冷色调强度 (0~1)")
     p.add_argument("--soft-glow", type=float, default=None, help="柔光效果 (0~1)")
+    p.add_argument("--denoise-strength", type=float, default=None, help="降噪强度 (0~20, 默认3)")
     p.add_argument("--output-width", type=int, default=None, help="输出宽度 (默认保持原尺寸)")
     p.add_argument("--output-height", type=int, default=None, help="输出高度 (默认保持原尺寸)")
     p.add_argument("--cut", type=str, help="裁切重复片段 (秒), 如: 30-60,120-150")
@@ -252,6 +254,8 @@ def _apply_cli_overrides(config, args):
         config["skin_tone_filter"]["cool_filter"] = args.cool_filter
     if hasattr(args, 'soft_glow') and args.soft_glow is not None:
         config["skin_tone_filter"]["soft_glow"] = args.soft_glow
+    if hasattr(args, 'denoise_strength') and args.denoise_strength is not None:
+        config["denoise"]["denoise_strength"] = args.denoise_strength
 
     if hasattr(args, 'cut') and args.cut:
         ranges = []
@@ -327,6 +331,8 @@ def run_single(args):
                      enabled=stages_cfg.get("color_grade", True))
     engine.add_stage("skin_tone_filter", SkinToneFilterStage(),
                      enabled=stages_cfg.get("skin_tone_filter", True))
+    engine.add_stage("denoise", DenoiseStage(),
+                     enabled=stages_cfg.get("denoise", False))
     engine.add_stage("audio", AudioStage(),
                      enabled=stages_cfg.get("audio", False))
     engine.add_stage("skeleton_overlay", SkeletonOverlayStage(),

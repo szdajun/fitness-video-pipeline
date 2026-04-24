@@ -37,6 +37,10 @@ DEFAULT_CONFIG = {
         "cool_filter": 0.0,
         "soft_glow": 0.0,
     },
+    "denoise": {
+        "denoise_strength": 0,
+        "denoise_mode": "fastNlMeans",
+    },
     "ken_burns": {
         "mode": "smooth",
         "zoom_range": [1.0, 1.1],
