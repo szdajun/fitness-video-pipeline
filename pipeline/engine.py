@@ -1,6 +1,6 @@
 """流水线编排引擎"""
 
-import time, json
+import time, json, cv2
 from pathlib import Path
 from typing import Dict, Any
 
@@ -38,7 +38,6 @@ class PipelineEngine:
 
     def _scan_existing_outputs(self, ctx: PipelineContext):
         """扫描 output_dir 中已存在的中间文件，建立 ctx.data 映射"""
-        import cv2
         video_stem = ctx.input_path.stem
         known_files = {
             "keypoints": f"{video_stem}_keypoints.json",
