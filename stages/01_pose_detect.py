@@ -9,6 +9,7 @@
   pose_model: yolov8n-pose (默认) | yolov8s-pose (更准但更慢)
   pose_gpu: true (默认) | false
   pose_batch: 4 (默认) - 批量推理帧数
+  pose_interval: 1 (默认) - 检测间隔，每N帧检测一次，中间用OpenCV CSRT追踪加速
 """
 
 import json
@@ -114,29 +115,32 @@ class PoseDetectStage:
         print(f"    处理帧数: {max_frames}")
 
         backend = ctx.config.get("pose_backend", "yolo")
+        pose_interval = max(1, ctx.config.get("pose_interval", 1))
         if backend == "mediapipe" or (not HAS_YOLO and HAS_MEDIAPIPE_TASKS):
             self._run_mediapipe(cap, ctx, fps, width, height, max_frames, cache_path)
         else:
-            self._run_yolo(cap, ctx, width, height, max_frames, cache_path)
+            self._run_yolo(cap, ctx, width, height, max_frames, cache_path, pose_interval)
 
         cap.release()
 
-    def _run_yolo(self, cap, ctx, width, height, max_frames, cache_path):
-        """YOLOv8-pose 推理（批量推理加速）"""
+    def _run_yolo(self, cap, ctx, width, height, max_frames, cache_path, pose_interval=1):
+        """YOLOv8-pose 推理
+
+        pose_interval > 1 时：每N帧运行一次YOLO检测，中间帧用CSRT追踪，
+        并将上一次检测的关键点按bbox变化进行仿射变换后复用。
+        """
         model_name = ctx.config.get("pose_model", "yolov8n-pose")
         use_gpu = ctx.config.get("pose_gpu", True)
         batch_size = max(1, ctx.config.get("pose_batch", 4))
 
-        # 确定设备
         import torch
         device = "cuda:0" if use_gpu and torch.cuda.is_available() else "cpu"
-        print(f"    YOLO: {model_name}, device={device}, batch={batch_size}")
+        print(f"    YOLO: {model_name}, device={device}, batch={batch_size}, interval={pose_interval}")
 
-        # 加载模型
         model = _YOLO(model_name)
         model.to(device)
         if device.startswith("cuda"):
-            model.half()  # FP16 加速
+            model.half()
 
         # 预热
         ret, frame = cap.read()
@@ -147,49 +151,125 @@ class PoseDetectStage:
         cap = cv2.VideoCapture(str(ctx.input_path))
 
         keypoints = {}
+        last_kps = None
+        tracker = None
+        last_bbox = None  # (x, y, w, h) 像素坐标
         frame_idx = 0
 
         while frame_idx < max_frames:
-            # 收集一个 batch
-            batch = []
-            batch_indices = []
-            for _ in range(batch_size):
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                batch.append(frame)
-                batch_indices.append(frame_idx)
-                frame_idx += 1
-
-            if not batch:
+            ret, frame = cap.read()
+            if not ret:
                 break
 
-            # 批量推理
-            if len(batch) == 1:
-                results = [model(batch[0], verbose=False, conf=0.3)[0]]
-            else:
-                results = model(batch, verbose=False, conf=0.3)
+            do_detect = (frame_idx % pose_interval == 0)
 
-            # 解析结果
-            for i, res in enumerate(results):
-                fi = batch_indices[i]
-                if res.keypoints is not None and len(res.keypoints) > 0:
-                    all_people = []
-                    kpts = res.keypoints.data.cpu().numpy()
-                    for person_kps in kpts:
-                        norm_kps = person_kps.copy()
-                        norm_kps[:, 0] /= width
-                        norm_kps[:, 1] /= height
-                        norm_kps[:, 2] = np.clip(norm_kps[:, 2], 0, 1)
-                        blaze_kps = _coco17_to_blaze33(norm_kps)
-                        all_people.append(blaze_kps)
-                    keypoints[fi] = all_people
+            if do_detect:
+                # 每 N 帧运行一次 YOLO 批量检测
+                batch = []
+                batch_indices = []
+                batch_frames = []
+                batch_frames.append(frame)
+                batch_indices.append(frame_idx)
+                # 填充 batch
+                for _ in range(batch_size - 1):
+                    ret2, f2 = cap.read()
+                    if not ret2:
+                        break
+                    batch_frames.append(f2)
+                    batch_indices.append(frame_idx + len(batch_frames) - 1)
+                    # 注意：这里不修改 frame_idx（后面统一处理）
+
+                if len(batch_frames) == 0:
+                    break
+
+                if len(batch_frames) == 1:
+                    results = [model(batch_frames[0], verbose=False, conf=0.3)[0]]
                 else:
-                    keypoints[fi] = None
+                    results = model(batch_frames, verbose=False, conf=0.3)
+
+                for i, res in enumerate(results):
+                    fi = batch_indices[i]
+                    if res.keypoints is not None and len(res.keypoints) > 0:
+                        kpts = res.keypoints.data.cpu().numpy()
+                        all_people = []
+                        for person_kps in kpts:
+                            norm_kps = person_kps.copy()
+                            norm_kps[:, 0] /= width
+                            norm_kps[:, 1] /= height
+                            norm_kps[:, 2] = np.clip(norm_kps[:, 2], 0, 1)
+                            blaze_kps = _coco17_to_blaze33(norm_kps)
+                            all_people.append(blaze_kps)
+                        keypoints[fi] = all_people
+                        last_kps = all_people
+
+                        # 建立 CSRT 追踪器：找最大的人
+                        lead_idx = 0
+                        best_size = 0
+                        for pi, person in enumerate(all_people):
+                            arr = np.array(person)
+                            vis = arr[:, 2] > 0.3
+                            if vis.sum() >= 4:
+                                xs = arr[vis, 0]
+                                ys = arr[vis, 1]
+                                size = (xs.max() - xs.min()) * (ys.max() - ys.min())
+                                if size > best_size:
+                                    best_size = size
+                                    lead_idx = pi
+
+                        if best_size > 0 and lead_idx < len(all_people):
+                            person = np.array(all_people[lead_idx])
+                            vis = person[:, 2] > 0.3
+                            xs = person[vis, 0] * width
+                            ys = person[vis, 1] * height
+                            x1, x2 = xs.min(), xs.max()
+                            y1, y2 = ys.min(), ys.max()
+                            pad = 0.15
+                            bx = max(0, int(x1 - pad * (x2 - x1)))
+                            by = max(0, int(y1 - pad * (y2 - y1)))
+                            bw = min(width - bx, int((x2 - x1) * (1 + 2 * pad)))
+                            bh = min(height - by, int((y2 - y1) * (1 + 2 * pad)))
+                            last_bbox = (bx, by, bw, bh)
+                            tracker = cv2.TrackerCSRT_create()
+                            tracker.init(batch_frames[i], (float(bx), float(by), float(bw), float(bh)))
+                    else:
+                        keypoints[fi] = None
+
+                frame_idx += len(batch_frames)
+            else:
+                # 中间帧：用 CSRT 追踪 + 关键点变换
+                if tracker is not None:
+                    ok, bbox = tracker.update(frame)
+                    if ok and last_kps is not None and last_bbox is not None:
+                        bx, by, bw, bh = map(int, bbox)
+                        lbx, lby, lbw, lbh = last_bbox
+                        scale_x = bw / max(lbw, 1)
+                        scale_y = bh / max(lbh, 1)
+                        off_x = bx - lbx
+                        off_y = by - lby
+                        est = []
+                        for person in last_kps:
+                            ep = []
+                            for kp in person:
+                                px, py, conf = kp
+                                if lbx <= px * width <= lbx + lbw and lby <= py * height <= lby + lbh:
+                                    new_px = (px * width - lbx) * scale_x + bx
+                                    new_py = (py * height - lby) * scale_y + by
+                                    ep.append([new_px / width, new_py / height, conf])
+                                else:
+                                    new_px = px * width + off_x
+                                    new_py = py * height + off_y
+                                    ep.append([new_px / width, new_py / height, conf])
+                            est.append(ep)
+                        keypoints[frame_idx] = est
+                        last_bbox = (bx, by, bw, bh)
+                    elif last_kps is not None:
+                        keypoints[frame_idx] = last_kps
+                elif last_kps is not None:
+                    keypoints[frame_idx] = last_kps
+                frame_idx += 1
 
             if frame_idx % 100 == 0 or frame_idx >= max_frames:
-                pct = frame_idx / max_frames * 100
-                print(f"    进度: {pct:.0f}% ({frame_idx}/{max_frames})")
+                print(f"    进度: {frame_idx}/{max_frames} ({frame_idx / max_frames * 100:.0f}%)")
 
         cap.release()
 
