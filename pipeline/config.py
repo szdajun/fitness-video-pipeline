@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
         "saturation": 1.0,
         "warmth": 0,
         "clahe": True,
+        "pink_filter": 1.0,
     },
     "ken_burns": {
         "mode": "smooth",

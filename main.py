@@ -101,6 +101,7 @@ def build_single_parser():
     p.add_argument("--shadow", type=float, help="阴影修正 (0~1)")
     p.add_argument("--auto-wb", action="store_true", help="自动白平衡")
     p.add_argument("--adaptive-contrast", type=float, default=0, help="自适应对比度 (0~1)")
+    p.add_argument("--pink-filter", type=float, default=None, help="粉色滤镜强度 (0~1, 默认1.0)")
     p.add_argument("--output-width", type=int, default=None, help="输出宽度 (默认保持原尺寸)")
     p.add_argument("--output-height", type=int, default=None, help="输出高度 (默认保持原尺寸)")
     p.add_argument("--cut", type=str, help="裁切重复片段 (秒), 如: 30-60,120-150")
@@ -239,6 +240,8 @@ def _apply_cli_overrides(config, args):
         config["color_grade"]["auto_wb"] = True
     if hasattr(args, 'adaptive_contrast') and args.adaptive_contrast is not None:
         config["color_grade"]["adaptive_contrast"] = args.adaptive_contrast
+    if hasattr(args, 'pink_filter') and args.pink_filter is not None:
+        config["color_grade"]["pink_filter"] = args.pink_filter
 
     if hasattr(args, 'cut') and args.cut:
         ranges = []

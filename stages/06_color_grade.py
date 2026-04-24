@@ -38,7 +38,7 @@ class ColorGradeStage:
         shadow = cfg.get("shadow", 0)
         auto_wb = cfg.get("auto_wb", False)
         adaptive_contrast = cfg.get("adaptive_contrast", 0)
-        pink_filter = cfg.get("pink_filter", 0)
+        pink_filter = cfg.get("pink_filter", 1.0)
 
         needs_grade = any(v != 0 and v != 1.0 and v is not False
                           for k, v in cfg.items()
