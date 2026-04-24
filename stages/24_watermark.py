@@ -104,13 +104,8 @@ class WatermarkStage:
         chinese_font = None
         for fp in font_paths:
             if os.path.exists(fp):
-                try:
-                    chinese_font = cv2.FONT_HERSHEY_SIMPLEX
-                    # freetype 加载（如果可用）
-                    import cv2
-                    chinese_font = None
-                except Exception:
-                    pass
+                chinese_font = cv2.FONT_HERSHEY_SIMPLEX
+                break
 
         cap = cv2.VideoCapture(input_path)
         frame_idx = 0

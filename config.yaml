@@ -4,10 +4,13 @@
 stages:
   pose_detect: true
   stabilize: false   # vidstab 对手持运镜视频有副作用，默认关闭
-  h2v_convert: false
+  h2v_convert: true
   ken_burns: false
   body_warp: true
   color_grade: true
+  skin_tone_filter: true
+  watermark: true
+  blush: true
   export: true
 
 pose_backend: yolo   # yolo | mediapipe
