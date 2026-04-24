@@ -12,6 +12,10 @@ DEFAULT_CONFIG = {
         "ken_burns": False,
         "body_warp": True,
         "color_grade": True,
+        "skin_tone_filter": True,
+        "denoise": False,
+        "watermark": False,
+        "blush": False,
         "export": True,
     },
     "h2v": {
@@ -40,6 +44,19 @@ DEFAULT_CONFIG = {
     "denoise": {
         "denoise_strength": 0,
         "denoise_mode": "fastNlMeans",
+    },
+    "watermark": {
+        "watermark_text": "",
+        "watermark_position": "bottom-right",
+        "watermark_size": 24,
+        "watermark_color": (255, 255, 255),
+        "watermark_alpha": 0.7,
+        "watermark_margin": 20,
+        "show_date": True,
+    },
+    "blush": {
+        "blush_strength": 0.0,
+        "brighten_strength": 0.0,
     },
     "ken_burns": {
         "mode": "smooth",

@@ -55,6 +55,8 @@ EnergyBarStage = _import_stage("19_energy_bar", "EnergyBarStage")
 IntroOutroStage = _import_stage("20_intro_outro", "IntroOutroStage")
 SkinToneFilterStage = _import_stage("22_skin_tone_filter", "SkinToneFilterStage")
 DenoiseStage = _import_stage("23_denoise", "DenoiseStage")
+WatermarkStage = _import_stage("24_watermark", "WatermarkStage")
+BlushStage = _import_stage("25_blush", "BlushStage")
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -108,6 +110,11 @@ def build_single_parser():
     p.add_argument("--cool-filter", type=float, default=None, help="冷色调强度 (0~1)")
     p.add_argument("--soft-glow", type=float, default=None, help="柔光效果 (0~1)")
     p.add_argument("--denoise-strength", type=float, default=None, help="降噪强度 (0~20, 默认3)")
+    p.add_argument("--watermark-text", type=str, default=None, help="水印文字")
+    p.add_argument("--watermark-position", choices=["bottom-right", "bottom-left", "bottom-center", "top-right", "top-left"],
+                   default=None, help="水印位置")
+    p.add_argument("--blush-strength", type=float, default=None, help="腮红强度 (0~1)")
+    p.add_argument("--brighten-strength", type=float, default=None, help="局部美白强度 (0~1)")
     p.add_argument("--output-width", type=int, default=None, help="输出宽度 (默认保持原尺寸)")
     p.add_argument("--output-height", type=int, default=None, help="输出高度 (默认保持原尺寸)")
     p.add_argument("--cut", type=str, help="裁切重复片段 (秒), 如: 30-60,120-150")
@@ -140,6 +147,11 @@ def build_batch_parser():
     p.add_argument("--no-color-grade", action="store_true")
     p.add_argument("--no-ken-burns", action="store_true")
     p.add_argument("--skeleton-overlay", action="store_true", help="叠加骨架显示")
+    p.add_argument("--watermark-text", type=str, default=None, help="水印文字")
+    p.add_argument("--watermark-position", choices=["bottom-right", "bottom-left", "bottom-center", "top-right", "top-left"],
+                   default=None, help="水印位置")
+    p.add_argument("--blush-strength", type=float, default=None, help="腮红强度 (0~1)")
+    p.add_argument("--brighten-strength", type=float, default=None, help="局部美白强度 (0~1)")
     p.add_argument("--no-pose-gpu", action="store_true", help="禁用 pose GPU 加速（用 CPU）")
     p.add_argument("--full-video", action="store_true", help="生成完整视频（跳过精华片段选取）")
     p.add_argument("--audio", action="store_true", help="启用音频处理（响度标准化+背景音乐）")
@@ -256,6 +268,14 @@ def _apply_cli_overrides(config, args):
         config["skin_tone_filter"]["soft_glow"] = args.soft_glow
     if hasattr(args, 'denoise_strength') and args.denoise_strength is not None:
         config["denoise"]["denoise_strength"] = args.denoise_strength
+    if hasattr(args, 'watermark_text') and args.watermark_text is not None:
+        config["watermark"]["watermark_text"] = args.watermark_text
+    if hasattr(args, 'watermark_position') and args.watermark_position is not None:
+        config["watermark"]["watermark_position"] = args.watermark_position
+    if hasattr(args, 'blush_strength') and args.blush_strength is not None:
+        config["blush"]["blush_strength"] = args.blush_strength
+    if hasattr(args, 'brighten_strength') and args.brighten_strength is not None:
+        config["blush"]["brighten_strength"] = args.brighten_strength
 
     if hasattr(args, 'cut') and args.cut:
         ranges = []
@@ -357,6 +377,10 @@ def run_single(args):
                      enabled=stages_cfg.get("energy_bar", False))
     engine.add_stage("intro_outro", IntroOutroStage(),
                      enabled=stages_cfg.get("intro_outro", False))
+    engine.add_stage("watermark", WatermarkStage(),
+                     enabled=stages_cfg.get("watermark", False))
+    engine.add_stage("blush", BlushStage(),
+                     enabled=stages_cfg.get("blush", False))
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
 
@@ -578,6 +602,10 @@ def _get_cli_overrides_dict(args):
         'shadow': getattr(args, 'shadow', None),
         'auto_wb': getattr(args, 'auto_wb', False),
         'adaptive_contrast': getattr(args, 'adaptive_contrast', None),
+        'watermark_text': getattr(args, 'watermark_text', None),
+        'watermark_position': getattr(args, 'watermark_position', None),
+        'blush_strength': getattr(args, 'blush_strength', None),
+        'brighten_strength': getattr(args, 'brighten_strength', None),
         'cut': getattr(args, 'cut', None),
         'output_width': getattr(args, 'output_width', None),
         'output_height': getattr(args, 'output_height', None),
@@ -709,6 +737,14 @@ def _apply_cli_overrides_from_dict(config, overrides):
         config.setdefault("color_grade", {})["auto_wb"] = True
     if overrides.get('adaptive_contrast') is not None:
         config.setdefault("color_grade", {})["adaptive_contrast"] = overrides['adaptive_contrast']
+    if overrides.get('watermark_text') is not None:
+        config.setdefault("watermark", {})["watermark_text"] = overrides['watermark_text']
+    if overrides.get('watermark_position') is not None:
+        config.setdefault("watermark", {})["watermark_position"] = overrides['watermark_position']
+    if overrides.get('blush_strength') is not None:
+        config.setdefault("blush", {})["blush_strength"] = overrides['blush_strength']
+    if overrides.get('brighten_strength') is not None:
+        config.setdefault("blush", {})["brighten_strength"] = overrides['brighten_strength']
 
     if overrides.get('cut'):
         ranges = []
