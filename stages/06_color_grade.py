@@ -38,13 +38,11 @@ class ColorGradeStage:
         shadow = cfg.get("shadow", 0)
         auto_wb = cfg.get("auto_wb", False)
         adaptive_contrast = cfg.get("adaptive_contrast", 0)
-        pink_filter = cfg.get("pink_filter", 1.0)
 
         needs_grade = any(v != 0 and v != 1.0 and v is not False
                           for k, v in cfg.items()
                           if k in ("brightness", "contrast", "saturation", "warmth",
-                                   "clahe", "shadow", "auto_wb", "adaptive_contrast",
-                                   "pink_filter"))
+                                   "clahe", "shadow", "auto_wb", "adaptive_contrast"))
         if not needs_grade:
             print("    跳过: 无色彩参数")
             ctx.set("color_path", input_path)
@@ -52,8 +50,7 @@ class ColorGradeStage:
 
         print(f"    参数: bright={brightness}, contrast={contrast:.2f}, "
               f"sat={saturation:.2f}, warm={warmth}, clahe={use_clahe}, "
-              f"shadow={shadow}, auto_wb={auto_wb}, ad_contrast={adaptive_contrast}, "
-              f"pink={pink_filter}")
+              f"shadow={shadow}, auto_wb={auto_wb}, ad_contrast={adaptive_contrast}")
 
         # 创建 CLAHE (只创建一次)
         clahe_obj = None
@@ -105,14 +102,6 @@ class ColorGradeStage:
             if saturation != 1.0:
                 hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
                 hsv[:, :, 1] = np.clip(hsv[:, :, 1] * saturation, 0, 255)
-                frame = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-            # 3b. 粉色滤镜 (健身视频显气色)
-            if pink_filter > 0:
-                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
-                hsv[:, :, 0] = np.clip(hsv[:, :, 0] - 2 * pink_filter, 0, 179)  # 色相偏粉
-                hsv[:, :, 1] = np.clip(hsv[:, :, 1] + 10 * pink_filter, 0, 255)  # 饱和度提升
-                hsv[:, :, 2] = np.clip(hsv[:, :, 2] + 8 * pink_filter, 0, 255)  # 亮度提升
                 frame = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
             # 4. 色温 (warm > 0 暖, < 0 冷)
