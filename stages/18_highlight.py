@@ -31,7 +31,8 @@ class HighlightStage:
                      ctx.get("warped_path") or
                      ctx.get("h2v_path") or
                      str(ctx.input_path))
-        if not Path(input_path).exists():
+        # Windows pathlib bug: Path.exists() 返回 False 但 cv2.VideoCapture 能打开
+        if not cv2.VideoCapture(input_path).isOpened():
             print("    跳过: 无输入视频")
             ctx.set("highlight_path", None)
             return
