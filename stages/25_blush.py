@@ -32,7 +32,8 @@ class BlushStage:
             ctx.get("ken_burns_path") or
             ctx.get("face_warp_path") or
             ctx.get("warped_path") or
-            ctx.get("h2v_path")
+            ctx.get("h2v_path") or
+            str(ctx.input_path)  # 横屏 fallback
         )
         if not input_path or not Path(input_path).exists():
             print("    跳过: 无输入视频")
