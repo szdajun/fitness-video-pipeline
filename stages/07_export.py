@@ -83,6 +83,21 @@ class ExportStage:
         out_w = output_cfg.get("width", None)
         out_h = output_cfg.get("height", None)
         crf = output_cfg.get("crf", 26)           # 默认用26，省体积（23太保守）
+
+        # 自动检测输入视频方向，保持原方向不强制缩放
+        import cv2
+        cap_d = cv2.VideoCapture(processed_path)
+        if cap_d.isOpened():
+            in_w = int(cap_d.get(3))
+            in_h = int(cap_d.get(4))
+            cap_d.release()
+            # 如果 config 的宽高与输入视频方向不一致，以输入为准
+            if in_w > 0 and in_h > 0:
+                if out_w and out_h:
+                    # 方向不匹配时用输入尺寸
+                    if (in_h > in_w and out_h < out_w) or (in_h < in_w and out_h > out_w):
+                        out_w, out_h = in_w, in_h
+                        print(f"    自动调整为 {out_w}x{out_h}（保持原方向）")
         preset = output_cfg.get("preset", "fast")  # 默认fast，不用medium
         audio_bitrate = output_cfg.get("audio_bitrate", "96k")  # 默认96k，不用128k
         video_fade_out = output_cfg.get("video_fade_out", 2.0)  # 视频淡出秒数
