@@ -52,18 +52,29 @@ class EnergyBarStage:
             keypoints = raw_kp
         else:
             kp_path = ctx.output_dir / f"{ctx.input_path.stem}_cropped_keypoints.json"
-            if kp_path.exists():
-                with open(kp_path, encoding="utf-8") as f:
-                    keypoints = json.load(f)
+            if kp_path.exists() and kp_path.stat().st_size > 0:
+                try:
+                    with open(kp_path, encoding="utf-8") as f:
+                        keypoints = json.load(f)
+                except Exception:
+                    kp_path = None
             else:
+                kp_path = None
+
+            if not kp_path:
                 kp_path2 = ctx.output_dir / f"{ctx.input_path.stem}_keypoints.json"
-                if not kp_path2.exists():
+                if not kp_path2.exists() or kp_path2.stat().st_size == 0:
                     print("    跳过: 无关键点数据")
                     ctx.set("energybar_path", None)
                     return
-                with open(kp_path2, encoding="utf-8") as f:
-                    raw = json.load(f)
-                keypoints = raw.get("keypoints", raw)
+                try:
+                    with open(kp_path2, encoding="utf-8") as f:
+                        raw = json.load(f)
+                    keypoints = raw.get("keypoints", raw)
+                except Exception:
+                    print("    跳过: 关键点数据损坏")
+                    ctx.set("energybar_path", None)
+                    return
 
         video_info = ctx.get("video_info")
         fps = video_info["fps"]
@@ -126,7 +137,7 @@ class EnergyBarStage:
             if not ret:
                 break
 
-            frame_kps = keypoints.get(frame_idx)
+            frame_kps = keypoints.get(str(frame_idx))
             curr_kps = None
             if frame_kps:
                 for person_kps in frame_kps:
@@ -211,8 +222,14 @@ class EnergyBarStage:
             return
 
         shutil.rmtree(tmpdir, ignore_errors=True)
-        ctx.set("energybar_path", str(temp_out))
-        print(f"    输出: {temp_out.name} ({frame_idx} 帧)")
+
+        # 验证文件确实存在（Windows pathlib 中文路径 bug）
+        if cv2.VideoCapture(str(temp_out)).isOpened():
+            ctx.set("energybar_path", str(temp_out))
+            print(f"    输出: {temp_out.name} ({frame_idx} 帧)")
+        else:
+            ctx.set("energybar_path", None)
+            print(f"    错误: 能量条视频创建失败")
 
     def _track_people(self, keypoints):
         """简单追踪人员"""
