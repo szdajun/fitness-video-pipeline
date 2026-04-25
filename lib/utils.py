@@ -26,6 +26,35 @@ def _to_short_path(path_str: str) -> str:
     return buf.value
 
 
+def path_exists(path_str: str) -> bool:
+    """检查文件是否存在（Windows 中文路径兼容）
+
+    Windows 上 pathlib.Path.exists() 对中文路径返回 False，但 cv2.VideoCapture 能打开。
+    FFmpeg 也能处理这些路径。本函数使用 cv2.VideoCapture 作为判定标准。
+    对于非视频文件（如 JSON），检查文件大小 > 0。
+    """
+    if not path_str:
+        return False
+    p = Path(path_str)
+    # 快速检查：先尝试 Path.exists()（对英文路径有效）
+    if p.exists():
+        return True
+    # Windows 中文路径 bug：Path.exists() 返回 False 但文件实际存在
+    # 用 cv2.VideoCapture 探测（对视频文件有效）
+    cap = cv2.VideoCapture(path_str)
+    opened = cap.isOpened()
+    cap.release()
+    if opened:
+        return True
+    # 非视频文件：检查文件大小 > 0（绕过 Path.exists 的中文 bug）
+    try:
+        if p.stat().st_size > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def create_writer(output_path: str, fps: float, width: int, height: int):
     """创建视频写入器（H.264 优先，失败则 fallback 到 mp4v）
 

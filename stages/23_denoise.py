@@ -9,6 +9,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 import ctypes
 import subprocess
@@ -20,7 +21,7 @@ from pathlib import Path
 
 class DenoiseStage:
     def run(self, ctx):
-        if ctx.get("denoise_path") and Path(ctx.get("denoise_path")).exists():
+        if ctx.get("denoise_path") and path_exists(ctx.get("denoise_path")):
             print("    已存在，跳过")
             return
 
@@ -33,7 +34,7 @@ class DenoiseStage:
             ctx.get("h2v_path") or
             str(ctx.input_path)  # 横屏 fallback
         )
-        if not input_path or not Path(input_path).exists():
+        if not input_path or not path_exists(input_path):
             print("    跳过: 无输入视频")
             ctx.set("denoise_path", None)
             return

@@ -5,6 +5,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from lib.warp import create_displacement_map, apply_warp
 class BodyWarpStage:
     def run(self, ctx):
         # 增量跳过：输出已存在则跳过
-        if ctx.get("warped_path") and Path(ctx.get("warped_path")).exists():
+        if ctx.get("warped_path") and path_exists(ctx.get("warped_path")):
             print("    已存在，跳过")
             return
 
@@ -28,7 +29,7 @@ class BodyWarpStage:
         h2v_size = ctx.get("h2v_size")
         video_info = ctx.get("video_info")
 
-        if not h2v_path or not Path(h2v_path).exists():
+        if not h2v_path or not path_exists(h2v_path):
             print("    跳过: 无可处理的视频")
             return
 

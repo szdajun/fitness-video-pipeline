@@ -15,13 +15,13 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from lib.utils import create_writer
+from lib.utils import path_exists, create_writer
 
 
 class KenBurnsStage:
     def run(self, ctx):
         # 增量跳过：输出已存在则跳过
-        if ctx.get("ken_burns_path") and Path(ctx.get("ken_burns_path")).exists():
+        if ctx.get("ken_burns_path") and path_exists(ctx.get("ken_burns_path")):
             print("    已存在，跳过")
             return
 
@@ -29,7 +29,7 @@ class KenBurnsStage:
         input_path = (ctx.get("warped_path") or
                       ctx.get("h2v_path") or
                       ctx.get("stabilized_path"))
-        if not input_path or not Path(input_path).exists():
+        if not input_path or not path_exists(input_path):
             print("    跳过: 无横转竖输出")
             return
 

@@ -10,13 +10,13 @@ import numpy as np
 import json
 from pathlib import Path
 
-from lib.utils import create_writer
+from lib.utils import path_exists, create_writer
 
 
 class MotionHeatmapStage:
     def run(self, ctx):
         # 增量跳过
-        if ctx.get("heatmap_path") and Path(ctx.get("heatmap_path")).exists():
+        if ctx.get("heatmap_path") and path_exists(ctx.get("heatmap_path")):
             print("    已存在，跳过")
             return
 
@@ -31,7 +31,7 @@ class MotionHeatmapStage:
                      ctx.get("h2v_path") or
                      ctx.get("stabilized_path") or
                      str(ctx.input_path))
-        if not Path(input_path).exists():
+        if not path_exists(input_path):
             print("    跳过: 无输入视频")
             ctx.set("heatmap_path", None)
             return

@@ -5,6 +5,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 import json
 import subprocess
@@ -29,7 +30,7 @@ def _to_short(path_str):
 
 class EnergyBarStage:
     def run(self, ctx):
-        if ctx.get("energybar_path") and Path(ctx.get("energybar_path")).exists():
+        if ctx.get("energybar_path") and path_exists(ctx.get("energybar_path")):
             print("    已存在，跳过")
             return
 

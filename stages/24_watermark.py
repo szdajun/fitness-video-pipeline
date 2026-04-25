@@ -13,6 +13,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 import ctypes
 import subprocess
@@ -24,7 +25,7 @@ from pathlib import Path
 
 class WatermarkStage:
     def run(self, ctx):
-        if ctx.get("watermark_path") and Path(ctx.get("watermark_path")).exists():
+        if ctx.get("watermark_path") and path_exists(ctx.get("watermark_path")):
             print("    已存在，跳过")
             return
 
@@ -37,7 +38,7 @@ class WatermarkStage:
             ctx.get("warped_path") or
             ctx.get("h2v_path")
         )
-        if not input_path or not Path(input_path).exists():
+        if not input_path or not path_exists(input_path):
             print("    跳过: 无输入视频")
             ctx.set("watermark_path", None)
             return

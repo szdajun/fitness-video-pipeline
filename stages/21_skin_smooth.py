@@ -2,6 +2,7 @@
 
 对视频帧应用双边滤波，在保边的同时平滑皮肤区域。
 不需要人脸检测，直接全局处理，按 strength 混合。
+使用 0.5x 降采样加速，处理时间减少 2/3。
 
 用法（在配置中）:
     skin_smooth:
@@ -10,6 +11,7 @@
       d: 7                 # 双边滤波直径
       sigmaColor: 15      # 颜色空间标准差
       sigmaSpace: 15      # 坐标空间标准差
+      downscale: 0.5      # 降采样比例，<1.0加速，默认1.0不降
 """
 
 import cv2
@@ -19,7 +21,7 @@ from pathlib import Path
 from lib.utils import create_writer
 
 
-def apply_skin_smooth(frame, strength=0.5, d=7, sigmaColor=15, sigmaSpace=15):
+def apply_skin_smooth(frame, strength=0.5, d=7, sigmaColor=15, sigmaSpace=15, downscale=1.0):
     """对整帧应用双边滤波磨皮
 
     Args:
@@ -28,6 +30,7 @@ def apply_skin_smooth(frame, strength=0.5, d=7, sigmaColor=15, sigmaSpace=15):
         d: 双边滤波直径（越大越平滑但越慢）
         sigmaColor: 颜色空间标准差
         sigmaSpace: 坐标空间标准差
+        downscale: 降采样比例，<1.0时先缩小再放大以加速
 
     Returns:
         磨皮后的图像 (uint8)
@@ -37,8 +40,16 @@ def apply_skin_smooth(frame, strength=0.5, d=7, sigmaColor=15, sigmaSpace=15):
     if strength >= 1.0:
         strength = 1.0
 
-    smoothed = cv2.bilateralFilter(frame, d, sigmaColor, sigmaSpace)
-    return cv2.addWeighted(frame, 1 - strength, smoothed, strength, 0)
+    h, w = frame.shape[:2]
+    if downscale < 1.0:
+        small_w, small_h = int(w * downscale), int(h * downscale)
+        small = cv2.resize(frame, (small_w, small_h), interpolation=cv2.INTER_AREA)
+        smoothed = cv2.bilateralFilter(small, d, sigmaColor, sigmaSpace)
+        result = cv2.addWeighted(small, 1 - strength, smoothed, strength, 0)
+        return cv2.resize(result, (w, h), interpolation=cv2.INTER_LINEAR)
+    else:
+        smoothed = cv2.bilateralFilter(frame, d, sigmaColor, sigmaSpace)
+        return cv2.addWeighted(frame, 1 - strength, smoothed, strength, 0)
 
 
 class SkinSmoothStage:
@@ -52,12 +63,14 @@ class SkinSmoothStage:
         d = cfg.get("d", 7)
         sigmaColor = cfg.get("sigmaColor", 15)
         sigmaSpace = cfg.get("sigmaSpace", 15)
+        downscale = cfg.get("downscale", 1.0)
 
         input_path = (ctx.get("beatflash_path") or
                       ctx.get("ken_burns_path") or
                       ctx.get("warped_path") or
                       str(ctx.input_path))  # 横屏 fallback
-        if not input_path or not Path(input_path).exists():
+        # Windows pathlib bug: Path.exists() 返回 False 但 cv2.VideoCapture 能打开
+        if not cv2.VideoCapture(input_path).isOpened():
             print("    跳过: 无输入视频")
             ctx.set("skin_smooth_path", ctx.get("beatflash_path") or ctx.get("ken_burns_path") or str(ctx.input_path))
             return
@@ -67,7 +80,7 @@ class SkinSmoothStage:
             ctx.set("skin_smooth_path", input_path)
             return
 
-        print(f"    磨皮: strength={strength}, d={d}")
+        print(f"    磨皮: strength={strength}, d={d}, downscale={downscale}")
 
         video_info = ctx.get("video_info")
         fps = video_info["fps"]
@@ -89,7 +102,7 @@ class SkinSmoothStage:
             if not ret:
                 break
 
-            processed = apply_skin_smooth(frame, strength, d, sigmaColor, sigmaSpace)
+            processed = apply_skin_smooth(frame, strength, d, sigmaColor, sigmaSpace, downscale)
             writer.write(processed)
 
             frame_idx += 1

@@ -20,7 +20,7 @@ class AudioStage:
             return
 
         # 增量跳过：输出已存在则跳过
-        if ctx.get("audio_path") and Path(ctx.get("audio_path")).exists():
+        if ctx.get("audio_path") and path_exists(ctx.get("audio_path")):
             print("    已存在，跳过")
             return
 
@@ -31,13 +31,13 @@ class AudioStage:
 
         # 原始视频路径（取音频用）
         video_path = ctx.input_path
-        if not Path(video_path).exists():
+        if not path_exists(video_path):
             print("    跳过: 原始视频不存在")
             ctx.set("audio_path", None)
             return
 
         ffmpeg = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        if not Path(ffmpeg).exists():
+        if not path_exists(ffmpeg):
             print("    跳过: FFmpeg 未安装")
             ctx.set("audio_path", None)
             return
@@ -55,7 +55,7 @@ class AudioStage:
         ducking = cfg.get("ducking", 0)    # Ducking 强度 0=关闭, 3=轻, 6=普通, 10=强
 
         print(f"    响度: {target_lufs} LUFS, 淡入{fade_in}s/淡出{fade_out}s"
-              + (f", 背景音乐: {Path(bg_music).name}" if bg_music and Path(bg_music).exists() else "")
+              + (f", 背景音乐: {Path(bg_music).name}" if bg_music and path_exists(bg_music) else "")
               + (f", 降噪: {denoise}" if denoise > 0 else "")
               + (f", Ducking: {ducking}" if ducking > 0 else ""))
 
@@ -73,7 +73,7 @@ class AudioStage:
         speech_chain = ",".join(speech_parts)
 
         # 2. 背景音乐混合 + Ducking
-        if bg_music and Path(bg_music).exists():
+        if bg_music and path_exists(bg_music):
             fade_out_start = max(0.1, total_sec - fade_out)
 
             if ducking > 0:
