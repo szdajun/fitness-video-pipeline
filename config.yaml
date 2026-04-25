@@ -22,7 +22,7 @@ stages:
   beat_flash: true          # 开启节拍闪烁
   highlight: true           # 开启高光剪辑
   energy_bar: true          # 开启能量条
-  skin_smooth: false
+  skin_smooth: true
   intro_outro: true
   watermark: false
   blush: false
@@ -52,3 +52,11 @@ energy_bar:
   height: 300
   smoothing: 0.85
   min_fill_ratio: 0.15
+
+skin_smooth:
+  enabled: true
+  strength: 0.3
+  d: 7
+  sigmaColor: 15
+  sigmaSpace: 15
+  downscale: 0.5
