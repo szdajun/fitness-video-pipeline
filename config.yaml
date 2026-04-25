@@ -3,47 +3,50 @@
 
 stages:
   pose_detect: true
-  stabilize: false   # vidstab 对手持运镜视频有副作用，默认关闭
-  h2v_convert: true
-  ken_burns: false
-  body_warp: true
-  color_grade: true
-  skin_tone_filter: true
-  watermark: true
-  blush: true
+  stabilize: false
+  h2v_convert: false        # 横屏不做竖屏转换
+  body_warp: false
+  ken_burns: true            # 开启微缩放
+  face_warp: false
+  color_grade: true         # 开启光线调整(CLAHE)
+  skin_tone_filter: false
+  denoise: false
+  audio: false
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  beat_flash: true          # 开启节拍闪烁
+  highlight: true           # 开启高光剪辑
+  energy_bar: true          # 开启能量条
+  skin_smooth: false
+  intro_outro: true
+  watermark: false
+  blush: false
   export: true
 
-pose_backend: yolo   # yolo | mediapipe
-pose_model: yolov8n-pose  # yolov8n-pose (默认快) | yolov8s-pose (更准)
-
-h2v:
-  target_ratio: 0.5625  # 9/16
-
-body_warp:
-  leg_lengthen: 1.0     # 1.0=不变, 1.2=拉长20%
-  leg_slim: 1.0         # 1.0=不变, 0.85=瘦15%
-  waist_slim: 1.0       # 1.0=不变, 0.9=瘦10%
-  head_ratio: 1.0       # 1.0=不变
-  overall_slim: 1.0     # 1.0=不变, 0.9=整体瘦10%
-
-color_grade:
-  brightness: 0         # -100 ~ 100
-  contrast: 1.0         # 0.5 ~ 2.0
-  saturation: 1.0       # 0.0 ~ 2.0
-  warmth: 0             # -50 ~ 50
-  clahe: true           # 自适应直方图均衡
-
-ken_burns:
-  mode: smooth          # smooth | dual
-  zoom_range: [1.0, 1.1]
-
-stabilize:
-  shakiness: 5
-  accuracy: 10
-
-preview: false
-preview_seconds: 3
+pose_backend: yolo
+pose_model: yolov8n-pose
 
 output:
   width: 1920
-  height: 1080
+  height: 1080   # 横屏 16:9
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+ken_burns:
+  mode: smooth
+  zoom_range: [1.0, 1.03]
+
+energy_bar:
+  width: 16
+  margin_right: 20
+  margin_bottom: 60
+  height: 300
+  smoothing: 0.85
+  min_fill_ratio: 0.15

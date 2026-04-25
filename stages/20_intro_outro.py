@@ -31,28 +31,47 @@ def _get_short_path(p):
 
 def _write_video(frames, output_path, fps):
     """将帧列表通过 PNG+FFmpeg 写入视频（解决 create_writer 中文路径问题）"""
-    tmpdir = Path(tempfile.mkdtemp(prefix="io_"))
-    tmpdir_short = _get_short_path(str(tmpdir))
+    # Use output directory for temp PNGs to avoid short-path issues
+    out_dir = Path(output_path).parent
+    tmpdir = out_dir / f"_intro_tmp_{Path(output_path).stem}"
+    tmpdir.mkdir(exist_ok=True)
     for i, frame in enumerate(frames):
-        cv2.imwrite(f"{tmpdir_short}/f_{i:06d}.png", frame)
+        cv2.imwrite(str(tmpdir / f"f_{i:06d}.png"), frame)
 
-    tmp_out_fd, tmp_out_path = tempfile.mkstemp(suffix=".mp4")
-    os.close(tmp_out_fd)
-    tmp_out_path = Path(tmp_out_path)
-    tmp_out_short = _get_short_path(str(tmp_out_path))
+    tmp_out_path = out_dir / f"_intro_out_{Path(output_path).stem}.mp4"
 
-    ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-    cmd = [ffmpeg_bin, "-y", "-v", "info",
+    ffmpeg_bin = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
+    if ffmpeg_bin.exists():
+        ffmpeg_bin = str(ffmpeg_bin)
+    else:
+        ffmpeg_bin = shutil.which("ffmpeg") or str(ffmpeg_bin)
+    input_pattern = str(tmpdir / "f_%06d.png").replace("\\", "/")
+    output_str = str(tmp_out_path).replace("\\", "/")
+    cmd = [ffmpeg_bin, "-y", "-v", "warning",
            "-framerate", str(fps),
-           "-i", f"{tmpdir_short}/f_%06d.png",
+           "-i", input_pattern,
            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-           "-pix_fmt", "yuv420p", "-an", tmp_out_short]
+           "-pix_fmt", "yuv420p", "-an",
+           output_str]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
+        print(f"    FFmpeg 失败 (return={r.returncode})")
+        print(f"    前3帧mean: {[float(frames[i].mean()) for i in range(min(3, len(frames)))]}")
+        print(f"    FFmpeg stderr: {r.stderr[-500:]}")
+        # Save frames to output dir for debugging
+        for i in range(min(3, len(frames))):
+            cv2.imwrite(str(out_dir / f"_debug_frame_{i:06d}.png"), frames[i])
+        # DON'T clean up tmpdir on failure - leave for debugging
+        print(f"    Temp PNGs left in: {tmpdir}")
         raise RuntimeError(f"FFmpeg error: {r.stderr[-300:]}")
 
     shutil.move(str(tmp_out_path), str(output_path))
     shutil.rmtree(tmpdir, ignore_errors=True)
+    # Clean up any leftover temp files
+    for f in out_dir.glob(f"_intro_tmp_*"):
+        shutil.rmtree(f, ignore_errors=True)
+    for f in out_dir.glob("_intro_out_*"):
+        f.unlink(missing_ok=True)
 
 
 # 尝试加载支持中文的字体
@@ -145,7 +164,11 @@ class IntroOutroStage:
 
         if total_time <= duration:
             # 视频比片头短，直接用 FFmpeg 复制全部
-            ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+            ffmpeg_bin = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
+            if ffmpeg_bin.exists():
+                ffmpeg_bin = str(ffmpeg_bin)
+            else:
+                ffmpeg_bin = shutil.which("ffmpeg") or str(ffmpeg_bin)
             out_short = _get_short_path(str(output_path))
             inp_short = _get_short_path(str(video_path))
             cmd = [ffmpeg_bin, "-y", "-i", inp_short,
@@ -198,8 +221,9 @@ class IntroOutroStage:
             frame = self._draw_intro_text_pil(frame, lead_name, channel, location, date_str, len(frames_to_write) / window)
 
             # 帧淡入（淡入整个合成画面，包括文字）
+            # 避免从完全黑色开始（会导致x264编码失败）
             if len(frames_to_write) < fade_in_frames:
-                alpha = len(frames_to_write) / fade_in_frames
+                alpha = max(0.1, len(frames_to_write) / fade_in_frames)  # 最小0.1，避免完全黑帧
                 overlay = np.zeros_like(frame)
                 frame = (frame * alpha + overlay * (1 - alpha)).astype(np.uint8)
 
