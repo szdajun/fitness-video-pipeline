@@ -10,7 +10,7 @@ import numpy as np
 import json
 from pathlib import Path
 
-from lib.utils import create_writer
+from lib.utils import path_exists, create_writer
 
 
 class HighlightStage:
@@ -21,7 +21,7 @@ class HighlightStage:
             ctx.set("highlight_path", None)
             return
 
-        if ctx.get("highlight_path") and Path(ctx.get("highlight_path")).exists():
+        if ctx.get("highlight_path") and path_exists(ctx.get("highlight_path")):
             print("    已存在，跳过")
             return
 
@@ -63,7 +63,7 @@ class HighlightStage:
         beat_frames = ctx.get("beat_frames")
         if not beat_frames:
             audio_path = ctx.get("audio_path")
-            if not audio_path or not Path(audio_path).exists():
+            if not audio_path or not path_exists(audio_path):
                 extracted_audio = ctx.output_dir / f"{ctx.input_path.stem}_audio_temp.wav"
                 ffmpeg = "C:/Users/18091/ffmpeg/ffmpeg.exe"
                 import subprocess

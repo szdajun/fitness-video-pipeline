@@ -9,13 +9,13 @@ import numpy as np
 import json
 from pathlib import Path
 
-from lib.utils import create_writer
+from lib.utils import path_exists, create_writer
 
 
 class BeatFlashStage:
     def run(self, ctx):
         # 增量跳过
-        if ctx.get("beatflash_path") and Path(ctx.get("beatflash_path")).exists():
+        if ctx.get("beatflash_path") and path_exists(ctx.get("beatflash_path")):
             print("    已存在，跳过")
             return
 
@@ -26,14 +26,14 @@ class BeatFlashStage:
                      ctx.get("h2v_path") or
                      ctx.get("stabilized_path") or
                      str(ctx.input_path))
-        if not Path(input_path).exists():
+        if not path_exists(input_path):
             print("    跳过: 无输入视频")
             ctx.set("beatflash_path", None)
             return
 
         # 找音频文件
         audio_path = ctx.get("audio_path")
-        if not audio_path or not Path(audio_path).exists():
+        if not audio_path or not path_exists(audio_path):
             # 从输入视频提取音频
             extracted_audio = ctx.output_dir / f"{ctx.input_path.stem}_audio_temp.wav"
             ffmpeg = "C:/Users/18091/ffmpeg/ffmpeg.exe"

@@ -19,7 +19,7 @@ import importlib
 from pathlib import Path
 
 from lib.face_warp import process_frame_face_warp
-from lib.utils import create_writer
+from lib.utils import path_exists, create_writer
 
 # MediaPipe imports - use same defensive pattern as 01_pose_detect
 HAS_MEDIAPIPE_TASKS = False
@@ -51,7 +51,7 @@ MODEL_PATH = Path(__file__).parent.parent / "models" / "face_landmarker.task"
 class FaceWarpStage:
     def run(self, ctx):
         # 增量跳过：输出已存在则跳过
-        if ctx.get("face_path") and Path(ctx.get("face_path")).exists():
+        if ctx.get("face_path") and path_exists(ctx.get("face_path")):
             print("    已存在，跳过")
             return
 
@@ -65,7 +65,7 @@ class FaceWarpStage:
                       ctx.get("h2v_path") or
                       ctx.get("stabilized_path") or
                       str(ctx.input_path))  # 横屏 fallback
-        if not input_path or not Path(input_path).exists():
+        if not input_path or not path_exists(input_path):
             print("    跳过: 无输入视频")
             return
 

@@ -9,6 +9,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 import subprocess
 import shutil
@@ -105,7 +106,7 @@ class IntroOutroStage:
                      ctx.get("h2v_path") or
                      str(ctx.input_path))
         outro_video_path = video_path
-        if not video_path or not Path(video_path).exists():
+        if not video_path or not cv2.VideoCapture(video_path).isOpened():
             print("    跳过: 无处理后的视频")
             return
 

@@ -4,6 +4,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import ctypes, subprocess, shutil, tempfile, os
 class ColorGradeStage:
     def run(self, ctx):
         # 增量跳过：输出已存在则跳过
-        if ctx.get("color_path") and Path(ctx.get("color_path")).exists():
+        if ctx.get("color_path") and path_exists(ctx.get("color_path")):
             print("    已存在，跳过")
             return
 
@@ -21,7 +22,7 @@ class ColorGradeStage:
         input_path = (ctx.get("face_warp_path") or ctx.get("ken_burns_path") or
                       ctx.get("warped_path") or ctx.get("h2v_path") or
                       str(ctx.input_path))  # 横屏 fallback
-        if not input_path or not Path(input_path).exists():
+        if not input_path or not path_exists(input_path):
             print("    跳过: 无可处理的视频")
             return
 

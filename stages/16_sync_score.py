@@ -10,13 +10,13 @@ import numpy as np
 import json
 from pathlib import Path
 
-from lib.utils import create_writer
+from lib.utils import path_exists, create_writer
 
 
 class SyncScoreStage:
     def run(self, ctx):
         # 增量跳过
-        if ctx.get("sync_path") and Path(ctx.get("sync_path")).exists():
+        if ctx.get("sync_path") and path_exists(ctx.get("sync_path")):
             print("    已存在，跳过")
             return
 
@@ -32,7 +32,7 @@ class SyncScoreStage:
                      ctx.get("h2v_path") or
                      ctx.get("stabilized_path") or
                      str(ctx.input_path))
-        if not Path(input_path).exists():
+        if not path_exists(input_path):
             print("    跳过: 无输入视频")
             ctx.set("sync_path", None)
             return
@@ -157,7 +157,7 @@ class SyncScoreStage:
                 for fp in ["C:/Windows/Fonts/msyh.ttc",
                            "C:/Windows/Fonts/simhei.ttf",
                            "C:/Windows/Fonts/simsun.ttc"]:
-                    if Path(fp).exists():
+                    if path_exists(fp):
                         font_path = fp
                         break
 

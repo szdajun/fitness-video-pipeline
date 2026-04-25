@@ -8,6 +8,7 @@
 """
 
 import cv2
+from lib.utils import path_exists
 import numpy as np
 import subprocess
 import shutil
@@ -18,7 +19,7 @@ from pathlib import Path
 class H2VConvertStage:
     def run(self, ctx):
         # 增量跳过：h2v 视频已存在则跳过（关键点文件单独保存，下方会加载或生成）
-        if ctx.get("h2v_path") and Path(ctx.get("h2v_path")).exists():
+        if ctx.get("h2v_path") and path_exists(ctx.get("h2v_path")):
             # 尝试加载已保存的关键点
             kp_file = Path(ctx.output_dir) / f"{Path(ctx.input_path).stem}_cropped_keypoints.json"
             if kp_file.exists():

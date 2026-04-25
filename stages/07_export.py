@@ -8,6 +8,8 @@
 import subprocess
 import shutil
 import ctypes
+import cv2
+from lib.utils import path_exists
 from pathlib import Path
 
 
@@ -31,7 +33,7 @@ class ExportStage:
                          ctx.get("stabilized_path") or
                          str(ctx.input_path))  # Fallback to original video
 
-        if not processed_path or not Path(processed_path).exists():
+        if not processed_path or not cv2.VideoCapture(processed_path).isOpened():
             print("    跳过: 无处理后的视频")
             return
 
@@ -52,8 +54,8 @@ class ExportStage:
         # 片头片尾拼接
         intro_path = ctx.get("intro_path")
         outro_path = ctx.get("outro_path")
-        has_intro = intro_path and Path(intro_path).exists()
-        has_outro = outro_path and Path(outro_path).exists()
+        has_intro = intro_path and path_exists(intro_path)
+        has_outro = outro_path and path_exists(outro_path)
 
         if has_intro or has_outro:
             concat_files = []
@@ -114,7 +116,6 @@ class ExportStage:
         crf = output_cfg.get("crf", 26)           # 默认用26，省体积（23太保守）
 
         # 自动检测输入视频方向，保持原方向不强制缩放
-        import cv2
         cap_d = cv2.VideoCapture(processed_path)
         if cap_d.isOpened():
             in_w = int(cap_d.get(3))
@@ -153,7 +154,7 @@ class ExportStage:
 
         output_path = ctx.output_dir / output_name
 
-        has_ffmpeg = Path(ffmpeg).exists() or shutil.which("ffmpeg")
+        has_ffmpeg = path_exists(ffmpeg) or shutil.which("ffmpeg")
         audio_path = ctx.get("audio_path")
 
         if has_ffmpeg:

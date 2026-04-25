@@ -19,13 +19,13 @@ class StabilizeStage:
             return
 
         # 增量跳过：输出已存在则跳过
-        if ctx.get("stabilized_path") and Path(ctx.get("stabilized_path")).exists():
+        if ctx.get("stabilized_path") and path_exists(ctx.get("stabilized_path")):
             print("    已存在，跳过")
             return
 
         # 优先用 PATH 中的 ffmpeg，没有则用用户目录下的
         ffmpeg = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        if not Path(ffmpeg).exists():
+        if not path_exists(ffmpeg):
             print("    跳过: FFmpeg 未安装")
             return
 
