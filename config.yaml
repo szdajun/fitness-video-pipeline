@@ -34,10 +34,12 @@ pose_model: yolov8n-pose
 output:
   width: 1920
   height: 1080   # 横屏 16:9
+  crf: 18        # 画质优先
 
 color_grade:
   brightness: 0
   clahe: true
+  sharpen: 0.3
 
 ken_burns:
   mode: smooth

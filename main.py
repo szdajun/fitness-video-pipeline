@@ -53,6 +53,7 @@ BeatFlashStage = _import_stage("17_beat_flash", "BeatFlashStage")
 HighlightStage = _import_stage("18_highlight", "HighlightStage")
 EnergyBarStage = _import_stage("19_energy_bar", "EnergyBarStage")
 IntroOutroStage = _import_stage("20_intro_outro", "IntroOutroStage")
+SkinSmoothStage = _import_stage("21_skin_smooth", "SkinSmoothStage")
 SkinToneFilterStage = _import_stage("22_skin_tone_filter", "SkinToneFilterStage")
 DenoiseStage = _import_stage("23_denoise", "DenoiseStage")
 WatermarkStage = _import_stage("24_watermark", "WatermarkStage")
@@ -356,6 +357,8 @@ def run_single(args):
                      enabled=stages_cfg.get("face_warp", False))
     engine.add_stage("color_grade", ColorGradeStage(),
                      enabled=stages_cfg.get("color_grade", True))
+    engine.add_stage("skin_smooth", SkinSmoothStage(),
+                     enabled=stages_cfg.get("skin_smooth", False))
     engine.add_stage("skin_tone_filter", SkinToneFilterStage(),
                      enabled=stages_cfg.get("skin_tone_filter", True))
     engine.add_stage("denoise", DenoiseStage(),

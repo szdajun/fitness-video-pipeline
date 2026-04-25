@@ -55,10 +55,11 @@ class SkinSmoothStage:
 
         input_path = (ctx.get("beatflash_path") or
                       ctx.get("ken_burns_path") or
-                      ctx.get("warped_path"))
+                      ctx.get("warped_path") or
+                      str(ctx.input_path))  # 横屏 fallback
         if not input_path or not Path(input_path).exists():
             print("    跳过: 无输入视频")
-            ctx.set("skin_smooth_path", ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+            ctx.set("skin_smooth_path", ctx.get("beatflash_path") or ctx.get("ken_burns_path") or str(ctx.input_path))
             return
 
         if strength <= 0:
