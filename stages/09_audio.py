@@ -9,6 +9,8 @@ import subprocess
 import shutil
 from pathlib import Path
 
+from lib.utils import path_exists
+
 
 class AudioStage:
     def run(self, ctx):
