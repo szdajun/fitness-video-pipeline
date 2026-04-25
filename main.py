@@ -68,6 +68,7 @@ def build_single_parser():
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("input", help="输入视频路径")
     p.add_argument("-o", "--output", help="输出视频路径")
+    p.add_argument("--output-dir", help="输出目录（默认: output/视频日期/）")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
     p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts"],
                    help="使用预设风格")
@@ -321,6 +322,12 @@ def run_single(args):
         output_path = Path(args.output)
         config["output_dir"] = str(output_path.parent)
         config["output_file"] = output_path.name
+    elif hasattr(args, 'output_dir') and args.output_dir:
+        # --output-dir 指定的目录作为基础，后面仍按原视频日期分子目录
+        import os, datetime
+        mtime = os.path.getmtime(input_path)
+        file_date = datetime.date.fromtimestamp(mtime).isoformat()
+        config["output_dir"] = str(Path(args.output_dir) / file_date)
     else:
         # 默认输出到源文件创建日期目录
         import os, datetime

@@ -28,14 +28,26 @@ class ExportStage:
                          ctx.get("warped_path") or
                          ctx.get("ken_burns_path") or
                          ctx.get("h2v_path") or
-                         ctx.get("stabilized_path"))
+                         ctx.get("stabilized_path") or
+                         str(ctx.input_path))  # Fallback to original video
 
         if not processed_path or not Path(processed_path).exists():
             print("    跳过: 无处理后的视频")
             return
 
         # ffmpeg 路径（提前定义，片头片尾拼接也需要）
-        ffmpeg = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        # 注意：shutil.which("ffmpeg") 可能返回 WinGet Gyan 坏掉的版本，要优先用明确的路径
+        ffmpeg_bin = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
+        if ffmpeg_bin.exists():
+            ffmpeg = str(ffmpeg_bin)
+        else:
+            ffmpeg = shutil.which("ffmpeg") or str(ffmpeg_bin)
+        # ffprobe 路径（用于获取时长）
+        ffprobe_bin = Path("C:/Users/18091/ffmpeg/ffprobe.exe")
+        if ffprobe_bin.exists():
+            ffprobe = str(ffprobe_bin)
+        else:
+            ffprobe = ffmpeg
 
         # 片头片尾拼接
         intro_path = ctx.get("intro_path")
@@ -54,20 +66,23 @@ class ExportStage:
             combined_path = ctx.output_dir / "_combined.mp4"
             n = len(concat_files)
 
-            # 用 concat demuxer 避免 filter_complex 导致的帧损坏问题
-            list_path = ctx.output_dir / "_concat_list.txt"
-            with open(list_path, "w", encoding="utf-8") as f:
-                for fp in concat_files:
-                    f.write(f"file '{fp}'\n")
+            # 用 concat filter 替代 concat demuxer，保持时间戳连续性
+            filter_parts = []
+            for i in range(n):
+                filter_parts.append(f"[{i}:v]")
+            filter_parts.append(f"concat=n={n}:v=1:a=0[outv]")
 
-            cmd = [ffmpeg, "-y", "-f", "concat", "-safe", "0",
-                   "-i", str(list_path.resolve()),
-                   "-c", "copy",
-                   "-an",
-                   str(combined_path.resolve())]
+            cmd = [ffmpeg, "-y"]
+            for fp in concat_files:
+                cmd.extend(["-i", str(Path(fp).resolve())])
+            cmd.extend(["-filter_complex", "".join(filter_parts),
+                        "-map", "[outv]",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                        "-an",
+                        str(combined_path.resolve())])
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if r.returncode != 0:
-                print(f"    片头片尾拼接失败: {r.stderr[-200:]}")
+                print(f"    片头片尾拼接(filter_complex)失败: {r.stderr[-200:]}")
                 combined_path = processed_path
             else:
                 print(f"    片头片尾拼接完成 ({n}段)")
@@ -77,6 +92,20 @@ class ExportStage:
         video_info = ctx.get("video_info")
         fps = video_info["fps"]
         is_preview = ctx.config.get("preview", False)
+
+        # 获取视频总时长（秒）— 如果有片头片尾合并，用合并后的实际时长
+        if has_intro or has_outro:
+            probe = subprocess.run(
+                [ffprobe, "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(processed_path)],
+                capture_output=True, text=True
+            )
+            if probe.stdout.strip():
+                total_sec = float(probe.stdout.strip())
+            else:
+                total_sec = video_info["frames"] / fps
+        else:
+            total_sec = video_info["frames"] / fps
 
         # 输出配置
         output_cfg = ctx.config.get("output", {})
@@ -142,8 +171,6 @@ class ExportStage:
                     scale_filter = f"unsharp=5:5:{sharpen}"
             res_info = f"{out_w}x{out_h}" if out_w and out_h else "原始分辨率"
 
-            # 视频总时长（秒）
-            total_sec = video_info["frames"] / fps
             fade_start = max(0, total_sec - video_fade_out)
 
             if cut_ranges and not is_preview:
@@ -183,25 +210,39 @@ class ExportStage:
                 print(f"    FFmpeg 合并输出 ({res_info}, CRF {crf}, preset={preset}, audio={audio_bitrate})...")
 
                 # 音频淡出滤镜（使用intro_outro配置中的audio_fade_out）
+                # 注意：combined视频时长(59s)可能比原音频(55s)长，需要确保fade在音频范围内
                 audio_fade_start = max(0, total_sec - audio_fade_d)
                 audio_fade = f"afade=type=out:st={audio_fade_start:.2f}:d={audio_fade_d}" if audio_fade_d > 0 else ""
                 vf_final = scale_filter  # 禁用 export 阶段的视频淡出（outro已有内置淡出）
 
                 if audio_path:
-                    # 视频用 intro/outro 合并后的，音频用原始（附加淡出滤镜）
+                    # 视频用 intro/outro 合并后的，音频用原始（附加循环+淡出滤镜）
                     cmd = [ffmpeg, "-y",
                            "-i", str(processed_path),  # combined video (intro+main+outro, no audio)
                            "-i", str(audio_path)]       # original audio
                     cmd.extend(["-map", "0:v:0", "-map", "1:a"])
-                    if audio_fade:
+                    if has_intro or has_outro:
+                        # 片头片尾拼接时音频短于视频，用aloop循环音频后用afade淡出
+                        audio_filter = f"aloop=loop=-1:size=2147483647,asetpts=N/SR/TB,afade=type=out:st={total_sec - audio_fade_d:.3f}:d={audio_fade_d}"
+                        cmd.extend(["-af", audio_filter])
+                        cmd.extend(["-t", f"{total_sec:.3f}"])
+                    elif audio_fade:
                         cmd.extend(["-af", audio_fade])
                 else:
                     cmd = [ffmpeg, "-y",
                            "-i", str(processed_path),  # combined video (no audio)
                            "-i", str(video_path)]       # original video (has audio)
-                    cmd.extend(["-map", "0:v:0", "-map", "1:a:0?"])
-                    if audio_fade:
-                        cmd.extend(["-af", audio_fade])
+                    # 片头片尾拼接时音频短于视频，用aloop循环音频后用afade淡出
+                    if has_intro or has_outro:
+                        # aloop循环到视频长度，afade从结尾开始淡出
+                        audio_filter = f"aloop=loop=-1:size=2147483647,asetpts=N/SR/TB,afade=type=out:st={total_sec - audio_fade_d:.3f}:d={audio_fade_d}"
+                        cmd.extend(["-map", "0:v:0", "-map", "1:a"])
+                        cmd.extend(["-af", audio_filter])
+                        cmd.extend(["-t", f"{total_sec:.3f}"])
+                    else:
+                        cmd.extend(["-map", "0:v:0", "-map", "1:a:0?"])
+                        if audio_fade:
+                            cmd.extend(["-af", audio_fade])
                 cmd.extend(["-vf", vf_final])
                 cmd.extend(["-c:v", "libx264", "-preset", preset,
                             "-crf", str(crf),

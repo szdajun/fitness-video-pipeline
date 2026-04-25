@@ -229,42 +229,15 @@ class PoseDetectStage:
                             bw = min(width - bx, int((x2 - x1) * (1 + 2 * pad)))
                             bh = min(height - by, int((y2 - y1) * (1 + 2 * pad)))
                             last_bbox = (bx, by, bw, bh)
-                            tracker = cv2.TrackerCSRT_create()
-                            tracker.init(batch_frames[i], (float(bx), float(by), float(bw), float(bh)))
+                            # OpenCV 4.13+ tracker API broken, skip tracking
+                            tracker = None
                     else:
                         keypoints[fi] = None
 
                 frame_idx += len(batch_frames)
             else:
-                # 中间帧：用 CSRT 追踪 + 关键点变换
-                if tracker is not None:
-                    ok, bbox = tracker.update(frame)
-                    if ok and last_kps is not None and last_bbox is not None:
-                        bx, by, bw, bh = map(int, bbox)
-                        lbx, lby, lbw, lbh = last_bbox
-                        scale_x = bw / max(lbw, 1)
-                        scale_y = bh / max(lbh, 1)
-                        off_x = bx - lbx
-                        off_y = by - lby
-                        est = []
-                        for person in last_kps:
-                            ep = []
-                            for kp in person:
-                                px, py, conf = kp
-                                if lbx <= px * width <= lbx + lbw and lby <= py * height <= lby + lbh:
-                                    new_px = (px * width - lbx) * scale_x + bx
-                                    new_py = (py * height - lby) * scale_y + by
-                                    ep.append([new_px / width, new_py / height, conf])
-                                else:
-                                    new_px = px * width + off_x
-                                    new_py = py * height + off_y
-                                    ep.append([new_px / width, new_py / height, conf])
-                            est.append(ep)
-                        keypoints[frame_idx] = est
-                        last_bbox = (bx, by, bw, bh)
-                    elif last_kps is not None:
-                        keypoints[frame_idx] = last_kps
-                elif last_kps is not None:
+                # 中间帧：无追踪，直接复制上一帧关键点
+                if last_kps is not None:
                     keypoints[frame_idx] = last_kps
                 frame_idx += 1
 
