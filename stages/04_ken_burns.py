@@ -234,6 +234,9 @@ class KenBurnsStage:
         motion_response = cfg.get("dual_motion_response", 0.5)  # 运动响应系数
         dual_dwell = cfg.get("dual_dwell", 0.3)  # 特写停留系数 (0=无, 0.4=强)
         motion_zoom_response = cfg.get("dual_motion_zoom_response", 0.3)  # 运动对zoom的影响
+        dual_sway_amp = cfg.get("dual_sway_amp", 4)  # 微摆动幅度(px)，增加自然感
+        dual_sway_freq = cfg.get("dual_sway_freq", 1.6)  # 微摆动频率（相对于 cycle）
+        dual_sf_inertia = cfg.get("dual_sf_inertia", 0.06)  # 场景切换惯性 (0~1，越大越慢)
         target_h = input_h
 
         total_time = max_frames / fps
@@ -243,7 +246,7 @@ class KenBurnsStage:
         prev_lead_cx = None  # 上一帧领操人水平中心（归一化）
         prev_lead_cy = None  # 上一帧领操人纵向中心（归一化）
         motion_smooth = 0.0  # 平滑后的运动量
-        prev_scene_factor = 0.0  # 上一帧 scene_factor（用于平滑）
+        smooth_sf = 0.0  # 平滑后的 scene_factor（惯性）
 
         while frame_idx < max_frames:
             ret, frame = cap.read()
@@ -256,7 +259,10 @@ class KenBurnsStage:
             raw_sf = 0.5 - 0.5 * np.cos(2 * np.pi * time_s / cycle_seconds)
             # 特写停留: 幂曲线使峰值/谷值区间拉长
             dwell_power = 1.0 / (1.0 + dual_dwell * 2.0)
-            scene_factor = np.power(raw_sf, dwell_power)
+            raw_scene_factor = np.power(raw_sf, dwell_power)
+            # 场景因子惯性：避免突变，让切换更平滑
+            smooth_sf = smooth_sf + dual_sf_inertia * (raw_scene_factor - smooth_sf)
+            scene_factor = smooth_sf
 
             # 从关键点获取领操人位置
             lead_cx_norm = self._get_lead_center_x(cropped_keypoints, frame_idx, input_w)
@@ -304,6 +310,9 @@ class KenBurnsStage:
             base_pan = pan_amplitude * (0.5 + 0.5 * scene_factor)
             pan_x = int(base_pan * motion_gain *
                         np.sin(2.5 * np.pi * time_s / cycle_seconds))
+            # 微摆动：独立于主平移的低频摆动，增加自然感
+            sway = int(dual_sway_amp * np.sin(2.0 * np.pi * time_s / (cycle_seconds / dual_sway_freq)))
+            pan_x += sway
             max_pan_right = new_w - (cx + target_w)
             max_pan_left = -cx
             pan_x = max(max_pan_right, min(pan_x, max_pan_left))
@@ -363,14 +372,18 @@ class KenBurnsStage:
         motion_response = cfg.get("dual_motion_response", 0.5)
         dual_dwell = cfg.get("dual_dwell", 0.3)
         motion_zoom_response = cfg.get("dual_motion_zoom_response", 0.3)
+        dual_sway_amp = cfg.get("dual_sway_amp", 4)
+        dual_sway_freq = cfg.get("dual_sway_freq", 1.6)
+        dual_sf_inertia = cfg.get("dual_sf_inertia", 0.06)
 
         total_time = max_frames / fps
         frame_idx = 0
         smooth_cx = None
-        smooth_cy = None  # 新增 cy 平滑
+        smooth_cy = None
         prev_lead_cx = None
         prev_lead_cy = None
         motion_smooth = 0.0
+        smooth_sf = 0.0
 
         print(f"    target: {target_w}x{target_h}, input: {input_w}x{input_h}, vertical_track={is_vertical}")
         print(f"    临时目录: {tmpdir.name}")
@@ -388,7 +401,9 @@ class KenBurnsStage:
                 time_s = frame_idx / max_frames * total_time
                 raw_sf = 0.5 - 0.5 * np.cos(2 * np.pi * time_s / cycle_seconds)
                 dwell_power = 1.0 / (1.0 + dual_dwell * 2.0)
-                scene_factor = np.power(raw_sf, dwell_power)
+                raw_scene_factor = np.power(raw_sf, dwell_power)
+                smooth_sf = smooth_sf + dual_sf_inertia * (raw_scene_factor - smooth_sf)
+                scene_factor = smooth_sf
 
                 lead_cx_norm = self._get_lead_center_x(cropped_keypoints, frame_idx, input_w)
                 lead_cy_norm = self._get_lead_center_y(cropped_keypoints, frame_idx, input_h)
@@ -422,6 +437,8 @@ class KenBurnsStage:
 
                 base_pan = pan_amplitude * (0.5 + 0.5 * scene_factor)
                 pan_x = int(base_pan * motion_gain * np.sin(2.5 * np.pi * time_s / cycle_seconds))
+                sway = int(dual_sway_amp * np.sin(2.0 * np.pi * time_s / (cycle_seconds / dual_sway_freq)))
+                pan_x += sway
                 max_pan_right = new_w - (cx + target_w)
                 max_pan_left = -cx
                 pan_x = max(max_pan_right, min(pan_x, max_pan_left))
