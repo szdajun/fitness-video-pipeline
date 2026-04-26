@@ -112,7 +112,9 @@ class FaceBeautifyStage:
         print(f"    美颜: 眼部提亮={eye_brighten}, 面部磨皮={face_smooth}, 补光={face_fill_light}, eye_radius={eye_radius}")
 
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        tmpdir = Path(tempfile.mkdtemp(prefix="fb_"))
+        # 临时目录建在 output_dir 中，避免系统临时目录短路径问题
+        tmpdir = ctx.output_dir / f"_tmp_fb_{Path(input_path).stem}_{frame_idx:08d}"
+        tmpdir.mkdir(exist_ok=True)
         tmpdir_short = _to_short(str(tmpdir))
 
         # 创建 FaceMesh 检测器（refine_landmarks=True 以获取瞳孔位置）
