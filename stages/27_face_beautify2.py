@@ -223,10 +223,18 @@ class FaceBeautify2Stage:
                                 frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
                     # 瞳孔区域提亮（两眼中心区域）
-                    l_center_x = int(kps[36:42, 0].mean() * w)
-                    l_center_y = int(kps[36:42, 1].mean() * h)
-                    r_center_x = int(kps[42:48, 0].mean() * w)
-                    r_center_y = int(kps[42:48, 1].mean() * h)
+                    if len(kps) >= 48:
+                        l_eye_pts = kps[36:42]
+                        r_eye_pts = kps[42:48]
+                        if l_eye_pts.size > 0 and r_eye_pts.size > 0:
+                            l_center_x = int(np.nanmean(l_eye_pts[:, 0]) * w)
+                            l_center_y = int(np.nanmean(l_eye_pts[:, 1]) * h)
+                            r_center_x = int(np.nanmean(r_eye_pts[:, 0]) * w)
+                            r_center_y = int(np.nanmean(r_eye_pts[:, 1]) * h)
+                        else:
+                            continue
+                    else:
+                        continue
 
                     for px, py in [(l_center_x, l_center_y), (r_center_x, r_center_y)]:
                         if 0 <= px < w and 0 <= py < h:
