@@ -89,14 +89,14 @@ def apply_skin_smooth(frame, strength=0.5, d=9, sigmaColor=20, sigmaSpace=20,
             # 双边滤波
             smoothed = cv2.bilateralFilter(small, d, sigmaColor, sigmaSpace)
 
-            # 只在皮肤区域混合
-            result = small * (1 - small_mask * strength) + smoothed * (small_mask * strength)
+            # 只在皮肤区域混合 (small_mask needs to be 3D for broadcasting)
+            result = small * (1 - small_mask[:, :, None] * strength) + smoothed * (small_mask[:, :, None] * strength)
             result = np.clip(result, 0, 255).astype(np.uint8)
             return cv2.resize(result, (w, h), interpolation=cv2.INTER_LINEAR)
         else:
             # 全分辨率
             smoothed = cv2.bilateralFilter(frame, d, sigmaColor, sigmaSpace)
-            result = frame * (1 - skin_mask * strength) + smoothed * (skin_mask * strength)
+            result = frame * (1 - skin_mask[:, :, None] * strength) + smoothed * (skin_mask[:, :, None] * strength)
             return np.clip(result, 0, 255).astype(np.uint8)
     else:
         # 全局磨皮（传统方式）

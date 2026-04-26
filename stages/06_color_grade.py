@@ -135,15 +135,43 @@ class ColorGradeStage:
                 result[:, :, 2] = np.clip(result[:, :, 2] * gray / max(avg_r, 1), 0, 255)
                 frame = result.astype(np.uint8)
 
-            # 7. 自适应对比度 (直方图裁剪)
+            # 7. 自适应对比度 (场景感知)
             if adaptive_contrast > 0:
+                # 分析场景亮度：计算平均亮度
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                mean_brightness = np.mean(gray) / 255.0  # 0=黑, 1=白
+
+                # 根据场景类型调整 CLAHE 参数
+                # 暗场 (mean < 0.35): 需要提亮暗部
+                # 正常场 (0.35 <= mean < 0.65): 标准对比度
+                # 亮场 (mean >= 0.65): 需要保护高光不过曝
+                if mean_brightness < 0.35:
+                    # 暗场：强提亮暗部，减少高光
+                    clip_limit = adaptive_contrast * 5.0
+                    tile_size = (4, 4)
+                    strength = 1.3
+                elif mean_brightness > 0.65:
+                    # 亮场：保护高光，轻度对比度
+                    clip_limit = adaptive_contrast * 2.0
+                    tile_size = (8, 8)
+                    strength = 0.7
+                else:
+                    # 正常场：标准处理
+                    clip_limit = adaptive_contrast * 3.5
+                    tile_size = (6, 6)
+                    strength = 1.0
+
                 lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
                 l, a, b = cv2.split(lab)
-                clahe_ac = cv2.createCLAHE(
-                    clipLimit=adaptive_contrast * 4.0,
-                    tileGridSize=(4, 4)
-                )
+                clahe_ac = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_size)
                 l = clahe_ac.apply(l)
+
+                # 根据亮度调整 L 通道
+                if mean_brightness < 0.35:
+                    l = np.clip(l * 1.15, 0, 255).astype(np.uint8)
+                elif mean_brightness > 0.65:
+                    l = np.clip(l * 0.92, 0, 255).astype(np.uint8)
+
                 lab = cv2.merge([l, a, b])
                 frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
