@@ -1,15 +1,16 @@
-"""阶段26: 眼部提亮 + 面部美颜
+"""阶段26: 眼部提亮 + 面部美颜 (MediaPipe FaceMesh 版)
 
-基于关键点检测的眼部区域提亮 + 面部区域增强磨皮 + 正面补光。
+基于 MediaPipe FaceMesh 精确检测 478 个人脸关键点，
+包括瞳孔、眼角、眉毛、嘴唇等细部位置。
 只针对领操人面部处理，不影响背景和其他人。
 
 用法（在配置中）:
     face_beautify:
       enabled: true
-      eye_brighten: 0.4      # 眼部提亮强度 0~1
-      face_smooth: 0.3       # 面部额外磨皮强度 0~1
-      eye_radius: 20        # 眼部提亮区域半径(px)
-      face_fill_light: 0.15 # 正面补光强度 0~1（照亮全脸阴影）
+      eye_brighten: 0.5      # 眼部提亮强度 0~1
+      face_smooth: 0.35      # 面部额外磨皮强度 0~1
+      face_fill_light: 0.2   # 正面补光强度 0~1
+      eye_radius: 22         # 眼部提亮区域半径(px)
 """
 
 import cv2
@@ -22,6 +23,7 @@ import tempfile
 import subprocess
 
 from lib.utils import path_exists
+from lib.face_mesh import FaceMeshDetector
 
 
 GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
@@ -41,13 +43,13 @@ class FaceBeautifyStage:
     def run(self, ctx):
         cfg = ctx.config.get("face_beautify", {})
         if not cfg.get("enabled", False):
-            ctx.set("face_beautify_path", ctx.get("beatflash_path") or ctx.get("energybar_path") or ctx.get("ken_burns_path"))
+            ctx.set("face_beautify_path", ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
 
         eye_brighten = cfg.get("eye_brighten", 0.4)
         face_smooth = cfg.get("face_smooth", 0.3)
         eye_radius = cfg.get("eye_radius", 20)
-        face_fill_light = cfg.get("face_fill_light", 0.15)  # 正面补光强度
+        face_fill_light = cfg.get("face_fill_light", 0.15)
         if eye_brighten <= 0 and face_smooth <= 0 and face_fill_light <= 0:
             ctx.set("face_beautify_path", ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
@@ -63,24 +65,36 @@ class FaceBeautifyStage:
             ctx.set("face_beautify_path", None)
             return
 
-        # 加载关键点
-        raw_kp = ctx.get("cropped_keypoints")
-        if raw_kp:
-            keypoints = raw_kp
-        else:
-            kp_path = ctx.output_dir / f"{ctx.input_path.stem}_cropped_keypoints.json"
-            if not kp_path.exists() or kp_path.stat().st_size == 0:
-                kp_path2 = ctx.output_dir / f"{ctx.input_path.stem}_keypoints.json"
-                if not kp_path2.exists() or kp_path2.stat().st_size == 0:
-                    print("    跳过: 无关键点数据")
-                    ctx.set("face_beautify_path", None)
-                    return
-                with open(kp_path2, encoding="utf-8") as f:
-                    raw = json.load(f)
-                    keypoints = raw.get("keypoints", raw)
+        # 加载领操人追踪信息（来自 pose_detect）
+        lead_tid = ctx.get("lead_tid")
+        lead_cx = ctx.get("lead_cx")
+        if lead_tid is None:
+            raw_kp = ctx.get("cropped_keypoints")
+            if raw_kp:
+                keypoints = raw_kp
             else:
-                with open(kp_path, encoding="utf-8") as f:
-                    keypoints = json.load(f)
+                kp_path = ctx.output_dir / f"{ctx.input_path.stem}_cropped_keypoints.json"
+                if not kp_path.exists() or kp_path.stat().st_size == 0:
+                    kp_path2 = ctx.output_dir / f"{ctx.input_path.stem}_keypoints.json"
+                    if not kp_path2.exists() or kp_path2.stat().st_size == 0:
+                        print("    跳过: 无关键点数据")
+                        ctx.set("face_beautify_path", None)
+                        return
+                    with open(kp_path2, encoding="utf-8") as f:
+                        raw = json.load(f)
+                        keypoints = raw.get("keypoints", raw)
+                else:
+                    with open(kp_path, encoding="utf-8") as f:
+                        keypoints = json.load(f)
+            tracks = self._track_people(keypoints)
+            if not tracks:
+                print("    跳过: 无法追踪人员")
+                ctx.set("face_beautify_path", None)
+                return
+            lead_tid = max(tracks, key=lambda tid: tracks[tid]["count"])
+            lead_cx = np.median(tracks[lead_tid]["cx_list"])
+            ctx.set("lead_tid", lead_tid)
+            ctx.set("lead_cx", lead_cx)
 
         video_info = ctx.get("video_info")
         fps = video_info["fps"]
@@ -95,30 +109,20 @@ class FaceBeautifyStage:
         orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
 
-        # 领操人追踪
-        lead_tid = ctx.get("lead_tid")
-        lead_cx = ctx.get("lead_cx")
-        if lead_tid is None:
-            tracks = self._track_people(keypoints)
-            if not tracks:
-                print("    跳过: 无法追踪人员")
-                ctx.set("face_beautify_path", None)
-                return
-            lead_tid = max(tracks, key=lambda tid: tracks[tid]["count"])
-            lead_cx = np.median(tracks[lead_tid]["cx_list"])
-            ctx.set("lead_tid", lead_tid)
-            ctx.set("lead_cx", lead_cx)
-
         print(f"    美颜: 眼部提亮={eye_brighten}, 面部磨皮={face_smooth}, 补光={face_fill_light}, eye_radius={eye_radius}")
 
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
         tmpdir = Path(tempfile.mkdtemp(prefix="fb_"))
         tmpdir_short = _to_short(str(tmpdir))
 
+        # 创建 FaceMesh 检测器（refine_landmarks=True 以获取瞳孔位置）
+        face_mesh = FaceMeshDetector(refine_landmarks=True)
+        face_mesh_tracker = self._create_tracker()
+
         cap = cv2.VideoCapture(input_path)
         frame_idx = 0
         prev_kps = None
-        lead_kps_cache = {}
+        no_face_count = 0
 
         while frame_idx < max_frames:
             ret, frame = cap.read()
@@ -127,7 +131,8 @@ class FaceBeautifyStage:
 
             h, w = frame.shape[:2]
 
-            frame_kps = keypoints.get(str(frame_idx))
+            # 从关键点找领操人位置（用于判断是否处理当前帧）
+            frame_kps = keypoints.get(str(frame_idx)) if 'keypoints' in dir() else None
             curr_kps = None
             if frame_kps:
                 for person_kps in frame_kps:
@@ -142,78 +147,90 @@ class FaceBeautifyStage:
                         curr_kps = person_kps
                         break
 
+            # 如果领操人在画面中，用 FaceMesh 检测精确面部位置
             if curr_kps and prev_kps:
-                kps_arr = np.array(curr_kps)
-                prev_arr = np.array(prev_kps)
-                vis_mask = (kps_arr[:, 2] > 0.5) & (prev_arr[:, 2] > 0.5)
+                # 调用 MediaPipe FaceMesh 获取精确眼部和面部 landmarks
+                fm_result = face_mesh_tracker.process_frame(frame)
 
-                # 眼部提亮 (COCO: 1=左眼, 2=右眼, 0=鼻)
-                if eye_brighten > 0:
-                    for eye_idx in [1, 2]:  # COCO: 1=left_eye, 2=right_eye
-                        if kps_arr[eye_idx][2] > 0.4:
-                            ex = int(kps_arr[eye_idx][0] * w)
-                            ey = int(kps_arr[eye_idx][1] * h)
-                            # 高光圈：中心最亮，向外渐暗
-                            mask = np.zeros((h, w), dtype=np.float32)
-                            cv2.circle(mask, (ex, ey), eye_radius, 1.0, -1)
-                            mask = cv2.GaussianBlur(mask, (eye_radius * 2 + 1, eye_radius * 2 + 1), eye_radius * 0.5)
-                            mask = np.clip(mask * eye_brighten * 2, 0, 0.8)
+                if fm_result:
+                    no_face_count = 0
+                    eye_dist = fm_result['eye_distance']
 
-                            # 提亮：addWeighted 在 V 通道上操作更自然
-                            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-                            hsv[:, :, 2] = np.clip(hsv[:, :, 2].astype(np.float32) * (1 + mask), 0, 255).astype(np.uint8)
-                            frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+                    # ========== 眼部提亮（瞳孔级精确） ==========
+                    if eye_brighten > 0:
+                        for pupil_key in ['left_pupil', 'right_pupil']:
+                            px, py = fm_result[pupil_key]
+                            if 0 <= px < w and 0 <= py < h:
+                                mask = np.zeros((h, w), dtype=np.float32)
+                                cv2.circle(mask, (px, py), eye_radius, 1.0, -1)
+                                mask = cv2.GaussianBlur(mask, (eye_radius * 2 + 1, eye_radius * 2 + 1), eye_radius * 0.5)
+                                mask = np.clip(mask * eye_brighten * 2.5, 0, 0.85)
 
-                # 面部区域磨皮：仅对以两眼中心为圆心的区域磨皮
-                if face_smooth > 0 and kps_arr[1][2] > 0.4 and kps_arr[2][2] > 0.4:
-                    lx = int(kps_arr[0][0] * w)
-                    ly = int(kps_arr[0][1] * h)
-                    rx = int(kps_arr[1][0] * w)
-                    ry = int(kps_arr[1][1] * h)
-                    face_cx = (lx + rx) // 2
-                    face_cy = (ly + ry) // 2
-                    eye_dist = max(1, int(np.sqrt((rx - lx)**2 + (ry - ly)**2)))
-                    face_r = int(eye_dist * 2.2)
+                                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                                hsv[:, :, 2] = np.clip(hsv[:, :, 2].astype(np.float32) * (1 + mask), 0, 255).astype(np.uint8)
+                                frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-                    face_mask = np.zeros((h, w), dtype=np.float32)
-                    cv2.circle(face_mask, (face_cx, face_cy), face_r, 1.0, -1)
-                    face_mask = cv2.GaussianBlur(face_mask, (face_r * 2 + 1, face_r * 2 + 1), face_r * 0.4)
+                        # 眼角提亮：眼睑边缘
+                        l_eye = fm_result['left_eye']
+                        r_eye = fm_result['right_eye']
+                        corner_mask = np.zeros((h, w), dtype=np.float32)
+                        # 左眼角
+                        cv2.circle(corner_mask, l_eye, int(eye_radius * 0.8), 0.6, -1)
+                        # 右眼角
+                        cv2.circle(corner_mask, r_eye, int(eye_radius * 0.8), 0.6, -1)
+                        corner_mask = cv2.GaussianBlur(corner_mask, (int(eye_radius * 1.6 + 1),) * 2, eye_radius * 0.3)
+                        corner_mask *= eye_brighten * 0.5
+                        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                        hsv[:, :, 2] = np.clip(hsv[:, :, 2].astype(np.float32) * (1 + corner_mask), 0, 255).astype(np.uint8)
+                        frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-                    # 双边滤波 + 按 mask 加权
-                    smooth_img = cv2.bilateralFilter(frame, 7, 15, 15)
-                    strength_map = (face_mask * face_smooth).astype(np.float32)
-                    frame = (frame * (1 - strength_map) + smooth_img * strength_map).astype(np.uint8)
+                    # ========== 面部区域磨皮 ==========
+                    if face_smooth > 0:
+                        l_eye = fm_result['left_eye']
+                        r_eye = fm_result['right_eye']
+                        face_cx = fm_result['face_center'][0]
+                        face_cy = fm_result['face_center'][1]
 
-            # 正面补光：打亮全脸阴影（模拟柔光箱效果）
-            if face_fill_light > 0 and curr_kps:
-                kps_arr = np.array(curr_kps)
-                # 用鼻尖(0)和两眼中心作为面部中心
-                if kps_arr[1][2] > 0.3 and kps_arr[2][2] > 0.3:
-                    lx = int(kps_arr[1][0] * w)
-                    ly = int(kps_arr[1][1] * h)
-                    rx = int(kps_arr[2][0] * w)
-                    ry = int(kps_arr[2][1] * h)
-                    face_cx = (lx + rx) // 2
-                    face_cy = (ly + ry) // 2
-                    # 鼻子位置做参考，估算面部大小
-                    nose_x = int(kps_arr[0][0] * w)
-                    nose_y = int(kps_arr[0][1] * h)
-                    eye_dist = max(1, int(np.sqrt((rx - lx)**2 + (ry - ly)**2)))
-                    face_r = int(eye_dist * 2.0)  # 覆盖整张脸
+                        # 面部区域：以两眼中心和为圆心，半径=眼距×2.5
+                        face_r = int(eye_dist * 2.5)
+                        face_mask = np.zeros((h, w), dtype=np.float32)
+                        cv2.circle(face_mask, (face_cx, face_cy), face_r, 1.0, -1)
+                        face_mask = cv2.GaussianBlur(face_mask, (face_r * 2 + 1, face_r * 2 + 1), face_r * 0.4)
 
-                    fill_mask = np.zeros((h, w), dtype=np.float32)
-                    cv2.circle(fill_mask, (face_cx, face_cy), face_r, 1.0, -1)
-                    fill_mask = cv2.GaussianBlur(fill_mask, (face_r * 2 + 1, face_r * 2 + 1), face_r * 0.5)
+                        smooth_img = cv2.bilateralFilter(frame, 7, 15, 15)
+                        strength_map = (face_mask * face_smooth).astype(np.float32)
+                        frame = (frame * (1 - strength_map) + smooth_img * strength_map).astype(np.uint8)
 
-                    # 正面补光：在 BGR 三个通道都加亮，模拟柔光
-                    brightness = face_fill_light * 40  # 最多加40亮度
-                    frame_f = frame.astype(np.float32)
-                    frame_f = np.clip(frame_f + fill_mask[:, :, None] * brightness, 0, 255)
-                    frame = frame_f.astype(np.uint8)
+                    # ========== 正面补光（FaceMesh 精确定位） ==========
+                    if face_fill_light > 0:
+                        l_eye = fm_result['left_eye']
+                        r_eye = fm_result['right_eye']
+                        nose = fm_result['nose_tip']
+                        face_cx = fm_result['face_center'][0]
+                        face_cy = fm_result['face_center'][1]
+                        eye_dist = fm_result['eye_distance']
+
+                        # 面部区域：以 face_center 为中心
+                        face_r = int(eye_dist * 2.2)
+                        fill_mask = np.zeros((h, w), dtype=np.float32)
+                        cv2.circle(fill_mask, (face_cx, face_cy), face_r, 1.0, -1)
+                        fill_mask = cv2.GaussianBlur(fill_mask, (face_r * 2 + 1, face_r * 2 + 1), face_r * 0.5)
+
+                        brightness = face_fill_light * 40
+                        frame_f = frame.astype(np.float32)
+                        frame_f = np.clip(frame_f + fill_mask[:, :, None] * brightness, 0, 255)
+                        frame = frame_f.astype(np.uint8)
+
+                else:
+                    no_face_count += 1
+                    if no_face_count > 30:
+                        # 连续多帧未检测到人脸，跳过当前帧（保持能量条）
+                        pass
+
+            prev_kps = curr_kps
 
             fname = f"{tmpdir_short}/f_{frame_idx:06d}.png"
             cv2.imwrite(fname, frame)
-            prev_kps = curr_kps
             frame_idx += 1
 
             if frame_idx % 500 == 0:
@@ -247,6 +264,10 @@ class FaceBeautifyStage:
         else:
             ctx.set("face_beautify_path", None)
             print(f"    错误: 美颜视频创建失败")
+
+    def _create_tracker(self):
+        """创建 FaceMesh 追踪器（每帧检测，不用 tracking）"""
+        return FaceMeshDetector(refine_landmarks=True)
 
     def _track_people(self, keypoints):
         """简单追踪人员，返回 {tid: {cx_list, count}}"""
