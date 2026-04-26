@@ -59,6 +59,7 @@ DenoiseStage = _import_stage("23_denoise", "DenoiseStage")
 WatermarkStage = _import_stage("24_watermark", "WatermarkStage")
 BlushStage = _import_stage("25_blush", "BlushStage")
 FaceBeautifyStage = _import_stage("26_face_beautify", "FaceBeautifyStage")
+FaceBeautify2Stage = _import_stage("27_face_beautify2", "FaceBeautify2Stage")
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -394,6 +395,8 @@ def run_single(args):
                      enabled=stages_cfg.get("blush", False))
     engine.add_stage("face_beautify", FaceBeautifyStage(),
                      enabled=stages_cfg.get("face_beautify", False))
+    engine.add_stage("face_beautify2", FaceBeautify2Stage(),
+                     enabled=stages_cfg.get("face_beautify2", False))
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
 
