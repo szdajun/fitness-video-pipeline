@@ -18,7 +18,9 @@ class ExportStage:
         # 按优先级找最终处理的视频
         # beatflash_path 优先于 energybar_path（beat_flash 在 energy_bar 之后运行，
         # 所以 beatflash_path 包含 energy_bar 的画面 + beat_flash 效果）
-        processed_path = (ctx.get("beatflash_path") or
+        # face_beautify_path 优先于 beatflash_path（美颜在 beat_flash 之后）
+        processed_path = (ctx.get("face_beautify_path") or
+                         ctx.get("beatflash_path") or
                          ctx.get("energybar_path") or
                          ctx.get("highlight_path") or
                          ctx.get("sync_path") or
@@ -300,12 +302,15 @@ class ExportStage:
             "_beatflash.mp4",
             "_energybar.mp4",
             "_highlight.mp4",
+            "_face_beautify.mp4",
         ]
         removed = 0
         for suffix in intermediates:
             f = output_dir / f"{video_stem}{suffix}"
             # full_video 模式下保留 _highlight.mp4（引流版单独有用）
             if is_full and suffix in ("_highlight.mp4", "_energybar.mp4"):
+                continue
+            if is_full and suffix in ("_beatflash.mp4", "_face_beautify.mp4"):
                 continue
             if f.exists() and f != final_path:
                 try:
