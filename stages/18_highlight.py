@@ -1,7 +1,11 @@
-"""阶段18: 亮点片段提取
+"""阶段18: 亮点片段提取 (改进版)
 
 自动从长视频中提取最精彩的片段，生成一个精华预告片。
-评分因素：运动幅度（关键点速度）+ 节拍强度。
+多维评分：
+  - 运动强度（关键点速度）
+  - 节拍密度（音频节拍）
+  - 姿态完整度（可见关键点数量）
+  - 居中性（人物在画面中心程度）
 输出一个 15-30 秒的精华合集。
 """
 
@@ -80,10 +84,13 @@ class HighlightStage:
 
         beat_set = set(beat_frames) if beat_frames else set()
 
-        # 计算每帧的运动强度（关键点位移）
+        # 计算每帧的多维评分
         segment_seconds = 5       # 每段 5 秒
         segment_frames = int(segment_seconds * fps)
         num_segments = max_frames // segment_frames
+
+        # 领操人中心位置（用于居中性评分）
+        lead_cx = ctx.get("lead_cx", 0.5)  # 默认中心
 
         segment_scores = []
         prev_kps = None
@@ -93,68 +100,145 @@ class HighlightStage:
             end_f = min(start_f + segment_frames, max_frames)
 
             motion_sum = 0
+            motion_peak = 0
             beat_count = 0
             frame_count = 0
+            pose_complete_sum = 0  # 姿态完整度
+            center_score_sum = 0   # 居中性
 
             for fi in range(start_f, end_f):
                 frame_kps = keypoints.get(str(fi))
                 if frame_kps:
                     beat_count += 1 if fi in beat_set else 0
+
+                    # 取第一人作为分析对象
+                    person_kps = frame_kps[0]
+                    kps_arr = np.array(person_kps)
+
+                    # 姿态完整度：可见关键点数量 (COCO 17点)
+                    vis_count = (kps_arr[:, 2] > 0.3).sum()
+                    pose_complete_sum += vis_count / 17.0
+
+                    # 居中性：肩膀中心 x 距离 0.5 的偏差
+                    if len(kps_arr) >= 12:
+                        shoulder_cx = (kps_arr[5][0] + kps_arr[6][0]) / 2
+                        center_dev = abs(shoulder_cx - 0.5)  # 0=中心, 0.5=边缘
+                        center_score_sum += 1.0 - min(center_dev * 2, 1.0)  # 归一化到 0-1
+
                     if prev_kps:
                         # 计算与前一帧的运动差异
-                        for pi, person_kps in enumerate(frame_kps):
-                            if pi >= len(prev_kps):
+                        for pi, prev_person_kps in enumerate(prev_kps):
+                            if pi >= len(frame_kps):
                                 continue
-                            prev_arr = np.array(prev_kps[pi])
-                            curr_arr = np.array(person_kps)
+                            prev_arr = np.array(prev_person_kps)
+                            curr_arr = np.array(frame_kps[pi])
                             vis = (prev_arr[:, 2] > 0.3) & (curr_arr[:, 2] > 0.3)
                             if vis.sum() >= 6:
                                 dx = curr_arr[vis, 0] - prev_arr[vis, 0]
                                 dy = curr_arr[vis, 1] - prev_arr[vis, 1]
-                                motion_sum += np.mean(np.sqrt(dx*dx + dy*dy))
+                                motion = np.mean(np.sqrt(dx*dx + dy*dy))
+                                motion_sum += motion
+                                motion_peak = max(motion_peak, motion)
                     prev_kps = frame_kps
                 frame_count += 1
 
-            # 综合分数：运动强度 + 节拍密度
+            # 多维综合分数
             avg_motion = motion_sum / max(frame_count, 1)
             beat_density = beat_count / max(segment_frames, 1)
-            score = avg_motion * 50 + beat_density * 200
-            segment_scores.append((si, score, start_f, end_f))
+            pose_complete = pose_complete_sum / max(frame_count, 1)
+            center_score = center_score_sum / max(frame_count, 1)
+
+            # 权重配置
+            w_motion = 50
+            w_beat = 150
+            w_pose = 30
+            w_center = 20
+
+            # 峰值运动加成（峰值高说明动作有力）
+            motion_bonus = motion_peak * 30
+
+            # 居中性惩罚：太靠边的片段降分
+            center_penalty = max(0, (0.6 - center_score) * 50) if center_score < 0.6 else 0
+
+            score = (
+                avg_motion * w_motion +
+                beat_density * w_beat +
+                pose_complete * w_pose +
+                center_score * w_center +
+                motion_bonus -
+                center_penalty
+            )
+
+            segment_scores.append({
+                'idx': si,
+                'score': score,
+                'start_f': start_f,
+                'end_f': end_f,
+                'motion': avg_motion,
+                'beat_density': beat_density,
+                'pose_complete': pose_complete,
+                'center_score': center_score,
+            })
 
         if not segment_scores:
             print("    跳过: 无法计算片段分数")
             ctx.set("highlight_path", None)
             return
 
-        # 选取分数最高的片段
-        target_duration = 30  # 目标总时长（秒）
-        target_segments = max(2, min(num_segments, int(target_duration / segment_seconds)))
-        top_segments = sorted(segment_scores, key=lambda x: x[1], reverse=True)[:target_segments]
-        top_segments.sort(key=lambda x: x[2])  # 按时间排序，保证连贯性
+        # 多样性约束：贪心选取，避免重复相似片段
+        MIN_GAP_SECONDS = 3  # 最小间隔3秒
+        min_gap_frames = int(MIN_GAP_SECONDS * fps)
 
-        # 计算输出时长
-        total_highlight_frames = sum(s[1] for s in top_segments) if top_segments else 0
-        highlight_sec = len(top_segments) * segment_seconds
-        print(f"    亮点片段: 选取 {len(top_segments)} 段，共 {highlight_sec:.0f} 秒")
+        target_duration = 30  # 目标总时长（秒）
+        max_segments = max(2, min(num_segments, int(target_duration / segment_seconds)))
+
+        sorted_scores = sorted(segment_scores, key=lambda x: x['score'], reverse=True)
+        selected = []
+
+        for seg in sorted_scores:
+            if len(selected) >= max_segments:
+                break
+
+            # 检查与已选片段的时间重叠/过近
+            too_close = False
+            for sel in selected:
+                gap = abs(seg['start_f'] - sel['end_f']) if seg['start_f'] >= sel['end_f'] else abs(sel['start_f'] - seg['end_f'])
+                if gap < min_gap_frames:
+                    too_close = True
+                    break
+
+            if not too_close:
+                selected.append(seg)
+
+        selected.sort(key=lambda x: x['start_f'])  # 按时间排序，保证连贯性
+
+        highlight_sec = len(selected) * segment_seconds
+        print(f"    亮点片段: 选取 {len(selected)} 段，共 {highlight_sec:.0f} 秒")
+        if selected:
+            print(f"    评分: motion={max(s['motion'] for s in selected):.3f}, "
+                  f"beat={max(s['beat_density'] for s in selected):.2f}, "
+                  f"pose={max(s['pose_complete'] for s in selected):.2f}, "
+                  f"center={max(s['center_score'] for s in selected):.2f}")
 
         # 读取视频并截取亮点段
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
-            raise ValueError(f"无法打开视频: {input_path}")
+            raise ValueError(f"无法打开视频: {ctx.input_path}")
 
         temp_path = ctx.output_dir / f"{ctx.input_path.stem}_highlight.mp4"
         writer = create_writer(str(temp_path), fps, orig_w, orig_h)
 
-        for si, score, start_f, end_f in top_segments:
+        for seg in selected:
+            start_f = seg['start_f']
+            end_f = seg['end_f']
             cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
             for fi in range(start_f, end_f):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                # 左上角画一个黄色星形图标，不用文字
+                # 左上角画一个黄色星形图标
                 cx, cy = 32, 22
                 r = 14
-                # 五角星顶点
                 pts = []
                 for k in range(10):
                     angle = k * 36 - 90
@@ -172,19 +256,6 @@ class HighlightStage:
         ctx.set("highlight_path", str(temp_path))
         ctx.set("highlight_duration", highlight_sec)
         print(f"    输出: {temp_path.name} ({highlight_sec:.0f}s)")
-
-    def _compute_motion(self, kps_a, kps_b):
-        """计算两个关键点帧之间的平均运动量"""
-        if kps_a is None or kps_b is None:
-            return 0.0
-        a = np.array(kps_a)
-        b = np.array(kps_b)
-        vis = (a[:, 2] > 0.3) & (b[:, 2] > 0.3)
-        if vis.sum() < 4:
-            return 0.0
-        dx = b[vis, 0] - a[vis, 0]
-        dy = b[vis, 1] - a[vis, 1]
-        return float(np.mean(np.sqrt(dx*dx + dy*dy)))
 
     def _detect_beats(self, audio_path: str, fps: float, max_frames: int):
         """使用 librosa 检测音频节拍"""
