@@ -150,6 +150,12 @@ class SkinSmoothStage:
             print(f"    错误: 无法打开视频 {input_path}")
             return
 
+        # 自动校正帧数
+        actual_frames = int(input_video.get(cv2.CAP_PROP_FRAME_COUNT))
+        if actual_frames > 0 and actual_frames != max_frames:
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
+            max_frames = actual_frames
+
         temp_path = ctx.output_dir / f"{Path(input_path).stem}_smooth.mp4"
         fw = int(input_video.get(cv2.CAP_PROP_FRAME_WIDTH))
         fh = int(input_video.get(cv2.CAP_PROP_FRAME_HEIGHT))

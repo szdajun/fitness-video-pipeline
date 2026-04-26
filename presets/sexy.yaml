@@ -52,7 +52,7 @@ stages:
   intro_outro: true
   audio: true
   face_beautify: true
-  face_beautify2: true
+  face_beautify2: false
 
 energy_bar:
   width: 32
