@@ -12,11 +12,12 @@ color_grade:
 
 skin_smooth:
   enabled: true
-  strength: 0.3
-  d: 7
-  sigmaColor: 15
-  sigmaSpace: 15
+  strength: 0.35
+  d: 9
+  sigmaColor: 20
+  sigmaSpace: 20
   downscale: 0.5
+  skin_detect: true
 
 ken_burns:
   mode: dual
@@ -85,8 +86,8 @@ face_beautify:
 
 face_beautify2:
   enabled: true
-  skin_smooth: 0.4
-  eye_brighten: 0.5
-  face_whiten: 0.15
-  face_slim: 0.0
-  eye_enlarge: 0.0
+  skin_smooth: 0.6
+  eye_brighten: 0.8
+  face_whiten: 0.3
+  face_slim: 0.15
+  eye_enlarge: 0.2
