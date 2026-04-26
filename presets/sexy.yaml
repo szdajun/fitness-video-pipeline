@@ -40,6 +40,8 @@ stages:
   ken_burns: true
   skin_smooth: true
   skin_tone_filter: false
+  beat_flash: true
+  highlight: true
   energy_bar: true
   intro_outro: true
   audio: true
