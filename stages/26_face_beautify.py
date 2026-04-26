@@ -111,6 +111,14 @@ class FaceBeautifyStage:
 
         print(f"    美颜: 眼部提亮={eye_brighten}, 面部磨皮={face_smooth}, 补光={face_fill_light}, eye_radius={eye_radius}")
 
+        # 自动校正帧数
+        cap_actual = cv2.VideoCapture(input_path)
+        actual_frames = int(cap_actual.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap_actual.release()
+        if actual_frames > 0 and actual_frames != max_frames:
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
+            max_frames = actual_frames
+
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
         # 临时目录建在 output_dir 中，避免系统临时目录短路径问题
         import time
