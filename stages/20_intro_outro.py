@@ -76,15 +76,15 @@ def _write_video(frames, output_path, fps):
 
 
 # 尝试加载支持中文的字体
-def _get_font(size):
+def _get_font(size, bold=False):
     """加载支持中文的字体"""
     font_paths = [
-        "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
-        "C:/Windows/Fonts/simhei.ttf",      # 黑体
-        "C:/Windows/Fonts/simsun.ttc",      # 宋体
-        "C:/Windows/Fonts/arial.ttf",       # fallback
+        ("C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc", "微软雅黑"),
+        ("C:/Windows/Fonts/simheittf" if bold else "C:/Windows/Fonts/simhei.ttf", "黑体"),
+        ("C:/Windows/Fonts/simsun.ttc", "宋体"),
+        ("C:/Windows/Fonts/arial.ttf", "fallback"),
     ]
-    for fp in font_paths:
+    for fp, name in font_paths:
         try:
             return ImageFont.truetype(fp, size)
         except Exception:
@@ -250,7 +250,7 @@ class IntroOutroStage:
 
         # 用短边作为字体大小基准（横竖屏文字大小一致）
         ref = min(w, h)
-        font_lg = _get_font(int(ref * 0.075))
+        font_lg = _get_font(int(ref * 0.075), bold=True)
         bbox = draw.textbbox((0, 0), channel, font=font_lg)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
@@ -259,7 +259,7 @@ class IntroOutroStage:
         draw.text((cx, cy), channel, font=font_lg, fill=(255, 255, 255))
 
         # 第2行：带操人：xxx（视频区域中部，中等黄色）
-        font_md = _get_font(int(ref * 0.09))
+        font_md = _get_font(int(ref * 0.09), bold=True)
         lead_text = f"带操人：{lead_name}"
         bbox = draw.textbbox((0, 0), lead_text, font=font_md)
         tw = bbox[2] - bbox[0]
@@ -269,7 +269,7 @@ class IntroOutroStage:
         draw.text((cx, cy), lead_text, font=font_md, fill=(255, 220, 50))
 
         # 第3行：地点/日期（底部黑色区域中间，白色）
-        font_sm = _get_font(int(ref * 0.055))
+        font_sm = _get_font(int(ref * 0.055), bold=True)
         date_text = f"{location}/{date_str}"
         bbox = draw.textbbox((0, 0), date_text, font=font_sm)
         tw = bbox[2] - bbox[0]
@@ -347,7 +347,7 @@ class IntroOutroStage:
         y = int(h * 0.36)  # 视频中间偏上
 
         for text, font_size, color in lines:
-            font = _get_font(font_size)
+            font = _get_font(font_size, bold=True)
             bbox = draw.textbbox((0, 0), text, font=font)
             tw = bbox[2] - bbox[0]
             th = bbox[3] - bbox[1]
