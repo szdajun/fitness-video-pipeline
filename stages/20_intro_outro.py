@@ -244,8 +244,10 @@ class IntroOutroStage:
         draw = ImageDraw.Draw(pil_img)
         w, h = pil_img.size
 
-        # 底部不透明黑底：从 y=70% 开始覆盖到画面底部
-        overlay_top = int(h * 0.70)
+        # 横屏(16:9)黑底从65%开始，竖屏(9:16)从70%开始
+        # 横屏更需要保留画面，黑底只占下半部分
+        is_horizontal = w > h
+        overlay_top = int(h * 0.65) if is_horizontal else int(h * 0.70)
         draw.rectangle([(0, overlay_top), (w, h)], fill=(0, 0, 0))
 
         # 用短边作为字体大小基准（横竖屏文字大小一致）
@@ -344,7 +346,7 @@ class IntroOutroStage:
         # 计算行间距和总高度，居中于视频下半部分
         line_spacing = int(ref * 0.04)
         total_height = sum(lines[i][1] for i in range(len(lines))) + line_spacing * (len(lines) - 1)
-        y = int(h * 0.36)  # 视频中间偏上
+        y = int(h * 0.25)  # 视频上半部分
 
         for text, font_size, color in lines:
             font = _get_font(font_size, bold=True)

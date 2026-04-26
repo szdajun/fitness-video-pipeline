@@ -16,9 +16,11 @@ from pathlib import Path
 class ExportStage:
     def run(self, ctx):
         # 按优先级找最终处理的视频
-        processed_path = (ctx.get("energybar_path") or
+        # beatflash_path 优先于 energybar_path（beat_flash 在 energy_bar 之后运行，
+        # 所以 beatflash_path 包含 energy_bar 的画面 + beat_flash 效果）
+        processed_path = (ctx.get("beatflash_path") or
+                         ctx.get("energybar_path") or
                          ctx.get("highlight_path") or
-                         ctx.get("beatflash_path") or
                          ctx.get("sync_path") or
                          ctx.get("heatmap_path") or
                          ctx.get("faceblur_path") or
