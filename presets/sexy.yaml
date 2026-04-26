@@ -1,11 +1,5 @@
-# 性感风格 — 腿拉长+腰收窄+整体瘦身（胸/脖子因色块冲突暂时关闭）
-body_warp:
-  leg_lengthen: 1.05
-  leg_slim: 0.85
-  waist_slim: 0.75
-  overall_slim: 0.90
-  chest_enlarge: 1.15
-  # neck_lengthen: 1.15    # 关闭：与胸部放大在同区域冲突，产生色块
+# 性感风格横屏版 (16:9)
+body_warp: false
 
 color_grade:
   brightness: 5
@@ -16,21 +10,34 @@ color_grade:
   sharpen: 0
   temporal_smooth: 0.25
 
+skin_smooth:
+  enabled: true
+  strength: 0.3
+  d: 7
+  sigmaColor: 15
+  sigmaSpace: 15
+  downscale: 0.5
+
 ken_burns:
-  mode: smooth
-  zoom_range: [1.0, 1.0]
+  mode: dual
+  dual_close_zoom: 1.2
+  dual_close_zoom_v: 1.15
+  dual_cycle_seconds: 8
+  dual_pan_amplitude: 8
+  dual_motion_response: 0.5
+  dual_dwell: 0.3
+  dual_motion_zoom_response: 0.3
 
 output:
-  width: 1080
-  height: 1920
-  crf: 18
-  video_fade_out: 0
+  width: 1920
+  height: 1080
 
 stages:
   stabilize: false
-  h2v_convert: true
-  body_warp: true
+  h2v_convert: false
+  body_warp: false
   ken_burns: true
+  skin_smooth: true
   energy_bar: true
   intro_outro: true
   audio: true

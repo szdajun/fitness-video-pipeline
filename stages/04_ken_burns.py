@@ -26,11 +26,13 @@ class KenBurnsStage:
             return
 
         # 优先读 warped_path（body_warp 已处理），否则 h2v_path，再否则 stabilized_path
+        # 横屏模式：也支持直接用原始输入视频（无 h2v/warp 中间步骤）
         input_path = (ctx.get("warped_path") or
                       ctx.get("h2v_path") or
-                      ctx.get("stabilized_path"))
+                      ctx.get("stabilized_path") or
+                      str(ctx.input_path))
         if not input_path or not path_exists(input_path):
-            print("    跳过: 无横转竖输出")
+            print("    跳过: 无输入视频")
             return
 
         video_info = ctx.get("video_info")
@@ -54,6 +56,8 @@ class KenBurnsStage:
         max_frames = video_info.get("process_frames", video_info["frames"])
         cfg = ctx.config.get("ken_burns", {})
         mode = cfg.get("mode", "smooth")
+        # 记录输入尺寸供 dual mode 使用
+        input_w, input_h = crop_w, crop_h
 
         # 检测最终输出分辨率，决定裁切比例
         out_cfg = ctx.config.get("output", {})
@@ -76,14 +80,17 @@ class KenBurnsStage:
         # 输出文件名基于输入 stem，加上分辨率后缀避免覆盖
         stem = Path(input_path).stem
         if mode == "dual":
-            # 根据目标宽高比决定裁切宽度
+            # 根据目标宽高比决定裁切尺寸
             if is_vertical:
                 # 竖版 9:16：裁切宽度 = height * 9/16（和原来一样）
-                target_w = int(crop_h * 9.0 / 16.0)
+                target_h = crop_h
+                target_w = int(target_h * 9.0 / 16.0)
                 ratio_suffix = "_9x16"
             else:
-                # 横版 16:9：裁切宽度 = height * 16/9（更宽的视角，export 时不会过度放大）
-                target_w = int(crop_h * 16.0 / 9.0)
+                # 横版 16:9：输出高度 = 输入宽度（即竖版裁切后的宽度，作为横版的高度）
+                # 这样横版和竖版用同一个输入视频，crop 不会出界
+                target_h = crop_w
+                target_w = int(target_h * 16.0 / 9.0)
                 ratio_suffix = "_16x9"
             target_w = target_w if target_w % 2 == 0 else target_w - 1
             out_path = ctx.output_dir / f"{stem}_kenburns{ratio_suffix}.mp4"
@@ -273,9 +280,11 @@ class KenBurnsStage:
             motion_zoom_bias = max(0.9, min(motion_zoom_bias, 1.05))
 
             # 横纵分别缩放，比例接近，体型视觉稳定
-            # zoom 永远 >= 1.0，防止 scaled 比 target 小导致裁切出界
-            zoom_h = max(1.0, (1.0 + (close_zoom_h - 1.0) * scene_factor) * motion_zoom_bias)
-            zoom_v = max(1.0, (1.0 + (close_zoom_v - 1.0) * scene_factor) * motion_zoom_bias)
+            # zoom 基础值：确保 scaled 尺寸 ≥ target 尺寸
+            zoom_base_h = max(1.0, target_w / input_w)
+            zoom_base_v = max(1.0, target_h / input_h)
+            zoom_h = zoom_base_h * (1.0 + (close_zoom_h - 1.0) * scene_factor) * motion_zoom_bias
+            zoom_v = zoom_base_v * (1.0 + (close_zoom_v - 1.0) * scene_factor) * motion_zoom_bias
 
             h, w = frame.shape[:2]
             new_w = int(w * zoom_h)
@@ -394,8 +403,11 @@ class KenBurnsStage:
                 motion_zoom_bias = 1.0 - motion_smooth * motion_zoom_response * 2.0
                 motion_zoom_bias = max(0.9, min(motion_zoom_bias, 1.05))
 
-                zoom_h = max(1.0, (1.0 + (close_zoom_h - 1.0) * scene_factor) * motion_zoom_bias)
-                zoom_v = max(1.0, (1.0 + (close_zoom_v - 1.0) * scene_factor) * motion_zoom_bias)
+                # zoom 基础值：确保 scaled 尺寸 ≥ target 尺寸
+                zoom_base_h = max(1.0, target_w / input_w)
+                zoom_base_v = max(1.0, target_h / input_h)
+                zoom_h = zoom_base_h * (1.0 + (close_zoom_h - 1.0) * scene_factor) * motion_zoom_bias
+                zoom_v = zoom_base_v * (1.0 + (close_zoom_v - 1.0) * scene_factor) * motion_zoom_bias
 
                 h, w = frame.shape[:2]
                 new_w = int(w * zoom_h)
