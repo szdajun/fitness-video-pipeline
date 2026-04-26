@@ -248,27 +248,28 @@ class IntroOutroStage:
         overlay_top = int(h * 0.70)
         draw.rectangle([(0, overlay_top), (w, h)], fill=(0, 0, 0))
 
-        # 第1行：频道名称（黑色区域中间，较大白色）
-        font_lg = _get_font(int(h * 0.065))
+        # 用短边作为字体大小基准（横竖屏文字大小一致）
+        ref = min(w, h)
+        font_lg = _get_font(int(ref * 0.075))
         bbox = draw.textbbox((0, 0), channel, font=font_lg)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
         cx = (w - tw) // 2
-        cy = int(overlay_top * 0.18)  # 上方黑色区域上部
+        cy = int(overlay_top * 0.18)
         draw.text((cx, cy), channel, font=font_lg, fill=(255, 255, 255))
 
         # 第2行：带操人：xxx（视频区域中部，中等黄色）
-        font_md = _get_font(int(h * 0.08))
+        font_md = _get_font(int(ref * 0.09))
         lead_text = f"带操人：{lead_name}"
         bbox = draw.textbbox((0, 0), lead_text, font=font_md)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
         cx = (w - tw) // 2
-        cy = int(h * 0.40) - th // 2  # 视频区域中部
+        cy = int(h * 0.40) - th // 2
         draw.text((cx, cy), lead_text, font=font_md, fill=(255, 220, 50))
 
         # 第3行：地点/日期（底部黑色区域中间，白色）
-        font_sm = _get_font(int(h * 0.045))
+        font_sm = _get_font(int(ref * 0.055))
         date_text = f"{location}/{date_str}"
         bbox = draw.textbbox((0, 0), date_text, font=font_sm)
         tw = bbox[2] - bbox[0]
@@ -331,16 +332,17 @@ class IntroOutroStage:
         draw = ImageDraw.Draw(pil_img)
         w, h = pil_img.size
 
-        # 4行文字配置
+        # 4行文字配置（用短边作为基准，横竖屏文字大小一致）
+        ref = min(w, h)
         lines = [
-            ("打工牛马", int(h * 0.065), (255, 220, 50)),
-            ("健身达人", int(h * 0.065), (255, 220, 50)),
-            ("关注不迷路", int(h * 0.060), (255, 255, 255)),
-            ("点击关注", int(h * 0.050), (200, 200, 200)),
+            ("打工牛马", int(ref * 0.075), (255, 220, 50)),
+            ("健身达人", int(ref * 0.075), (255, 220, 50)),
+            ("关注不迷路", int(ref * 0.070), (255, 255, 255)),
+            ("点击关注", int(ref * 0.060), (200, 200, 200)),
         ]
 
         # 计算行间距和总高度，居中于视频下半部分
-        line_spacing = int(h * 0.035)
+        line_spacing = int(ref * 0.04)
         total_height = sum(lines[i][1] for i in range(len(lines))) + line_spacing * (len(lines) - 1)
         y = int(h * 0.36)  # 视频中间偏上
 
