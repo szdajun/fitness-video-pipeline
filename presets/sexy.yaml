@@ -50,7 +50,7 @@ stages:
   intro_outro: true
   audio: true
   face_beautify: true
-  face_beautify2: false
+  face_beautify2: true
 
 energy_bar:
   width: 32
@@ -84,7 +84,7 @@ face_beautify:
   face_fill_light: 0.2
 
 face_beautify2:
-  enabled: false
+  enabled: true
   skin_smooth: 0.4
   eye_brighten: 0.5
   face_whiten: 0.15

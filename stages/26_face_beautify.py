@@ -113,7 +113,8 @@ class FaceBeautifyStage:
 
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
         # 临时目录建在 output_dir 中，避免系统临时目录短路径问题
-        tmpdir = ctx.output_dir / f"_tmp_fb_{Path(input_path).stem}_{frame_idx:08d}"
+        import time
+        tmpdir = ctx.output_dir / f"_tmp_fb_{Path(input_path).stem}_{int(time.time()*1000):08d}"
         tmpdir.mkdir(exist_ok=True)
         tmpdir_short = _to_short(str(tmpdir))
 
