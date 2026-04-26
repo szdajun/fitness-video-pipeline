@@ -48,6 +48,7 @@ stages:
   energy_bar: true
   intro_outro: true
   audio: true
+  face_beautify: true
 
 energy_bar:
   width: 32
@@ -72,3 +73,10 @@ audio:
   fade_out: 1.0
   denoise: 0
   ducking: 0
+
+face_beautify:
+  enabled: true
+  eye_brighten: 0.5
+  face_smooth: 0.35
+  eye_radius: 22
+  face_fill_light: 0.2
