@@ -34,7 +34,8 @@ ken_burns:
 output:
   width: 1920
   height: 1080
-  crf: 18
+  crf: 22
+  audio_bitrate: 128k
 
 stages:
   stabilize: false
