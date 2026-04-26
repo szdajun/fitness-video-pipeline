@@ -210,7 +210,7 @@ class IntroOutroStage:
         cap = cv2.VideoCapture(video_path)
         cap.set(cv2.CAP_PROP_POS_FRAMES, best_start)
 
-        fade_in_frames = int(0.5 * actual_fps)
+        fade_in_frames = int(cfg.get("fade_in_seconds", 1.0) * actual_fps)
         frames_to_write = []
 
         while len(frames_to_write) < window:
@@ -297,7 +297,7 @@ class IntroOutroStage:
 
         frames_to_write = []
         max_frames = int(duration * actual_fps)
-        fade_out_frames = int(0.5 * actual_fps)  # 最后0.5秒淡出
+        fade_out_frames = int(cfg.get("fade_out_seconds", 1.0) * actual_fps)  # 默认1秒淡出
 
         while len(frames_to_write) < max_frames:
             ret, frame = cap.read()

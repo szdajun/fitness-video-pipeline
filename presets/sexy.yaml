@@ -9,6 +9,7 @@ color_grade:
   clahe: true
   sharpen: 0
   temporal_smooth: 0.25
+  adaptive_contrast: 0.3
 
 skin_smooth:
   enabled: true
@@ -68,6 +69,8 @@ intro_outro:
   channel_name: "胭脂虎健身团"
   cta_text: "关注不迷路"
   audio_fade_out: 3.0
+  fade_in_seconds: 1.0
+  fade_out_seconds: 1.5
 
 audio:
   enabled: true
