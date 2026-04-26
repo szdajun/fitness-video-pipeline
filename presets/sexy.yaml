@@ -39,6 +39,7 @@ stages:
   body_warp: false
   ken_burns: true
   skin_smooth: true
+  skin_tone_filter: false
   energy_bar: true
   intro_outro: true
   audio: true
