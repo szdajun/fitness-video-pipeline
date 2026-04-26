@@ -27,6 +27,9 @@ ken_burns:
   dual_motion_response: 0.5
   dual_dwell: 0.3
   dual_motion_zoom_response: 0.3
+  dual_sway_amp: 4
+  dual_sway_freq: 1.6
+  dual_sf_inertia: 0.06
 
 output:
   width: 1920
