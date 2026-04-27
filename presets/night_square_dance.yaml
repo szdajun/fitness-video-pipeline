@@ -13,25 +13,21 @@ color_grade:
   adaptive_contrast: 0.2
 
   # ---- 高光三层处理 ----
-  # 第一层：LAB L通道高光压缩（压顶灯/地面反光/白衣高光）
   highlight_protect: 0.35
   highlight_threshold: 185
   highlight_blur: 5
 
-  # 第二层：白衣/低饱和亮区保护（高亮+低饱和 = 白衣）
   white_protect: 0.20
   white_value_threshold: 200
   white_sat_threshold: 60
   white_protect_blur: 5
 
-  # 第三层：大面积灯区额外抑制（顶灯/灯柱泛白）
   light_region_protect: 0.18
   light_region_threshold: 235
   light_region_min_area: 2500
   light_region_blur: 21
 
 body_warp:
-  # 多人远景场景下塑形要非常克制
   overall_slim: 0.99
   waist_slim: 0.98
   leg_lengthen: 1.02
@@ -68,7 +64,7 @@ stages:
   intro_outro: true
   audio: true
   face_beautify: true
-  face_beautify2: false
+  face_beautify2: true
 
 skin_smooth:
   enabled: true
@@ -103,5 +99,12 @@ face_beautify:
   face_fill_light: 0.15
   eye_radius: 22
   workers: 4
-  eye_radius: 20
-  face_fill_light: 0.15
+
+face_beautify2:
+  enabled: true
+  skin_smooth: 0.4
+  eye_brighten: 0.5
+  face_whiten: 0.15
+  face_slim: 0.0
+  eye_enlarge: 0.0
+  workers: 4

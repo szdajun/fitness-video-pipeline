@@ -110,3 +110,4 @@ face_beautify2:
   face_whiten: 0.3
   face_slim: 0.15
   eye_enlarge: 0.2
+  workers: 4
