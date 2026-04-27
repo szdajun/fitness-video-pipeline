@@ -9,6 +9,11 @@
 
 import cv2
 from lib.utils import path_exists
+from lib.crop_strategy import (
+    build_tracks, select_lead_track, classify_frames,
+    merge_segments, get_lead_center_in_segment,
+    _body_center_x, _body_size_score,
+)
 import numpy as np
 import subprocess
 import shutil
@@ -83,99 +88,24 @@ class H2VConvertStage:
 
         # ========== Step 1: 追踪各人，综合评分确定领操人 ==========
         print(f"    身份追踪 ({total_frames} 帧)...")
-        # 用位置+体型追踪：匹配时用身体中心x距离
-        tracks = {}  # track_id -> {"cx_list": [], "body_size_list": [], "count": 0}
-
-        for fi in range(total_frames):
-            pose_data = keypoints.get(fi)
-            if not pose_data:
-                continue
-
-            frame_detections = []
-            for pi, person_kps in enumerate(pose_data):
-                cx = self._body_center_x(person_kps)
-                body_size = self._body_size_score(person_kps)
-                if cx is None:
-                    cx = 0.5
-                frame_detections.append((pi, cx, body_size))
-
-            # 简单最近邻匹配：分配到距离最近的 track
-            assigned = set()
-            for pi, cx, body_size in frame_detections:
-                best_tid = None
-                best_dist = float('inf')
-                for tid, trk in tracks.items():
-                    if tid in assigned:
-                        continue
-                    prev_cx = np.median(trk["cx_list"]) if trk["cx_list"] else cx
-                    dist = abs(cx - prev_cx)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_tid = tid
-
-                # 距离阈值：>0.2 认为是新人
-                if best_tid is not None and best_dist < 0.2:
-                    tracks[best_tid]["cx_list"].append(cx)
-                    tracks[best_tid]["body_size_list"].append(body_size)
-                    tracks[best_tid]["count"] += 1
-                    assigned.add(best_tid)
-                else:
-                    # 新建 track
-                    new_tid = len(tracks)
-                    tracks[new_tid] = {
-                        "cx_list": [cx],
-                        "body_size_list": [body_size],
-                        "count": 1,
-                    }
-                    assigned.add(new_tid)
-
-        if not tracks:
-            tracks = {0: {"cx_list": [0.5], "body_size_list": [1.0], "count": total_frames}}
-
-        # 综合评分: 帧数 × 平均肩宽×身高 (领操人通常在画面中央且体型大)
-        lead_tid = max(tracks, key=lambda tid: self._lead_score(tracks[tid]))
-        lead_cx = np.median(tracks[lead_tid]["cx_list"])
-        lead_size = np.median(tracks[lead_tid]["body_size_list"])
+        tracks = build_tracks(keypoints, total_frames)
+        lead_tid, lead_track = select_lead_track(tracks)
+        lead_cx = np.median(lead_track["cx_list"])
+        lead_size = np.median(lead_track["body_size_list"])
         print(f"    身份数: {len(tracks)}, 领操人: tid={lead_tid}, "
               f"x_center={lead_cx:.3f}, body_size={lead_size:.3f}, "
-              f"帧数={tracks[lead_tid]['count']}")
+              f"帧数={lead_track['count']}")
 
         # ========== Step 2: 逐帧决定场景类型 ==========
-        # 策略: 完全用人数判断，不用体型
-        # 人数 >= 3 → 全景（多人场景）
-        # 人数 <= 2 → 领操人特写（单人/双人close-up）
-        lead_sizes = [s for s in tracks[lead_tid]["body_size_list"] if s > 0]
-        lead_size_median = np.median(lead_sizes) if lead_sizes else 1.0
         PANO_PERSON_THRESHOLD = 3
         print(f"    逐帧判断（全景人数>={PANO_PERSON_THRESHOLD}）...")
-        frame_decisions = []
-        lead_frames = other_frames = multi_frames = 0
-
-        for fi in range(total_frames):
-            pose_data = keypoints.get(fi)
-            num = len(pose_data) if pose_data else 0
-
-            if num == 0:
-                decision = "other"
-            elif num >= PANO_PERSON_THRESHOLD:
-                decision = "multi"
-            else:
-                decision = "lead"
-
-            frame_decisions.append(decision)
-            if decision == "lead":
-                lead_frames += 1
-            elif decision == "other":
-                other_frames += 1
-            else:
-                multi_frames += 1
-
-        print(f"    场景: 领操人特写={lead_frames}帧, "
-              f"其他人员={other_frames}帧, 整体={multi_frames}帧")
+        frame_decisions, stats = classify_frames(keypoints, total_frames, PANO_PERSON_THRESHOLD)
+        print(f"    场景: 领操人特写={stats['lead']}帧, "
+              f"其他人员={stats['other']}帧, 整体={stats['multi']}帧")
 
         # ========== Step 3: 分段 ==========
-        MIN_SEG = max(int(fps * 0.8), 15)  # 降低到0.8秒或15帧，保留更多短全景
-        segments = self._merge_segments(frame_decisions, MIN_SEG)
+        MIN_SEG = max(int(fps * 0.8), 15)
+        segments = merge_segments(frame_decisions, MIN_SEG)
         print(f"    分段: {len(segments)}, 最短{MIN_SEG}帧")
         total_seg_frames = sum(end_f - start_f + 1 for start_f, end_f, _ in segments)
         print(f"    段内帧数合计: {total_seg_frames} / {total_frames}")
@@ -197,15 +127,9 @@ class H2VConvertStage:
 
             if dtype == "lead":
                 # 以领操人位置为中心的 9:16 裁剪
-                cx_list = []
-                for fi in range(start_f, end_f + 1):
-                    pose_data = keypoints.get(fi)
-                    if pose_data:
-                        for pi, person_kps in enumerate(pose_data):
-                            cx = self._body_center_x(person_kps)
-                            if cx is not None and abs(cx - lead_cx) < 0.15:
-                                cx_list.append(cx)
-                seg_lead_cx = np.median(cx_list) if cx_list else lead_cx
+                seg_lead_cx = get_lead_center_in_segment(
+                    keypoints, segments, lead_tid, lead_cx,
+                    start_f, end_f, orig_w, crop9_w)
                 crop9_x = int(seg_lead_cx * orig_w - crop9_w / 2)
                 crop9_x = max(0, min(crop9_x, orig_w - crop9_w))
                 crop9_x = crop9_x if crop9_x % 2 == 0 else crop9_x - 1
@@ -350,62 +274,6 @@ class H2VConvertStage:
         with open(kp_file, "w") as f:
             json.dump(cropped_keypoints, f)
         print(f"    关键点已保存: {kp_file.name}")
-
-    def _body_center_x(self, person_kps):
-        """计算人体水平中心（归一化）"""
-        kps = np.array(person_kps)
-        vis = kps[:, 2] > 0.5
-        if vis.sum() < 6:
-            return None
-        shoulders_cx = (kps[11][0] + kps[12][0]) / 2
-        hips_cx = (kps[23][0] + kps[24][0]) / 2
-        return (shoulders_cx + hips_cx) / 2
-
-    def _body_size_score(self, person_kps):
-        """计算人体大小评分（肩宽×身高）"""
-        kps = np.array(person_kps)
-        vis = kps[:, 2] > 0.5
-        if vis.sum() < 8:
-            return 0.0
-        left_shoulder = kps[11]
-        right_shoulder = kps[12]
-        nose = kps[0]
-        left_ankle = kps[27]
-        right_ankle = kps[28]
-        shoulder_w = abs(right_shoulder[0] - left_shoulder[0])
-        body_h = abs((left_ankle[1] + right_ankle[1]) / 2 - nose[1])
-        return shoulder_w * body_h
-
-    def _lead_score(self, track):
-        """领操人综合评分: 帧数 × 平均体型大小"""
-        frame_count = track["count"]
-        avg_size = np.mean(track["body_size_list"]) if track["body_size_list"] else 0.0
-        # 领操人通常出现次数多且体型大（离镜头近）
-        return frame_count * (avg_size ** 0.5)
-
-    def _merge_segments(self, decisions, min_frames):
-        if not decisions:
-            return []
-        raw = []
-        start = 0
-        cur = decisions[0]
-        for i in range(1, len(decisions)):
-            if decisions[i] == cur:
-                continue
-            raw.append((start, i - 1, cur))
-            start = i
-            cur = decisions[i]
-        raw.append((start, len(decisions) - 1, cur))
-
-        merged = [raw[0]] if raw else []
-        for seg in raw[1:]:
-            last = merged[-1]
-            seg_len = seg[1] - seg[0] + 1
-            if seg_len < min_frames:
-                merged[-1] = (last[0], seg[1], last[2])
-            else:
-                merged.append(seg)
-        return merged
 
     def _create_black(self, path, w, h, fps, num_frames):
         writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"),
