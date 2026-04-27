@@ -5,6 +5,7 @@
 
 import cv2
 from lib.utils import path_exists
+from lib.highlight_protect import optimize_night_highlights
 import numpy as np
 from pathlib import Path
 
@@ -175,19 +176,46 @@ class ColorGradeStage:
                 lab = cv2.merge([l, a, b])
                 frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-            # 8. CLAHE 自适应直方图均衡 (提亮暗部)
+            # 8. 夜景高光三层处理（压灯区/护白衣/抑灯斑）
+            night_highlight_cfg = {
+                k.replace("highlight_", "").replace("white_", "").replace("light_region_", ""): v
+                for k, v in cfg.items()
+                if k in (
+                    "highlight_protect", "highlight_threshold", "highlight_blur",
+                    "white_protect", "white_value_threshold", "white_sat_threshold", "white_protect_blur",
+                    "light_region_protect", "light_region_threshold", "light_region_min_area", "light_region_blur",
+                )
+            }
+            # 用回原始 key 名传递给 optimize_night_highlights
+            night_highlight_cfg_raw = {
+                "highlight_protect": cfg.get("highlight_protect", 0.0),
+                "highlight_threshold": cfg.get("highlight_threshold", 185),
+                "highlight_blur": cfg.get("highlight_blur", 5),
+                "white_protect": cfg.get("white_protect", 0.0),
+                "white_value_threshold": cfg.get("white_value_threshold", 200),
+                "white_sat_threshold": cfg.get("white_sat_threshold", 60),
+                "white_protect_blur": cfg.get("white_protect_blur", 5),
+                "light_region_protect": cfg.get("light_region_protect", 0.0),
+                "light_region_threshold": cfg.get("light_region_threshold", 235),
+                "light_region_min_area": cfg.get("light_region_min_area", 2500),
+                "light_region_blur": cfg.get("light_region_blur", 21),
+            }
+            if any(v != 0.0 for k, v in night_highlight_cfg_raw.items() if "protect" in k or "threshold" in k):
+                frame = optimize_night_highlights(frame, night_highlight_cfg_raw)
+
+            # 9. CLAHE 自适应直方图均衡 (提亮暗部)
             if clahe_obj is not None:
                 lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
                 lab[:, :, 0] = clahe_obj.apply(lab[:, :, 0])
                 frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-            # 9. 锐化 (unsharp mask)
+            # 10. 锐化 (unsharp mask)
             sharpen = cfg.get("sharpen", 0)
             if sharpen > 0:
                 blurred = cv2.GaussianBlur(frame, (0, 0), 3)
                 frame = cv2.addWeighted(frame, 1.0 + sharpen, blurred, -sharpen, 0)
 
-            # 10. 时间平滑 (帧间混合，消除色块跳动)
+            # 11. 时间平滑 (帧间混合，消除色块跳动)
             temporal_smooth = cfg.get("temporal_smooth", 0)
             if temporal_smooth > 0 and prev_frame is not None:
                 frame = cv2.addWeighted(frame, 1.0 - temporal_smooth,
