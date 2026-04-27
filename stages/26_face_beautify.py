@@ -4,7 +4,7 @@
 包括瞳孔、眼角、眉毛、嘴唇等细部位置。
 只针对领操人面部处理，不影响背景和其他人。
 
-多进程并行：使用 ProcessPoolExecutor 并行处理多帧。
+多进程并行：使用 spawn 上下文的 multiprocessing.Pool。
 
 用法（在配置中）:
     face_beautify:
@@ -26,7 +26,6 @@ import ctypes
 import subprocess
 import time
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from lib.utils import path_exists
 from lib.face_mesh import FaceMeshDetector
@@ -277,23 +276,11 @@ class FaceBeautifyStage:
                 tmpdir_short, w, h, f"worker_{ci}"
             ))
 
-        # Windows 需要 spawn，Linux 用 fork
-        try:
-            multiprocessing.set_start_method('spawn', force=True)
-        except RuntimeError:
-            pass
-
-        completed_chunks = 0
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = {executor.submit(_face_beautify_worker, args): args[0] for args in worker_args}
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                    completed_chunks += 1
-                    print(f"    Worker {completed_chunks}/{len(chunks)} 完成")
-                except Exception as e:
-                    print(f"    Worker 失败: {e}")
-
+        # 使用 spawn 上下文避免 MediaPipe protobuf 冲突
+        mp_ctx = multiprocessing.get_context('spawn')
+        with mp_ctx.Pool(num_workers) as pool:
+            results = pool.map(_face_beautify_worker, worker_args)
+        completed_chunks = len([r for r in results if r is not None])
         print(f"    并行处理完成: {completed_chunks}/{len(chunks)} 块")
 
         # ---- FFmpeg 编码 ----
