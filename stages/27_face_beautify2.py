@@ -6,7 +6,7 @@
 - 可选的 FaceParser 皮肤分割（只美颜皮肤区域，不影响背景）
 - 瘦脸、大眼、磨皮、提亮综合效果
 
-多进程并行：使用 ProcessPoolExecutor 并行处理多帧。
+多进程并行：使用 spawn 上下文的 multiprocessing.Pool。
 
 配置:
     face_beautify2:
@@ -31,7 +31,6 @@ import tempfile
 import subprocess
 import time
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from lib.utils import path_exists
 
@@ -354,22 +353,11 @@ class FaceBeautify2Stage:
                 tmpdir_short, w, h, f"worker_{ci}"
             ))
 
-        try:
-            multiprocessing.set_start_method('spawn', force=True)
-        except RuntimeError:
-            pass
-
-        completed_chunks = 0
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = {executor.submit(_face_beautify2_worker, args): args[0] for args in worker_args}
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                    completed_chunks += 1
-                    print(f"    Worker {completed_chunks}/{len(chunks)} 完成")
-                except Exception as e:
-                    print(f"    Worker 失败: {e}")
-
+        # 使用 spawn 上下文避免 MediaPipe protobuf 冲突
+        mp_ctx = multiprocessing.get_context('spawn')
+        with mp_ctx.Pool(num_workers) as pool:
+            results = pool.map(_face_beautify2_worker, worker_args)
+        completed_chunks = len([r for r in results if r is not None])
         print(f"    并行处理完成: {completed_chunks}/{len(chunks)} 块")
 
         # ---- FFmpeg 编码 ----
