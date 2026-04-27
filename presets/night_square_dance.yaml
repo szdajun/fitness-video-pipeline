@@ -100,5 +100,8 @@ face_beautify:
   enabled: true
   eye_brighten: 0.4
   face_smooth: 0.3
+  face_fill_light: 0.15
+  eye_radius: 22
+  workers: 4
   eye_radius: 20
   face_fill_light: 0.15

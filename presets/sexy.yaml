@@ -101,6 +101,7 @@ face_beautify:
   face_smooth: 0.35
   eye_radius: 22
   face_fill_light: 0.2
+  workers: 4
 
 face_beautify2:
   enabled: true
