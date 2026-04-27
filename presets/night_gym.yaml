@@ -10,6 +10,24 @@ color_grade:
   sharpen: 0.08        # 轻度锐化
   temporal_smooth: 0.2 # 时序平滑，减少噪点闪烁
 
+  # ---- 夜景高光三层处理 ----
+  # 第一层：LAB L通道高光压缩（压灯区/亮地面/白衣高光）
+  highlight_protect: 0.35
+  highlight_threshold: 185
+  highlight_blur: 5
+
+  # 第二层：白衣/低饱和亮区保护（高亮+低饱和）
+  white_protect: 0.20
+  white_value_threshold: 200
+  white_sat_threshold: 60
+  white_protect_blur: 5
+
+  # 第三层：大面积灯区额外抑制（连通域分析）
+  light_region_protect: 0.18
+  light_region_threshold: 235
+  light_region_min_area: 2500
+  light_region_blur: 21
+
 # 不做短视频处理，只做色彩增强
 stages:
   stabilize: false

@@ -11,6 +11,21 @@ color_grade:
   temporal_smooth: 0.25
   adaptive_contrast: 0.3
 
+  # ---- 夜景高光三层处理（夜景广场健身场景） ----
+  highlight_protect: 0.25
+  highlight_threshold: 185
+  highlight_blur: 5
+
+  white_protect: 0.15
+  white_value_threshold: 200
+  white_sat_threshold: 60
+  white_protect_blur: 5
+
+  light_region_protect: 0.12
+  light_region_threshold: 235
+  light_region_min_area: 2500
+  light_region_blur: 21
+
 skin_smooth:
   enabled: true
   strength: 0.35

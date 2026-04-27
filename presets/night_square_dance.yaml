@@ -1,0 +1,104 @@
+# 夜景广场健身专用 preset
+# 适用：夜景户外广场/棚下集体健身，多人跟练，领操人穿白衣
+# 特点：保守裁切保腿脚、多人中景优先、高光精细控制、轻后处理
+
+color_grade:
+  brightness: 5
+  contrast: 1.05
+  saturation: 1.05
+  warmth: 0
+  clahe: true
+  sharpen: 0.05
+  temporal_smooth: 0.3
+  adaptive_contrast: 0.2
+
+  # ---- 高光三层处理 ----
+  # 第一层：LAB L通道高光压缩（压顶灯/地面反光/白衣高光）
+  highlight_protect: 0.35
+  highlight_threshold: 185
+  highlight_blur: 5
+
+  # 第二层：白衣/低饱和亮区保护（高亮+低饱和 = 白衣）
+  white_protect: 0.20
+  white_value_threshold: 200
+  white_sat_threshold: 60
+  white_protect_blur: 5
+
+  # 第三层：大面积灯区额外抑制（顶灯/灯柱泛白）
+  light_region_protect: 0.18
+  light_region_threshold: 235
+  light_region_min_area: 2500
+  light_region_blur: 21
+
+body_warp:
+  # 多人远景场景下塑形要非常克制
+  overall_slim: 0.99
+  waist_slim: 0.98
+  leg_lengthen: 1.02
+
+ken_burns:
+  mode: smooth
+  smooth_zoom_range: [1.0, 1.02]
+  smooth_pan_range: [-0.01, 0.01]
+
+energy_bar:
+  width: 32
+  margin_right: 20
+  margin_bottom: 60
+  height: 400
+  smoothing: 0.85
+  min_fill_ratio: 0.15
+  motion_scale: 200
+
+output:
+  width: 1920
+  height: 1080
+  crf: 22
+  audio_bitrate: 128k
+
+stages:
+  stabilize: false
+  h2v_convert: true
+  body_warp: true
+  ken_burns: true
+  skin_smooth: true
+  skin_tone_filter: false
+  beat_flash: true
+  energy_bar: true
+  intro_outro: true
+  audio: true
+  face_beautify: true
+  face_beautify2: false
+
+skin_smooth:
+  enabled: true
+  strength: 0.25
+  d: 7
+  sigmaColor: 15
+  sigmaSpace: 15
+  downscale: 0.5
+  skin_detect: true
+
+audio:
+  enabled: true
+  target_lufs: -14.0
+  fade_in: 0.5
+  fade_out: 1.0
+  denoise: 0
+  ducking: 0
+
+intro_outro:
+  intro_duration: 4.0
+  outro_duration: 2.5
+  channel_name: "胭脂虎健身团"
+  cta_text: "关注不迷路"
+  audio_fade_out: 3.0
+  fade_in_seconds: 1.0
+  fade_out_seconds: 1.5
+
+face_beautify:
+  enabled: true
+  eye_brighten: 0.4
+  face_smooth: 0.3
+  eye_radius: 20
+  face_fill_light: 0.15
