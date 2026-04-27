@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.env
+
+# Output
+output/
+
+# Video intermediates
+*_keypoints.json
+*_manifest.json
+*_metrics.json
+*_stabilized.mp4
+*_vectors.trf
+*_audio.aac
+
+# Debug images
+check_*.jpg
+dbg_*.jpg
+debug_*.png
+*.py.jpg
+
+# Temp
+*.tmp
+*.log
+
+# Model files
+*.pt
+*.onnx
+*.tflite
+
+# OS
+.DS_Store
+Thumbs.db
