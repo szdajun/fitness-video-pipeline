@@ -10,7 +10,18 @@ import shutil
 import ctypes
 import cv2
 from lib.utils import path_exists
+from lib.ai_upscale import AIUpscaler
 from pathlib import Path
+
+def _to_short(path_str):
+    """转换到 Windows 短路径（中文路径兼容）"""
+    buf_size = ctypes.windll.kernel32.GetShortPathNameW(str(path_str), None, 0)
+    if buf_size == 0:
+        return str(path_str)
+    buf = ctypes.create_unicode_buffer(buf_size)
+    ctypes.windll.kernel32.GetShortPathNameW(str(path_str), buf, buf_size)
+    return buf.value
+
 
 
 class ExportStage:
@@ -18,7 +29,8 @@ class ExportStage:
         # 按优先级找最终处理的视频
         # face_beautify2 优先于 face_beautify（InsightFace vs MediaPipe）
         # face_beautify 优先于 beatflash_path（美颜效果更强）
-        processed_path = (ctx.get("face_beautify2_path") or
+        processed_path = (ctx.get("rife_path") or
+                         ctx.get("face_beautify2_path") or
                          ctx.get("face_beautify_path") or
                          ctx.get("beatflash_path") or
                          ctx.get("energybar_path") or
@@ -62,6 +74,7 @@ class ExportStage:
         has_outro = outro_path and path_exists(outro_path)
 
         if has_intro or has_outro:
+            # 纯视频拼接（音频在最后导出阶段从原片提取 + 填充静音）
             concat_files = []
             if has_intro:
                 concat_files.append(str(Path(intro_path).resolve()))
@@ -71,25 +84,21 @@ class ExportStage:
 
             combined_path = ctx.output_dir / "_combined.mp4"
             n = len(concat_files)
-
-            # 用 concat filter 替代 concat demuxer，保持时间戳连续性
-            filter_parts = []
-            for i in range(n):
-                filter_parts.append(f"[{i}:v]")
-            filter_parts.append(f"concat=n={n}:v=1:a=0[outv]")
+            filter_parts = ''.join([f"[{i}:v]" for i in range(n)])
+            filter_parts += f"concat=n={n}:v=1:a=0[outv]"
 
             cmd = [ffmpeg, "-y"]
             for fp in concat_files:
-                cmd.extend(["-i", str(Path(fp).resolve())])
-            cmd.extend(["-filter_complex", "".join(filter_parts),
+                cmd.extend(["-i", fp])
+            cmd.extend(["-filter_complex", filter_parts,
                         "-map", "[outv]",
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                        "-an",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "1",
                         str(combined_path.resolve())])
-            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
             if r.returncode != 0:
-                print(f"    片头片尾拼接(filter_complex)失败: {r.stderr[-200:]}")
-                combined_path = processed_path
+                print(f"    片头片尾拼接失败: {r.stderr[-200:]}")
+                has_intro = has_outro = False
             else:
                 print(f"    片头片尾拼接完成 ({n}段)")
                 processed_path = str(combined_path)
@@ -104,7 +113,7 @@ class ExportStage:
             probe = subprocess.run(
                 [ffprobe, "-v", "error", "-show_entries", "format=duration",
                  "-of", "csv=p=0", str(processed_path)],
-                capture_output=True, text=True
+                capture_output=True, text=True, encoding="utf-8", errors="replace"
             )
             if probe.stdout.strip():
                 total_sec = float(probe.stdout.strip())
@@ -162,11 +171,19 @@ class ExportStage:
         audio_path = ctx.get("audio_path")
 
         if has_ffmpeg:
-            # 缩放滤镜 + 锐化（填满画面）
+            # 缩放滤镜 — 根据方向自动选择最优算法
             sharpen = output_cfg.get("sharpen", 0.5)
+            resize_filter = output_cfg.get("resize_filter", "lanczos")
             if out_w and out_h:
-                # 填满：强制缩放填充整个画面（不保留原始比例）
-                scale_filter = f"scale={out_w}:{out_h}:flags=bilinear"
+                # 自动选择缩放算法: 放大用lanczos, 缩小用area, 可选cubic
+                if resize_filter == "auto":
+                    if in_w > 0 and in_h > 0 and (out_w < in_w or out_h < in_h):
+                        resize_filter = "area"  # 缩小用 area 抗锯齿
+                    else:
+                        resize_filter = "lanczos"  # 放大用 lanczos
+                scale_flag = {"lanczos": "lanczos", "cubic": "bicubic",
+                              "area": "area", "bilinear": "bilinear"}.get(resize_filter, "lanczos")
+                scale_filter = f"scale={out_w}:{out_h}:flags={scale_flag}"
             else:
                 scale_filter = ""
             if sharpen > 0:
@@ -175,6 +192,58 @@ class ExportStage:
                 else:
                     scale_filter = f"unsharp=5:5:{sharpen}"
             res_info = f"{out_w}x{out_h}" if out_w and out_h else "原始分辨率"
+
+            # ---- AI 超分（Real-ESRGAN, GPU 可选） ----
+            if output_cfg.get("upscale_mode") == "realesrgan" and out_w and out_h:
+                upscaler = AIUpscaler(
+                    model_name=output_cfg.get("realesrgan_model", "realesrgan-x4plus"),
+                    scale=output_cfg.get("realesrgan_scale", 2),
+                    tile=output_cfg.get("realesrgan_tile", 256),
+                    gpu=output_cfg.get("realesrgan_gpu", True),
+                )
+                if upscaler.is_available() and AIUpscaler.need_upscale(in_w, in_h, out_w, out_h):
+                    print(f"    AI 超分: {in_w}x{in_h} → {out_w}x{out_h} ...")
+                    import tempfile, os
+                    tmpdir = Path(tempfile.mkdtemp(prefix="esrgan_"))
+                    try:
+                        cap_ai = cv2.VideoCapture(processed_path)
+                        fi = 0
+                        while True:
+                            ret, frm = cap_ai.read()
+                            if not ret:
+                                break
+                            up = upscaler.upscale(frm)
+                            up = AIUpscaler.preprocess(up, out_w, out_h)
+                            cv2.imwrite(str(tmpdir / f"f_{fi:06d}.png"), up)
+                            fi += 1
+                            if fi % 200 == 0:
+                                print(f"    超分进度: {fi} 帧")
+                        cap_ai.release()
+                        # 编码超分后视频（无音频）
+                        esrgan_video = ctx.output_dir / f"{video_path.stem}_esrgan.mp4"
+                        short_in = _to_short(str(tmpdir))
+                        short_out = _to_short(str(esrgan_video))
+                        subprocess.run([
+                            ffmpeg, "-y", "-framerate", str(fps),
+                            "-i", f"{short_in}/f_%06d.png",
+                            "-c:v", "libx264", "-preset", preset,
+                            "-crf", str(crf), "-pix_fmt", "yuv420p", "-an",
+                            short_out,
+                        ], capture_output=True, check=True)
+                        processed_path = str(esrgan_video)
+                        in_w, in_h = out_w, out_h
+                        # 替换 scale_filter 为空（已经超分到目标分辨率）
+                        scale_filter = ""
+                        if sharpen > 0:
+                            scale_filter = f"unsharp=5:5:{sharpen}"
+                        res_info = f"{out_w}x{out_h}(AI)"
+                        print(f"    AI 超分完成: {fi} 帧")
+                    except Exception as e:
+                        print(f"    AI 超分失败: {e}，回退 lanczos")
+                    finally:
+                        shutil.rmtree(tmpdir, ignore_errors=True)
+                elif not upscaler.is_available():
+                    print(f"    提示: Real-ESRGAN 未安装，回退 {resize_filter} 缩放")
 
             fade_start = max(0, total_sec - video_fade_out)
 
@@ -215,39 +284,80 @@ class ExportStage:
                 print(f"    FFmpeg 合并输出 ({res_info}, CRF {crf}, preset={preset}, audio={audio_bitrate})...")
 
                 # 音频淡出滤镜（使用intro_outro配置中的audio_fade_out）
-                # 注意：combined视频时长(59s)可能比原音频(55s)长，需要确保fade在音频范围内
-                audio_fade_start = max(0, total_sec - audio_fade_d)
-                audio_fade = f"afade=type=out:st={audio_fade_start:.2f}:d={audio_fade_d}" if audio_fade_d > 0 else ""
+                # 注意：combined视频时长可能比原音频长，从原片提取音频 + apad填充静音 + 淡出
                 vf_final = scale_filter  # 禁用 export 阶段的视频淡出（outro已有内置淡出）
 
-                if audio_path:
-                    # 视频用 intro/outro 合并后的，音频用原始（附加循环+淡出滤镜）
-                    cmd = [ffmpeg, "-y",
-                           "-i", str(processed_path),  # combined video (intro+main+outro, no audio)
-                           "-i", str(audio_path)]       # original audio
-                    cmd.extend(["-map", "0:v:0", "-map", "1:a"])
-                    if has_intro or has_outro:
-                        # 片头片尾拼接时音频短于视频，用aloop循环音频后用afade淡出
-                        audio_filter = f"aloop=loop=-1:size=2147483647,asetpts=N/SR/TB,afade=type=out:st={total_sec - audio_fade_d:.3f}:d={audio_fade_d}"
-                        cmd.extend(["-af", audio_filter])
-                        cmd.extend(["-t", f"{total_sec:.3f}"])
-                    elif audio_fade:
-                        cmd.extend(["-af", audio_fade])
-                else:
-                    cmd = [ffmpeg, "-y",
-                           "-i", str(processed_path),  # combined video (no audio)
-                           "-i", str(video_path)]       # original video (has audio)
-                    # 片头片尾拼接时音频短于视频，用aloop循环音频后用afade淡出
-                    if has_intro or has_outro:
-                        # aloop循环到视频长度，afade从结尾开始淡出
-                        audio_filter = f"aloop=loop=-1:size=2147483647,asetpts=N/SR/TB,afade=type=out:st={total_sec - audio_fade_d:.3f}:d={audio_fade_d}"
-                        cmd.extend(["-map", "0:v:0", "-map", "1:a"])
-                        cmd.extend(["-af", audio_filter])
-                        cmd.extend(["-t", f"{total_sec:.3f}"])
+                if has_intro or has_outro:
+                    # 拼接后的视频是纯视频，从原片提取音频
+                    audio_src = str(audio_path) if (audio_path and Path(audio_path).exists()) else str(ctx.input_path)
+
+                    # 获取源音频时长
+                    probe = subprocess.run(
+                        [ffprobe, "-v", "error", "-show_entries", "format=duration",
+                         "-of", "csv=p=0", audio_src],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace"
+                    )
+                    src_dur = float(probe.stdout.strip()) if probe.stdout.strip() else total_sec
+
+                    # 使用源实际时长计算延伸段，避免 loudnorm 扩展的静音尾
+                    content_dur = video_info["frames"] / fps
+                    xfade_dur = 2.0
+                    # 需要补的总长度 = (总时长 - 源内容) + crossfade重叠量
+                    # 这样 acrossfade 输出恰好等于 total_sec，无需 apad 静音填充
+                    need_content = total_sec - content_dur + xfade_dur
+
+                    if need_content > 0.5 and has_intro:
+                        # acrossfade：取音频内容前段做无缝循环延伸
+                        ext_start = max(0, content_dur - need_content)
+                        actual_fill = min(need_content, content_dur)
+                        fc_parts = [
+                            f"[1:a]atrim=0:{content_dur},asetpts=N/SR/TB[orig_content]",
+                            f"[1:a]atrim=start={ext_start}:duration={actual_fill},asetpts=N/SR/TB[ext]",
+                            f"[orig_content][ext]acrossfade=d={xfade_dur}[full]",
+                        ]
+                        total_filled = content_dur + actual_fill - xfade_dur
+
+                        if total_filled > total_sec:
+                            fc_parts.append(f"[full]atrim=0:{total_sec}[trimmed]")
+                            fade_st = max(0, total_sec - audio_fade_d)
+                            fc_parts.append(f"[trimmed]afade=type=out:st={fade_st:.3f}:d={audio_fade_d}[a]")
+                        else:
+                            fc_parts.append(f"[full]apad=whole_dur={total_sec}[padded]")
+                            fade_st = max(0, total_sec - audio_fade_d)
+                            fc_parts.append(f"[padded]afade=type=out:st={fade_st:.3f}:d={audio_fade_d}[a]")
+
+                        filter_complex = ";".join(fc_parts)
                     else:
-                        cmd.extend(["-map", "0:v:0", "-map", "1:a:0?"])
-                        if audio_fade:
-                            cmd.extend(["-af", audio_fade])
+                        # 音频够长或没有片头，直接截断 + 填充 + 淡出
+                        fade_st = max(0, total_sec - audio_fade_d)
+                        af = f"atrim=0:{total_sec},apad=whole_dur={total_sec}"
+                        if audio_fade_d > 0:
+                            af += f",afade=type=out:st={fade_st:.3f}:d={audio_fade_d}"
+                        filter_complex = f"[1:a]{af}[a]"
+
+                    cmd = [ffmpeg, "-y",
+                           "-i", str(processed_path),
+                           "-i", audio_src,
+                           "-filter_complex", filter_complex,
+                           "-map", "0:v", "-map", "[a]"]
+                else:
+                    # 无片头片尾：直接从原片提取音频 + 淡出
+                    audio_src = str(audio_path) if (audio_path and Path(audio_path).exists()) else str(ctx.input_path)
+                    fade_st = max(0, total_sec - audio_fade_d)
+
+                    if audio_fade_d > 0:
+                        af = f"afade=type=out:st={fade_st:.3f}:d={audio_fade_d}"
+                        cmd = [ffmpeg, "-y",
+                               "-i", str(processed_path),
+                               "-i", audio_src,
+                               "-filter_complex", f"[1:a]{af}[a]",
+                               "-map", "0:v", "-map", "[a]"]
+                    else:
+                        cmd = [ffmpeg, "-y",
+                               "-i", str(processed_path),
+                               "-i", audio_src,
+                               "-map", "0:v", "-map", "1:a"]
+
                 cmd.extend(["-vf", vf_final])
                 cmd.extend(["-c:v", "libx264", "-preset", preset,
                             "-crf", str(crf),
@@ -304,6 +414,7 @@ class ExportStage:
             "_highlight.mp4",
             "_face_beautify.mp4",
             "_face_beautify2.mp4",
+            "_rife.mp4",
         ]
         removed = 0
         for suffix in intermediates:
