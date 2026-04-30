@@ -37,7 +37,7 @@ def compute_config_hash(config: dict) -> str:
     relevant_keys = [
         "stages", "body_warp", "color_grade", "ken_burns", "face_beautify",
         "face_beautify2", "skin_smooth", "energy_bar", "intro_outro",
-        "output", "preview", "full_video"
+        "output", "preview", "full_video", "rife"
     ]
     hash_data = {}
     for key in relevant_keys:
@@ -187,6 +187,15 @@ def restore_context_from_manifest(ctx, manifest: dict) -> bool:
         bf_path = outputs.get("beatflash_path")
         if bf_path and Path(bf_path).exists():
             ctx.set("beatflash_path", bf_path)
+        restored_count += 1
+
+    # rife 恢复
+    rife_stage = stages.get("rife", {})
+    if rife_stage.get("status") == "done":
+        outputs = rife_stage.get("outputs", {})
+        rife_path = outputs.get("rife_path")
+        if rife_path and Path(rife_path).exists():
+            ctx.set("rife_path", rife_path)
         restored_count += 1
 
     return restored_count > 0

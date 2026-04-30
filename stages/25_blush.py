@@ -108,8 +108,8 @@ class BlushStage:
         cmd = [ffmpeg_bin, "-y", "-v", "info",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-pix_fmt", "yuv420p", "-an", str(tmp_path_tmp)]
+               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+               "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             print(f"    FFmpeg 错误: {r.stderr[:500]}")

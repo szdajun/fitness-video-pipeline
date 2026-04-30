@@ -34,6 +34,18 @@ DEFAULT_CONFIG = {
         "saturation": 1.0,
         "warmth": 0,
         "clahe": True,
+        "vignette_strength": 0,
+        "vignette_radius": 0.8,
+        "vignette_feather": 0.35,
+        "film_grain_strength": 0,
+        "film_grain_size": 2,
+        "lut_path": "",
+        "lut_intensity": 1.0,
+        "lut_preset": "",
+        "auto_exposure": 0,
+        "ae_target": 128,
+        "ae_speed": 0.05,
+        "skin_protect": 0,
     },
     "skin_tone_filter": {
         "pink_filter": 1.0,
@@ -61,6 +73,9 @@ DEFAULT_CONFIG = {
     "ken_burns": {
         "mode": "smooth",
         "zoom_range": [1.0, 1.1],
+        "track_smooth_window": 15,
+        "track_zoom_range": [1.0, 1.08],
+        "track_margin": 0.06,
     },
     "stabilize": {
         "shakiness": 5,
@@ -68,7 +83,84 @@ DEFAULT_CONFIG = {
     },
     "preview": False,
     "preview_seconds": 3,
+    "rife": {
+        "enabled": False,
+        "target_fps": 60,
+        "gpu": True,
+        "half_precision": True,
+    },
 }
+
+
+def _validate_config_keys(user_cfg: dict, prefix: str = ""):
+    """递归校验 config key 拼写，未知 key 给出 warning"""
+    known = {
+        "stages", "h2v", "body_warp", "color_grade", "skin_tone_filter",
+        "denoise", "watermark", "blush", "ken_burns", "stabilize",
+        "preview", "preview_seconds", "output", "audio", "intro_outro",
+        "energy_bar", "face_beautify", "face_beautify2", "skin_smooth",
+        "rife",
+        # stage names
+        "pose_detect", "stabilize", "h2v_convert", "ken_burns",
+        "body_warp", "face_warp", "color_grade", "skin_smooth",
+        "skin_tone_filter", "denoise", "audio", "skeleton_overlay",
+        "person_count", "lead_box", "lead_ghost", "face_blur",
+        "motion_heatmap", "sync_score", "beat_flash", "highlight",
+        "energy_bar", "intro_outro", "watermark", "blush",
+        "face_beautify", "face_beautify2", "rife", "export",
+        # color_grade sub-keys
+        "brightness", "contrast", "saturation", "warmth", "clahe",
+        "shadow", "auto_wb", "adaptive_contrast", "sharpen",
+        "temporal_smooth", "highlight_protect", "highlight_threshold",
+        "highlight_blur", "white_protect", "white_value_threshold",
+        "white_sat_threshold", "white_protect_blur",
+        "light_region_protect", "light_region_threshold",
+        "light_region_min_area", "light_region_blur",
+        "vignette_strength", "vignette_radius", "vignette_feather",
+        "film_grain_strength", "film_grain_size",
+        "lut_path", "lut_intensity", "lut_preset",
+        "auto_exposure", "ae_target", "ae_speed", "skin_protect",
+        # ken_burns sub-keys
+        "mode", "zoom_range", "dual_close_zoom", "dual_close_zoom_v",
+        "dual_cycle_seconds", "dual_pan_amplitude", "dual_motion_response",
+        "dual_dwell", "dual_motion_zoom_response", "dual_sway_amp",
+        "dual_sway_freq", "dual_sf_inertia",
+        "track_smooth_window", "track_zoom_range", "track_margin",
+        # output sub-keys
+        "width", "height", "crf", "preset", "audio_bitrate",
+        "video_fade_out", "cut_ranges", "sharpen", "resize_filter",
+        "upscale_mode", "realesrgan_model", "realesrgan_scale",
+        "realesrgan_tile", "realesrgan_gpu",
+        # other sub-keys
+        "target_ratio", "leg_lengthen", "leg_slim", "waist_slim",
+        "head_ratio", "overall_slim", "shakiness", "accuracy",
+        "pink_filter", "warm_filter", "cool_filter", "soft_glow",
+        "denoise_strength", "denoise_mode",
+        "watermark_text", "watermark_position", "watermark_size",
+        "watermark_color", "watermark_alpha", "watermark_margin",
+        "show_date", "blush_strength", "brighten_strength",
+        "enabled", "target_fps", "gpu", "half_precision",
+        # intro_outro
+        "intro_duration", "outro_duration", "channel_name",
+        "cta_text", "audio_fade_out", "fade_in_seconds",
+        "fade_out_seconds", "location", "date",
+        # energy_bar
+        "width", "margin_right", "margin_bottom", "height",
+        "smoothing", "min_fill_ratio", "motion_scale",
+        # audio
+        "target_lufs", "fade_in", "fade_out", "denoise", "ducking",
+        "bg_music", "bg_volume",
+        # face_beautify / face_beautify2
+        "eye_brighten", "face_smooth", "eye_radius", "face_fill_light",
+        "workers", "skin_smooth", "face_whiten", "face_slim",
+        "eye_enlarge",
+    }
+    for key in user_cfg:
+        full_key = f"{prefix}.{key}" if prefix else key
+        if key not in known:
+            print(f"  [配置警告] 未知配置项: '{full_key}'", flush=True)
+        elif isinstance(user_cfg[key], dict):
+            _validate_config_keys(user_cfg[key], full_key)
 
 
 def load_config(config_path: str = None) -> dict:
@@ -79,6 +171,7 @@ def load_config(config_path: str = None) -> dict:
         with open(config_path, "r", encoding="utf-8") as f:
             user_cfg = yaml.safe_load(f)
         if user_cfg:
+            _validate_config_keys(user_cfg)
             _deep_merge(cfg, user_cfg)
 
     return cfg

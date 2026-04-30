@@ -74,8 +74,8 @@ class KenBurnsStage:
         actual_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         print(f"    ken_burns 输入: {input_path}, h2v_size={h2v_size}, video_info frames={video_info.get('frames')}, max_frames={max_frames}, 实际帧数={actual_frames}")
         if actual_frames != max_frames:
-            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
-            max_frames = actual_frames
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符")
+            max_frames = min(actual_frames, max_frames)
 
         # 输出文件名基于输入 stem，加上分辨率后缀避免覆盖
         stem = Path(input_path).stem
@@ -87,12 +87,12 @@ class KenBurnsStage:
                 target_w = int(target_h * 9.0 / 16.0)
                 ratio_suffix = "_9x16"
             else:
-                # 横版 16:9：输出高度 = 输入宽度（即竖版裁切后的宽度，作为横版的高度）
-                # 这样横版和竖版用同一个输入视频，crop 不会出界
-                target_h = crop_w
-                target_w = int(target_h * 16.0 / 9.0)
+                # 横版 16:9：直接用输出分辨率，避免非标准尺寸
+                target_h = out_h if out_h else crop_w
+                target_w = out_w if out_w else int(target_h * 16.0 / 9.0)
                 ratio_suffix = "_16x9"
             target_w = target_w if target_w % 2 == 0 else target_w - 1
+            target_h = target_h if target_h % 2 == 0 else target_h - 1
             out_path = ctx.output_dir / f"{stem}_kenburns{ratio_suffix}.mp4"
             # 用系统临时目录避免输出目录被锁的文件影响
             import tempfile
@@ -108,7 +108,7 @@ class KenBurnsStage:
                     with open(kp_file) as f:
                         cropped_keypoints = _json.load(f)
                     print(f"    从文件加载关键点: {len(cropped_keypoints)} 帧")
-            self._run_dual_ffmpeg(cap, str(tmp_path), crop_w, crop_h, target_w, max_frames, fps, cfg,
+            self._run_dual_ffmpeg(cap, str(tmp_path), crop_w, crop_h, target_w, target_h, max_frames, fps, cfg,
                            cropped_keypoints, is_vertical)
             # 完成后移动到最终路径（shutil.move 跨驱动器会做 copy+delete）
             try:
@@ -121,7 +121,50 @@ class KenBurnsStage:
                 print(f"    注意: {out_path.name} 被占用，输出改为 {alt_path.name}")
             ctx.set("h2v_size", (target_w, crop_h))
             ctx.set("ken_burns_ratio", ratio_suffix)
-        else:
+        elif mode == "auto_track":
+            out_path = ctx.output_dir / f"{stem}_kenburns.mp4"
+            import tempfile, ctypes, json as _json
+            GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+            GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+            GetShortPathNameW.restype = ctypes.c_uint
+            def to_short(p):
+                buf_size = GetShortPathNameW(str(p), None, 0)
+                if buf_size == 0:
+                    return str(p)
+                buf = ctypes.create_unicode_buffer(buf_size)
+                GetShortPathNameW(str(p), buf, buf_size)
+                return buf.value
+
+            # 加载关键点数据
+            cropped_keypoints = ctx.get("cropped_keypoints", {})
+            if not cropped_keypoints:
+                kp_file = Path(ctx.output_dir) / f"{Path(ctx.input_path).stem}_cropped_keypoints.json"
+                if kp_file.exists():
+                    with open(kp_file) as f:
+                        cropped_keypoints = _json.load(f)
+                    print(f"    从文件加载关键点: {len(cropped_keypoints)} 帧")
+            if not cropped_keypoints:
+                # 尝试未裁切的关键点
+                kp_file2 = Path(ctx.output_dir) / f"{Path(ctx.input_path).stem}_keypoints.json"
+                if kp_file2.exists():
+                    with open(kp_file2) as f:
+                        raw = _json.load(f)
+                        cropped_keypoints = raw.get("keypoints", raw)
+                    print(f"    从原始 keypoints 文件加载: {len(cropped_keypoints)} 帧")
+
+            tmpdir = Path(tempfile.mkdtemp(prefix="kb_track_"))
+            tmpdir_short = to_short(str(tmpdir))
+            tmp_fd, tmp_out_path = tempfile.mkstemp(suffix='.mp4')
+            os.close(tmp_fd)
+            tmp_out_path = Path(tmp_out_path)
+            tmp_out_short = to_short(str(tmp_out_path))
+            fps_val = fps
+            self._run_auto_track_ffmpeg(cap, str(tmpdir_short), str(tmp_out_short),
+                                        crop_w, crop_h, max_frames, cfg, fps_val, cropped_keypoints)
+            shutil.move(str(tmp_out_path), str(out_path))
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            ctx.set("ken_burns_ratio", "")
+        else:  # smooth (default)
             out_path = ctx.output_dir / f"{stem}_kenburns.mp4"
             import tempfile, ctypes
             GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
@@ -213,11 +256,94 @@ class KenBurnsStage:
         cmd = [ffmpeg_bin, "-y", "-v", "info",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-pix_fmt", "yuv420p", "-an", tmp_out_short]
+               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+               "-pix_fmt", "yuv444p", "-an", tmp_out_short]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             raise RuntimeError(f"FFmpeg smooth error: {r.stderr[-300:]}")
+
+    def _run_auto_track_ffmpeg(self, cap, tmpdir_short, tmp_out_short, crop_w, crop_h,
+                                max_frames, cfg, fps, cropped_keypoints):
+        """auto_track 模式: 智能追焦 + 渐进缩放"""
+        zoom_range = cfg.get("track_zoom_range", [1.0, 1.08])
+        smooth_window = cfg.get("track_smooth_window", 15)
+        track_margin = cfg.get("track_margin", 0.06)
+        # 第一遍: 收集所有帧的领操人水平位置
+        raw_positions = []
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        for fi in range(max_frames):
+            pos = self._get_lead_center_x(cropped_keypoints, fi, crop_w)
+            raw_positions.append(pos)
+
+        # SMA 滑动平均平滑（非因果，无延迟）
+        window = max(3, smooth_window)
+        half_w = window // 2
+        smoothed = np.ones(max_frames, dtype=np.float32) * 0.5
+        for i in range(max_frames):
+            left = max(0, i - half_w)
+            right = min(max_frames, i + half_w + 1)
+            smoothed[i] = np.mean(raw_positions[left:right])
+
+        # 场景切换检测: 位置突变 > 0.3 视为切换，重置附近平滑值
+        for i in range(1, max_frames):
+            if abs(smoothed[i] - smoothed[i - 1]) > 0.3:
+                # 用原始值替代，避免跨场景模糊
+                for j in range(max(0, i - half_w), min(max_frames, i + half_w)):
+                    smoothed[j] = raw_positions[j]
+
+        # 第二遍: 处理帧
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        frame_idx = 0
+        prev_cx = None
+
+        while frame_idx < max_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            t = frame_idx / max(max_frames - 1, 1)
+            # 渐进缩放: 从 zoom_range[0] 逐渐放大到 zoom_range[1]
+            zoom = zoom_range[0] + (zoom_range[1] - zoom_range[0]) * t
+
+            h, w = frame.shape[:2]
+            new_w = int(w * zoom)
+            new_h = int(h * zoom)
+            scaled = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+            # 以平滑后位置为中心计算裁切
+            cx_norm = smoothed[frame_idx]
+            cx = int(cx_norm * new_w - w // 2)
+
+            # SMA 位置帧间钳制，避免单帧跳变
+            if prev_cx is not None:
+                max_jump = w * 0.03  # 每帧最大移动 3%
+                cx = int(max(cx, prev_cx - max_jump) if cx < prev_cx
+                         else min(cx, prev_cx + max_jump))
+            prev_cx = cx
+
+            # 边界钳制 + margin 保持
+            margin_px = int(w * track_margin)
+            cx = max(margin_px - (new_w - w), min(cx, (new_w - w) - margin_px))
+            cx = max(0, min(cx, new_w - w))
+
+            cy = (new_h - h) // 2
+            cy = max(0, min(cy, new_h - h))
+
+            cropped = scaled[cy:cy + h, cx:cx + w]
+
+            fname = f"{tmpdir_short}/f_{frame_idx:06d}.png"
+            cv2.imwrite(fname, cropped)
+            frame_idx += 1
+
+        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        cmd = [ffmpeg_bin, "-y", "-v", "info",
+               "-framerate", str(fps),
+               "-i", f"{tmpdir_short}/f_%06d.png",
+               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+               "-pix_fmt", "yuv444p", "-an", tmp_out_short]
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            raise RuntimeError(f"FFmpeg auto_track error: {r.stderr[-300:]}")
 
     def _run_dual(self, cap, writer, input_w, input_h, target_w, max_frames, fps, cfg,
                   cropped_keypoints, is_vertical=True):
@@ -343,7 +469,7 @@ class KenBurnsStage:
 
         print(f"    _run_dual 实际写入帧数: {frame_idx}")
 
-    def _run_dual_ffmpeg(self, cap, output_path, input_w, input_h, target_w, max_frames, fps, cfg,
+    def _run_dual_ffmpeg(self, cap, output_path, input_w, input_h, target_w, target_h, max_frames, fps, cfg,
                          cropped_keypoints, is_vertical=True):
         """dual 模式: 临时图片文件 + FFmpeg concat 可靠编码"""
         import subprocess, shutil, ctypes, tempfile, os
@@ -360,8 +486,6 @@ class KenBurnsStage:
             buf = ctypes.create_unicode_buffer(buf_size)
             GetShortPathNameW(str(p), buf, buf_size)
             return buf.value
-
-        target_h = input_h
         tmpdir = Path(tempfile.mkdtemp(prefix="kb_"))
         tmpdir_short = to_short(str(tmpdir))
 
@@ -498,7 +622,7 @@ class KenBurnsStage:
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "18",
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", "yuv444p",
             "-an",
             output_short
         ]

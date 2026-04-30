@@ -164,7 +164,7 @@ class H2VConvertStage:
                 "-i", str(video_path),
                 "-t", str(dur_sec),
                 "-vf", vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "1",
                 "-an",
                 str(tmp_path)
             ]
@@ -192,7 +192,7 @@ class H2VConvertStage:
                     std_path = ctx.output_dir / f"_std_{i}.mp4"
                     cmd = [ffmpeg, "-y", "-i", str(seg_path),
                            "-vf", f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2",
-                           "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-an", str(std_path)]
+                           "-c:v", "libx264", "-preset", "fast", "-crf", "1", "-an", str(std_path)]
                     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
                     if r.returncode != 0:
                         print(f"    段{i} 重新编码失败，使用原片段")
@@ -211,7 +211,7 @@ class H2VConvertStage:
             ffmpeg, "-y",
             "-f", "concat", "-safe", "0",
             "-i", str(concat_list),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
             "-an",
             str(temp_path)
         ]
@@ -241,7 +241,7 @@ class H2VConvertStage:
         r = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0",
                            "-show_entries", "stream=duration,nb_frames",
                            "-of", "csv=p=0", str(temp_path)],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode == 0:
             print(f"    ffprobe验证: {r.stdout.strip()}")
 

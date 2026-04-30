@@ -30,6 +30,55 @@ def _get_short_path(p):
     return buf.value
 
 
+def _ensure_frame_brightness(video_path: str, min_mean: float = 8.0):
+    """检查编码后的视频是否有平均亮度过低的帧，如有则重新编码（加亮后）"""
+    cap = cv2.VideoCapture(video_path)
+    dark_frames = []
+    idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if frame.mean() < min_mean:
+            dark_frames.append(idx)
+        idx += 1
+    cap.release()
+    if not dark_frames:
+        return  # 亮度正常，无需处理
+    print(f"    警告: 检测到 {len(dark_frames)} 个暗帧，重新编码加亮...")
+    # 加亮暗帧：叠加微亮层
+    cap = cv2.VideoCapture(video_path)
+    tmpdir = Path(video_path).parent / f"_brightness_fix_{Path(video_path).stem}"
+    tmpdir.mkdir(exist_ok=True)
+    i = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if i in set(dark_frames):
+            frame = np.clip(frame.astype(np.float32) + (min_mean - frame.mean()), 0, 255).astype(np.uint8)
+        cv2.imwrite(str(tmpdir / f"f_{i:06d}.png"), frame)
+        i += 1
+    cap.release()
+
+    ffmpeg_bin = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
+    if not ffmpeg_bin.exists():
+        ffmpeg_bin = Path(shutil.which("ffmpeg") or str(ffmpeg_bin))
+    cap_fps = cv2.VideoCapture(video_path)
+    fps = cap_fps.get(cv2.CAP_PROP_FPS)
+    cap_fps.release()
+    cmd = [str(ffmpeg_bin), "-y", "-v", "warning",
+           "-framerate", str(fps),
+           "-i", str(tmpdir / "f_%06d.png"),
+           "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+           "-pix_fmt", "yuv444p", "-an",
+           str(video_path).replace("\\", "/")]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    if r.returncode != 0:
+        print(f"    加亮重编码失败: {r.stderr[-200:]}")
+
+
 def _write_video(frames, output_path, fps):
     """将帧列表通过 PNG+FFmpeg 写入视频（解决 create_writer 中文路径问题）"""
     # Use output directory for temp PNGs to avoid short-path issues
@@ -51,8 +100,8 @@ def _write_video(frames, output_path, fps):
     cmd = [ffmpeg_bin, "-y", "-v", "warning",
            "-framerate", str(fps),
            "-i", input_pattern,
-           "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-           "-pix_fmt", "yuv420p", "-an",
+           "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+           "-pix_fmt", "yuv444p", "-an",
            output_str]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
@@ -66,6 +115,9 @@ def _write_video(frames, output_path, fps):
         print(f"    Temp PNGs left in: {tmpdir}")
         raise RuntimeError(f"FFmpeg error: {r.stderr[-300:]}")
 
+    # Safety: ensure all frames have minimum average brightness to avoid x264 black-screen failures
+    _ensure_frame_brightness(tmp_out_path, min_mean=8.0)
+
     shutil.move(str(tmp_out_path), str(output_path))
     shutil.rmtree(tmpdir, ignore_errors=True)
     # Clean up any leftover temp files
@@ -73,6 +125,7 @@ def _write_video(frames, output_path, fps):
         shutil.rmtree(f, ignore_errors=True)
     for f in out_dir.glob("_intro_out_*"):
         f.unlink(missing_ok=True)
+
 
 
 # 尝试加载支持中文的字体
@@ -97,6 +150,11 @@ class IntroOutroStage:
         stages_cfg = ctx.config.get("stages", {})
         if not stages_cfg.get("intro_outro", False):
             print("    跳过: intro_outro 未启用")
+            return
+
+        if ctx.get("intro_path") and ctx.get("outro_path") and \
+           path_exists(ctx.get("intro_path")) and path_exists(ctx.get("outro_path")):
+            print("    已存在，跳过")
             return
 
         # 片头和片尾都用主内容视频（不用能量条视频，能量条底部有黑背景）
@@ -173,8 +231,8 @@ class IntroOutroStage:
             out_short = _get_short_path(str(output_path))
             inp_short = _get_short_path(str(video_path))
             cmd = [ffmpeg_bin, "-y", "-i", inp_short,
-                   "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                   "-pix_fmt", "yuv420p", "-an", out_short]
+                   "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+                   "-pix_fmt", "yuv444p", "-an", out_short]
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if r.returncode != 0:
                 raise RuntimeError(f"FFmpeg copy failed: {r.stderr[-200:]}")
@@ -224,8 +282,8 @@ class IntroOutroStage:
             # 帧淡入（淡入整个合成画面，包括文字）
             # 避免从完全黑色开始（会导致x264编码失败）
             if len(frames_to_write) < fade_in_frames:
-                alpha = max(0.1, len(frames_to_write) / fade_in_frames)  # 最小0.1，避免完全黑帧
-                overlay = np.zeros_like(frame)
+                alpha = max(0.35, len(frames_to_write) / fade_in_frames)  # 最小0.35，避免过暗帧导致x264失败
+                overlay = np.full_like(frame, 12)  # 微暗底而非纯黑，避免编码崩溃
                 frame = (frame * alpha + overlay * (1 - alpha)).astype(np.uint8)
 
             frames_to_write.append(frame)
