@@ -21,7 +21,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 
-from lib.utils import create_writer
+from lib.utils import create_writer, path_exists
 
 
 def detect_skin_ycrcb(frame):
@@ -113,6 +113,10 @@ def apply_skin_smooth(frame, strength=0.5, d=9, sigmaColor=20, sigmaSpace=20,
 
 class SkinSmoothStage:
     def run(self, ctx):
+        if ctx.get("skin_smooth_path") and path_exists(ctx.get("skin_smooth_path")):
+            print("    已存在，跳过")
+            return
+
         cfg = ctx.config.get("skin_smooth", {})
         if not cfg.get("enabled", False):
             ctx.set("skin_smooth_path", ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
@@ -153,8 +157,8 @@ class SkinSmoothStage:
         # 自动校正帧数
         actual_frames = int(input_video.get(cv2.CAP_PROP_FRAME_COUNT))
         if actual_frames > 0 and actual_frames != max_frames:
-            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
-            max_frames = actual_frames
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符")
+            max_frames = min(actual_frames, max_frames)
 
         temp_path = ctx.output_dir / f"{Path(input_path).stem}_smooth.mp4"
         fw = int(input_video.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -179,6 +183,7 @@ class SkinSmoothStage:
         writer.release()
 
         ctx.set("skin_smooth_path", str(temp_path))
+        ctx.set("color_path", str(temp_path))  # 下游 stage 通过 color_path 获取最新版本
         print(f"    输出: {temp_path.name}")
 
 

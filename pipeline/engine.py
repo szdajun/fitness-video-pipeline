@@ -53,7 +53,29 @@ class PipelineEngine:
             "ken_burns_path": f"{video_stem}_h2v_kenburns.mp4",
             "audio_path": f"{video_stem}_audio.aac",
         }
+        # 额外文件名变体（横屏精简模式：stabilize → ken_burns → color_grade → skin_smooth）
+        extra_patterns = {
+            # 旧模式（有 stabilize）
+            "ken_burns_path": f"{video_stem}_stabilized_kenburns_16x9.mp4",
+            "color_path": f"{video_stem}_stabilized_kenburns_16x9_color.mp4",
+            "skin_smooth_path": f"{video_stem}_stabilized_kenburns_16x9_smooth.mp4",
+            "denoise_path": f"{video_stem}_stabilized_kenburns_16x9_smooth_denoise.mp4",
+            # 新模式（无 stabilize，smooth 模式保持原生分辨率）
+            "ken_burns_path": f"{video_stem}_kenburns.mp4",
+            # 通用产出
+            "beatflash_path": f"{video_stem}_beatflash.mp4",
+            "highlight_path": f"{video_stem}_highlight.mp4",
+            "energybar_path": f"{video_stem}_energybar.mp4",
+            "face_beautify2_path": f"{video_stem}_face_beautify2.mp4",
+            "rife_path": f"{video_stem}_rife.mp4",
+        }
         found = 0
+        for key, fname in extra_patterns.items():
+            if key not in ctx.data:  # 不覆盖已存在的
+                fpath = ctx.output_dir / fname
+                if fpath.exists():
+                    ctx.set(key, str(fpath))
+                    found += 1
         for key, fname in known_files.items():
             fpath = ctx.output_dir / fname
             if fpath.exists():
@@ -208,6 +230,11 @@ class PipelineEngine:
             p = ctx.get("beatflash_path")
             if p:
                 outputs["beatflash_path"] = p
+
+        elif name == "rife":
+            p = ctx.get("rife_path")
+            if p:
+                outputs["rife_path"] = p
 
         return outputs
 

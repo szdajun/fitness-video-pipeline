@@ -96,8 +96,8 @@ class EnergyBarStage:
         actual_frames = int(cap_actual.get(cv2.CAP_PROP_FRAME_COUNT))
         cap_actual.release()
         if actual_frames > 0 and actual_frames != max_frames:
-            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
-            max_frames = actual_frames
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符")
+            max_frames = min(actual_frames, max_frames)
 
         # 领操人追踪
         lead_tid = ctx.get("lead_tid")
@@ -219,8 +219,8 @@ class EnergyBarStage:
             ffmpeg_bin, "-y",
             "-framerate", str(fps),
             "-i", f"{tmpdir_short}/f_%06d.png",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-pix_fmt", "yuv420p", "-an", output_short
+            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+            "-pix_fmt", "yuv444p", "-an", output_short
         ]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                encoding="utf-8", errors="replace")

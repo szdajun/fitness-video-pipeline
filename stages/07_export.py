@@ -30,7 +30,7 @@ class ExportStage:
         # face_beautify2 优先于 face_beautify（InsightFace vs MediaPipe）
         # face_beautify 优先于 beatflash_path（美颜效果更强）
         processed_path = (ctx.get("rife_path") or
-                         ctx.get("face_beautify2_path") or
+                  ctx.get("face_beautify2_path") or
                          ctx.get("face_beautify_path") or
                          ctx.get("beatflash_path") or
                          ctx.get("energybar_path") or
@@ -93,6 +93,7 @@ class ExportStage:
             cmd.extend(["-filter_complex", filter_parts,
                         "-map", "[outv]",
                         "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+                        "-pix_fmt", "yuv444p",
                         str(combined_path.resolve())])
             r = subprocess.run(cmd, capture_output=True, text=True,
                               encoding="utf-8", errors="replace")
@@ -227,7 +228,7 @@ class ExportStage:
                             ffmpeg, "-y", "-framerate", str(fps),
                             "-i", f"{short_in}/f_%06d.png",
                             "-c:v", "libx264", "-preset", preset,
-                            "-crf", str(crf), "-pix_fmt", "yuv420p", "-an",
+                            "-crf", str(crf), "-pix_fmt", "yuv444p", "-an",
                             short_out,
                         ], capture_output=True, check=True)
                         processed_path = str(esrgan_video)
@@ -360,7 +361,7 @@ class ExportStage:
 
                 cmd.extend(["-vf", vf_final])
                 cmd.extend(["-c:v", "libx264", "-preset", preset,
-                            "-crf", str(crf),
+                            "-crf", str(crf), "-pix_fmt", "yuv420p",
                             "-c:a", "aac", "-b:a", audio_bitrate])
 
             if is_preview:

@@ -7,9 +7,25 @@
 import cv2
 import numpy as np
 import json
+import shutil
+import subprocess
+import ctypes
+import time
 from pathlib import Path
 
-from lib.utils import path_exists, create_writer
+from lib.utils import path_exists
+
+GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+GetShortPathNameW.restype = ctypes.c_uint
+
+def _to_short(path_str):
+    buf_size = GetShortPathNameW(str(path_str), None, 0)
+    if buf_size == 0:
+        return str(path_str)
+    buf = ctypes.create_unicode_buffer(buf_size)
+    GetShortPathNameW(str(path_str), buf, buf_size)
+    return buf.value
 
 
 class BeatFlashStage:
@@ -37,7 +53,6 @@ class BeatFlashStage:
             # 从输入视频提取音频
             extracted_audio = ctx.output_dir / f"{ctx.input_path.stem}_audio_temp.wav"
             ffmpeg = "C:/Users/18091/ffmpeg/ffmpeg.exe"
-            import subprocess
             result = subprocess.run(
                 [ffmpeg, "-y", "-i", str(ctx.input_path),
                  "-vn", "-acodec", "pcm_s16le",
@@ -75,11 +90,6 @@ class BeatFlashStage:
         print(f"    闪烁: {orig_w}x{orig_h}")
 
         cap = cv2.VideoCapture(input_path)
-        if not cap.isOpened():
-            raise ValueError(f"无法打开视频: {input_path}")
-
-        temp_path = ctx.output_dir / f"{ctx.input_path.stem}_beatflash.mp4"
-        writer = create_writer(str(temp_path), fps, orig_w, orig_h)
 
         # 闪烁参数
         flash_duration = 6   # 闪烁持续帧数（延长让过渡更平滑）
@@ -87,6 +97,10 @@ class BeatFlashStage:
         zoom_factor = 1.025  # 节拍时放大倍数（缩小一点，更平滑）
         zoom_smoothing = 0.75  # 缩放平滑系数（越大越平滑）
         beat_set = set(beat_frames)  # 快速查找
+
+        # ---- 输出到 PNG 序列，避免 cv2.VideoWriter 强制 yuv420p ----
+        tmpdir = ctx.output_dir / f"_tmp_bf_{Path(input_path).stem}_{int(time.time()*1000):08d}"
+        tmpdir.mkdir(exist_ok=True)
 
         frame_idx = 0
         target_zoom = 1.0
@@ -126,11 +140,36 @@ class BeatFlashStage:
                 crop_y = (zoom_h - orig_h) // 2
                 frame = zoomed[crop_y:crop_y + orig_h, crop_x:crop_x + orig_w]
 
-            writer.write(frame)
+            cv2.imwrite(str(tmpdir / f"f_{frame_idx:06d}.png"), frame)
             frame_idx += 1
 
         cap.release()
-        writer.release()
+
+        if frame_idx == 0:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            ctx.set("beatflash_path", None)
+            return
+
+        # ---- FFmpeg 编码（yuv444p 保留色彩） ----
+        temp_path = ctx.output_dir / f"{ctx.input_path.stem}_beatflash.mp4"
+        ffmpeg = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        tmpdir_short = _to_short(str(tmpdir)).replace("\\", "/")
+        out_short = _to_short(str(temp_path))
+
+        cmd = [
+            ffmpeg, "-y", "-framerate", str(fps),
+            "-i", f"{tmpdir_short}/f_%06d.png",
+            "-c:v", "libx264", "-preset", "fast",
+            "-crf", "1", "-pix_fmt", "yuv444p", "-an", out_short
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+        if result.returncode != 0:
+            print(f"    FFmpeg 错误: {result.stderr[-200:]}")
+            ctx.set("beatflash_path", None)
+            return
 
         ctx.set("beatflash_path", str(temp_path))
         ctx.set("beat_frames", beat_frames)

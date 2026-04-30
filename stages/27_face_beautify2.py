@@ -33,6 +33,10 @@ import time
 import multiprocessing
 
 from lib.utils import path_exists
+try:
+    from insightface.app import FaceAnalysis
+except ImportError:
+    FaceAnalysis = None
 
 
 GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
@@ -127,7 +131,7 @@ def _apply_insightface(frame, main_face, eye_brighten, face_whiten,
             skin_mask = cv2.GaussianBlur(skin_mask, (51, 51), 17).astype(np.float32) / 255.0
             smooth = cv2.bilateralFilter(frame, 7, 15, 15)
             strength = (skin_mask * skin_smooth).astype(np.float32)
-            frame = (frame * (1 - strength) + smooth.astype(np.float32) * strength).astype(np.uint8)
+            frame = (frame * (1 - strength[:, :, None]) + smooth.astype(np.float32) * strength[:, :, None]).astype(np.uint8)
 
     # ========== 大眼 ==========
     if eye_enlarge > 0:
@@ -163,7 +167,7 @@ def _apply_insightface(frame, main_face, eye_brighten, face_whiten,
             slim_mask = cv2.GaussianBlur(slim_mask, (81, 81), 21)
             blur_img = cv2.GaussianBlur(frame, (21, 21), 7)
             strength = (slim_mask * face_slim * 0.4).astype(np.float32)
-            frame = (frame * (1 - strength) + blur_img.astype(np.float32) * strength).astype(np.uint8)
+            frame = (frame * (1 - strength[:, :, None]) + blur_img.astype(np.float32) * strength[:, :, None]).astype(np.uint8)
 
     return frame
 
@@ -234,8 +238,18 @@ def _face_beautify2_worker(args):
 
 class FaceBeautify2Stage:
     def run(self, ctx):
+        if ctx.get("face_beautify2_path") and path_exists(ctx.get("face_beautify2_path")):
+            print("    已存在，跳过")
+            return
+
         cfg = ctx.config.get("face_beautify2", {})
         if not cfg.get("enabled", False):
+            ctx.set("face_beautify2_path",
+                    ctx.get("face_beautify_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+            return
+
+        if FaceAnalysis is None:
+            print("    跳过: InsightFace 未安装")
             ctx.set("face_beautify2_path",
                     ctx.get("face_beautify_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
@@ -313,71 +327,102 @@ class FaceBeautify2Stage:
         actual_frames = int(cap_actual.get(cv2.CAP_PROP_FRAME_COUNT))
         cap_actual.release()
         if actual_frames > 0 and actual_frames != max_frames:
-            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
-            max_frames = actual_frames
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符")
+            max_frames = min(actual_frames, max_frames)
 
         print(f"    InsightFace美颜: 磨皮={skin_smooth}, 眼部提亮={eye_brighten}, "
-              f"肤色提亮={face_whiten}, 瘦脸={face_slim}, 大眼={eye_enlarge}, workers={num_workers}")
+              f"肤色提亮={face_whiten}, 瘦脸={face_slim}, 大眼={eye_enlarge}, workers=1")
 
-        # ---- 读取所有帧 ----
-        print(f"    读取 {max_frames} 帧...")
+        # ---- 流式处理：逐帧处理避免内存溢出 ----
+        # 不再将所有帧加载到内存，逐帧处理后直接写 PNG
+        print(f"    处理 {max_frames} 帧（流式，无内存峰值）...")
         cap = cv2.VideoCapture(input_path)
-        all_frames = []
-        for _ in range(max_frames):
-            ret, frame = cap.read()
-            if not ret:
-                break
-            all_frames.append(frame)
-        cap.release()
-        total = len(all_frames)
-        print(f"    读取完成: {total} 帧")
-
-        # ---- 分块并行处理 ----
         tmpdir = ctx.output_dir / f"_tmp_fb2_{Path(input_path).stem}_{int(time.time()*1000):08d}"
         tmpdir.mkdir(exist_ok=True)
         tmpdir_short = _to_short(str(tmpdir))
+        app = FaceAnalysis('buffalo_l', providers=['CPUExecutionProvider'])
+        app.prepare(ctx_id=0, det_size=(640, 640))
+        prev_kps = None
+        frame_idx = 0
 
-        chunk_size = max(1, total // num_workers)
-        chunks = []
-        for i in range(0, total, chunk_size):
-            chunk_indices = list(range(i, min(i + chunk_size, total)))
-            chunks.append(chunk_indices)
+        while frame_idx < max_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        w, h = orig_w, orig_h
-        worker_args = []
-        for ci, chunk in enumerate(chunks):
-            frames_data = [all_frames[fi] for fi in chunk]
-            worker_args.append((
-                chunk, frames_data, keypoints, lead_tid, lead_cx,
-                eye_brighten, face_whiten, skin_smooth, face_slim, eye_enlarge,
-                tmpdir_short, w, h, f"worker_{ci}"
-            ))
+            curr_kps = None
+            frame_kps = keypoints.get(str(frame_idx))
+            if frame_kps:
+                for person_kps in frame_kps:
+                    kps_arr = np.array(person_kps)
+                    vis = kps_arr[:, 2] > 0.5
+                    if vis.sum() < 6:
+                        continue
+                    shoulders_cx = (kps_arr[5][0] + kps_arr[6][0]) / 2
+                    hips_cx = (kps_arr[11][0] + kps_arr[12][0]) / 2
+                    cx = (shoulders_cx + hips_cx) / 2
+                    if abs(cx - lead_cx) < 0.15:
+                        curr_kps = person_kps
+                        break
 
-        # 使用 spawn 上下文避免 MediaPipe protobuf 冲突
-        mp_ctx = multiprocessing.get_context('spawn')
-        with mp_ctx.Pool(num_workers) as pool:
-            results = pool.map(_face_beautify2_worker, worker_args)
-        completed_chunks = len([r for r in results if r is not None])
-        print(f"    并行处理完成: {completed_chunks}/{len(chunks)} 块")
+            if curr_kps is not None:
+                faces = app.get(frame)
+                if faces:
+                    lead_arr = np.array(curr_kps)
+                    lead_nose = (lead_arr[0][0], lead_arr[0][1]) if lead_arr[0][2] > 0.3 else None
+                    best_dist = float('inf')
+                    best_face = None
+                    for face in faces:
+                        kps_face = face.kps
+                        if kps_face is None:
+                            continue
+                        face_cx_norm = kps_face[:, 0].mean()
+                        face_cx_pixel = int(face_cx_norm * orig_w)
+                        dist = abs(face_cx_pixel / orig_w - lead_cx)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_face = face
+                    main_face = best_face if best_dist < 0.15 else None
+            else:
+                faces = app.get(frame)
+                if faces:
+                    main_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+                else:
+                    main_face = None
+
+            if main_face is not None:
+                frame = _apply_insightface(
+                    frame, main_face, eye_brighten, face_whiten,
+                    skin_smooth, face_slim, eye_enlarge, orig_w, orig_h)
+
+            fname = f"{tmpdir_short}/f_{frame_idx:06d}.png"
+            cv2.imwrite(fname, frame)
+            frame_idx += 1
+
+            if frame_idx % 500 == 0:
+                pct = frame_idx / max_frames * 100
+                print(f"    进度: {frame_idx}/{max_frames} ({pct:.0f}%)", flush=True)
+
+        cap.release()
+        app = None
+        total = frame_idx
+        print(f"    处理完成: {total} 帧")
 
         # ---- FFmpeg 编码 ----
         print(f"    调用 FFmpeg 编码...")
         temp_out = ctx.output_dir / f"{ctx.input_path.stem}_face_beautify2.mp4"
         output_short = _to_short(str(temp_out))
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-
-        concat_file = tmpdir / "concat_list.txt"
-        with open(concat_file, "w", encoding="utf-8", newline="\n") as f:
-            for ci, chunk in enumerate(chunks):
-                for fi in chunk:
-                    f.write("file '%s/worker_%d_%06d.png'\n" % (tmpdir_short, ci, fi))
+        # 用 PNG 序列模式直接读取，避免 concat 文件编码问题
+        tmpdir_for_ffmpeg = _to_short(str(tmpdir)).replace("\\", "/")
+        input_pattern = f"{tmpdir_for_ffmpeg}/f_%06d.png"
 
         cmd = [
             ffmpeg_bin, "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_file),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-pix_fmt", "yuv420p", "-an", output_short
+            "-framerate", str(fps),
+            "-i", input_pattern,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+            "-pix_fmt", "yuv444p", "-an", output_short
         ]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                encoding="utf-8", errors="replace")

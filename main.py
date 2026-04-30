@@ -16,10 +16,17 @@
 """
 
 import argparse
+import os
 import sys
 import time
 from datetime import date
 from pathlib import Path
+
+# 将临时目录设置为 F:\wkspace\fitness-video-pipeline\_temp（避免 C 盘空间）
+_TEMP_DIR = Path("F:/wkspace/fitness-video-pipeline/_temp")
+_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["TEMP"] = str(_TEMP_DIR)
+os.environ["TMP"] = str(_TEMP_DIR)
 
 # 确保项目根目录在 sys.path 中
 PROJECT_ROOT = Path(__file__).parent
@@ -60,6 +67,7 @@ WatermarkStage = _import_stage("24_watermark", "WatermarkStage")
 BlushStage = _import_stage("25_blush", "BlushStage")
 FaceBeautifyStage = _import_stage("26_face_beautify", "FaceBeautifyStage")
 FaceBeautify2Stage = _import_stage("27_face_beautify2", "FaceBeautify2Stage")
+RIFEInterpolateStage = _import_stage("28_rife_interpolate", "RIFEInterpolateStage")
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -73,7 +81,7 @@ def build_single_parser():
     p.add_argument("-o", "--output", help="输出视频路径")
     p.add_argument("--output-dir", help="输出目录（默认: output/视频日期/）")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
-    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts"],
+    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance"],
                    help="使用预设风格")
     p.add_argument("--preview", action="store_true", help="预览模式（只处理前3秒）")
     p.add_argument("--preview-seconds", type=int, default=3, help="预览秒数")
@@ -143,7 +151,7 @@ def build_batch_parser():
     p.add_argument("--segment", type=int, default=45, help="切割时长秒数 (默认45, 0=不切割)")
     p.add_argument("--no-segment", action="store_true", help="不切割")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
-    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts"],
+    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance"],
                    default=None, help="预设风格 (默认: sexy)")
     p.add_argument("--no-stabilize", action="store_true")
     p.add_argument("--no-body-warp", action="store_true")
@@ -397,6 +405,8 @@ def run_single(args):
                      enabled=stages_cfg.get("face_beautify", False))
     engine.add_stage("face_beautify2", FaceBeautify2Stage(),
                      enabled=stages_cfg.get("face_beautify2", False))
+    engine.add_stage("rife", RIFEInterpolateStage(),
+                     enabled=stages_cfg.get("rife", False))
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
 

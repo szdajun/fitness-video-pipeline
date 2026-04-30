@@ -7,9 +7,16 @@ color_grade:
   saturation: 1.05
   warmth: 3
   clahe: true
-  sharpen: 0
+  sharpen: 0.7               # 自适应锐化，手机拍摄更清晰
   temporal_smooth: 0.25
   adaptive_contrast: 0.3
+  vignette_strength: 0.25    # 暗角强度
+  vignette_radius: 0.8
+  vignette_feather: 0.35
+  film_grain_strength: 0.015 # 胶片颗粒
+  film_grain_size: 2
+  lut_preset: cinematic
+  lut_intensity: 0.7
 
   # ---- 夜景高光三层处理（夜景广场健身场景） ----
   highlight_protect: 0.25
@@ -36,37 +43,32 @@ skin_smooth:
   skin_detect: true
 
 ken_burns:
-  mode: dual
-  dual_close_zoom: 1.2
-  dual_close_zoom_v: 1.15
-  dual_cycle_seconds: 8
-  dual_pan_amplitude: 8
-  dual_motion_response: 0.5
-  dual_dwell: 0.3
-  dual_motion_zoom_response: 0.3
-  dual_sway_amp: 4
-  dual_sway_freq: 1.6
-  dual_sf_inertia: 0.06
+  mode: auto_track
+  track_smooth_window: 20
+  track_zoom_range: [1.0, 1.08]
+  track_margin: 0.06
 
 output:
   width: 1920
   height: 1080
-  crf: 22
+  crf: 18                   # 高质量编码
   audio_bitrate: 128k
+  sharpen: 0                # 关闭全局锐化（避免放大压缩伪影）
 
 stages:
-  stabilize: false
+  stabilize: false           # 关闭防抖（画面质量优先）
   h2v_convert: false
   body_warp: false
   ken_burns: true
-  skin_smooth: true
+  skin_smooth: false
   skin_tone_filter: false
+  denoise: false            # 关闭降噪（源视频清晰，GaussianBlur 只会模糊画面）
   beat_flash: true
   highlight: true
   energy_bar: true
   intro_outro: true
   audio: true
-  face_beautify: true
+  face_beautify: false
   face_beautify2: false
 
 energy_bar:
@@ -80,7 +82,7 @@ energy_bar:
 
 intro_outro:
   intro_duration: 4.0
-  outro_duration: 2.5
+  outro_duration: 4.0
   channel_name: "胭脂虎健身团"
   cta_text: "关注不迷路"
   audio_fade_out: 3.0
@@ -92,8 +94,12 @@ audio:
   target_lufs: -14.0
   fade_in: 0.5
   fade_out: 1.0
-  denoise: 0
+  denoise: 3                 # 音频降噪（环境噪音过滤）
   ducking: 0
+
+denoise:
+  denoise_strength: 3        # 视频降噪（手机暗光拍摄）
+  denoise_mode: GaussianBlur
 
 face_beautify:
   enabled: true
@@ -105,9 +111,10 @@ face_beautify:
 
 face_beautify2:
   enabled: true
-  skin_smooth: 0.6
+  skin_smooth: 0.3
   eye_brighten: 0.8
   face_whiten: 0.3
   face_slim: 0.15
-  eye_enlarge: 0.2
+  eye_enlarge: 0.1
   workers: 4
+

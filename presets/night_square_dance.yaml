@@ -54,7 +54,7 @@ output:
 
 stages:
   stabilize: false
-  h2v_convert: true
+  h2v_convert: false
   body_warp: true
   ken_burns: true
   skin_smooth: true
@@ -63,7 +63,7 @@ stages:
   energy_bar: true
   intro_outro: true
   audio: true
-  face_beautify: true
+  face_beautify: false
   face_beautify2: true
 
 skin_smooth:

@@ -3,14 +3,14 @@
 
 stages:
   pose_detect: true
-  stabilize: false
-  h2v_convert: false        # 横屏不做竖屏转换
+  stabilize: true           # 手机拍摄防抖
+  h2v_convert: false
   body_warp: false
-  ken_burns: true            # 开启微缩放
+  ken_burns: true
   face_warp: false
-  color_grade: true         # 开启光线调整(CLAHE)
+  color_grade: true
   skin_tone_filter: false
-  denoise: false
+  denoise: true             # 暗光/手机拍摄降噪
   audio: false
   skeleton_overlay: false
   person_count: false
@@ -19,9 +19,9 @@ stages:
   face_blur: false
   motion_heatmap: false
   sync_score: false
-  beat_flash: true          # 开启节拍闪烁
-  highlight: true           # 开启高光剪辑
-  energy_bar: true          # 开启能量条
+  beat_flash: true
+  highlight: true
+  energy_bar: true
   skin_smooth: true
   intro_outro: true
   watermark: false
@@ -35,6 +35,7 @@ output:
   width: 1920
   height: 1080   # 横屏 16:9
   crf: 18        # 画质优先
+  sharpen: 0     # 关闭全局锐化（避免放大压缩伪影）
 
 color_grade:
   brightness: 0
@@ -53,6 +54,15 @@ energy_bar:
   smoothing: 0.85
   min_fill_ratio: 0.15
 
+denoise:
+  denoise_strength: 3        # 轻微降噪，保留细节
+  denoise_mode: fastNlMeans
+
+stabilize:
+  shakiness: 7              # 手机手持拍摄抖动较大
+  accuracy: 15
+  smoothing: 15
+
 skin_smooth:
   enabled: true
   strength: 0.3
@@ -60,3 +70,4 @@ skin_smooth:
   sigmaColor: 15
   sigmaSpace: 15
   downscale: 0.5
+

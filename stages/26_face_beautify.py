@@ -236,72 +236,78 @@ class FaceBeautifyStage:
         actual_frames = int(cap_actual.get(cv2.CAP_PROP_FRAME_COUNT))
         cap_actual.release()
         if actual_frames > 0 and actual_frames != max_frames:
-            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符，使用实际帧数")
-            max_frames = actual_frames
+            print(f"    警告: 实际帧数 {actual_frames} 与预期 {max_frames} 不符")
+            max_frames = min(actual_frames, max_frames)
 
         print(f"    美颜: 眼部提亮={eye_brighten}, 面部磨皮={face_smooth}, "
               f"补光={face_fill_light}, eye_radius={eye_radius}, workers={num_workers}")
 
-        # ---- 读取所有帧 ----
-        print(f"    读取 {max_frames} 帧...")
+        # ---- 流式处理：逐块处理帧（避免内存溢出）----
+        # 不再将所有帧加载到内存，而是逐块读取、处理、写入 PNG
+        print(f"    处理 {max_frames} 帧（流式，无内存峰值）...")
         cap = cv2.VideoCapture(input_path)
-        all_frames = []
-        for _ in range(max_frames):
-            ret, frame = cap.read()
-            if not ret:
-                break
-            all_frames.append(frame)
-        cap.release()
-        total = len(all_frames)
-        print(f"    读取完成: {total} 帧")
-
-        # ---- 分块并行处理 ----
         tmpdir = ctx.output_dir / f"_tmp_fb_{Path(input_path).stem}_{int(time.time()*1000):08d}"
         tmpdir.mkdir(exist_ok=True)
         tmpdir_short = _to_short(str(tmpdir))
+        tracker = FaceMeshDetector(refine_landmarks=True)
+        prev_kps = None
 
-        chunk_size = max(1, total // num_workers)
-        chunks = []
-        for i in range(0, total, chunk_size):
-            chunk_indices = list(range(i, min(i + chunk_size, total)))
-            chunks.append(chunk_indices)
+        frame_idx = 0
+        while frame_idx < max_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            curr_kps = None
 
-        w, h = orig_w, orig_h
-        worker_args = []
-        for ci, chunk in enumerate(chunks):
-            frames_data = [all_frames[fi] for fi in chunk]
-            worker_args.append((
-                chunk, frames_data, keypoints, lead_tid, lead_cx,
-                eye_brighten, face_smooth, eye_radius, face_fill_light,
-                tmpdir_short, w, h, f"worker_{ci}"
-            ))
+            frame_kps = keypoints.get(str(frame_idx))
+            if frame_kps:
+                for person_kps in frame_kps:
+                    kps_arr = np.array(person_kps)
+                    vis = kps_arr[:, 2] > 0.5
+                    if vis.sum() < 6:
+                        continue
+                    shoulders_cx = (kps_arr[5][0] + kps_arr[6][0]) / 2
+                    hips_cx = (kps_arr[11][0] + kps_arr[12][0]) / 2
+                    cx = (shoulders_cx + hips_cx) / 2
+                    if abs(cx - lead_cx) < 0.15:
+                        curr_kps = person_kps
+                        break
 
-        # 使用 spawn 上下文避免 MediaPipe protobuf 冲突
-        mp_ctx = multiprocessing.get_context('spawn')
-        with mp_ctx.Pool(num_workers) as pool:
-            results = pool.map(_face_beautify_worker, worker_args)
-        completed_chunks = len([r for r in results if r is not None])
-        print(f"    并行处理完成: {completed_chunks}/{len(chunks)} 块")
+            if curr_kps and prev_kps:
+                fm_result = tracker.detect(frame)
+                if fm_result:
+                    frame = _apply_beautify(
+                        frame, fm_result, eye_brighten, face_smooth,
+                        eye_radius, face_fill_light, orig_w, orig_h)
+
+            prev_kps = curr_kps
+            fname = f"{tmpdir_short}/f_{frame_idx:06d}.png"
+            cv2.imwrite(fname, frame)
+            frame_idx += 1
+
+            if frame_idx % 500 == 0:
+                print(f"    进度: {frame_idx}/{max_frames}")
+
+        cap.release()
+        total = frame_idx
+        print(f"    处理完成: {total} 帧")
+        tracker = None  # free MediaPipe resources
 
         # ---- FFmpeg 编码 ----
         print(f"    调用 FFmpeg 编码...")
         temp_out = ctx.output_dir / f"{ctx.input_path.stem}_face_beautify.mp4"
         output_short = _to_short(str(temp_out))
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-
-        concat_file = tmpdir / "concat_list.txt"
-        with open(concat_file, "w", encoding="utf-8", newline="\n") as f:
-            for ci, chunk in enumerate(chunks):
-                for fi in chunk:
-                    fname = "file '%s'" % (tmpdir_short + "/worker_%d_%06d.png" % (ci, fi))
-                    f.write(fname + "\n")
+        # 用 PNG 序列模式直接读取，避免 concat 文件编码问题
+        tmpdir_for_ffmpeg = _to_short(str(tmpdir)).replace("\\", "/")
+        input_pattern = f"{tmpdir_for_ffmpeg}/f_%06d.png"
 
         cmd = [
             ffmpeg_bin, "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_file),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-pix_fmt", "yuv420p", "-an", output_short
+            "-framerate", str(fps),
+            "-i", input_pattern,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+            "-pix_fmt", "yuv444p", "-an", output_short
         ]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                encoding="utf-8", errors="replace")
