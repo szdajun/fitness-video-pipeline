@@ -110,7 +110,8 @@ class AudioStage:
             final_parts = speech_parts[:]  # 已有 denoise + loudnorm
             if fade_in > 0:
                 final_parts.append(f"afade=t=in:st=0:d={fade_in}")
-            if fade_out > 0:
+            # 淡出由 export 阶段统一处理（audio 阶段不做淡出，避免 loudnorm 扩展的静音尾干扰 acrossfade）
+            if fade_out > 0 and False:  # 禁用，由 export 处理
                 final_parts.append(f"afade=t=out:st={fade_out_start_s}:d={fade_out}")
             speech_chain = ",".join(final_parts)
             filter_complex = f"[0:a]{speech_chain}[aout]"
