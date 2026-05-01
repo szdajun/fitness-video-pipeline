@@ -4,7 +4,7 @@ import time, json, cv2
 from pathlib import Path
 from typing import Dict, Any
 
-from .config import load_config, load_preset, _deep_merge
+from .config import load_config, load_preset
 from . import manifest as manifest_lib
 
 
@@ -40,47 +40,46 @@ class PipelineEngine:
     def _scan_existing_outputs(self, ctx: PipelineContext):
         """扫描 output_dir 中已存在的中间文件，建立 ctx.data 映射"""
         video_stem = ctx.input_path.stem
-        known_files = {
-            "keypoints": f"{video_stem}_keypoints.json",
-            "stabilized_path": f"{video_stem}_stabilized.mp4",
-            "h2v_path": f"{video_stem}_h2v.mp4",
-            "skin_tone_filter_path": f"{video_stem}_h2v_skin_tone.mp4",
-            "watermark_path": f"{video_stem}_h2v_watermark.mp4",
-            "blush_path": f"{video_stem}_h2v_blush.mp4",
-            "warped_path": f"{video_stem}_h2v_warped.mp4",
-            "face_path": f"{video_stem}_h2v_warped_face.mp4",
-            "color_path": f"{video_stem}_h2v_kenburns_color.mp4",
-            "ken_burns_path": f"{video_stem}_h2v_kenburns.mp4",
-            "audio_path": f"{video_stem}_audio.aac",
-        }
-        # 额外文件名变体（横屏精简模式：stabilize → ken_burns → color_grade → skin_smooth）
-        extra_patterns = {
-            # 旧模式（有 stabilize）
-            "ken_burns_path": f"{video_stem}_stabilized_kenburns_16x9.mp4",
-            "color_path": f"{video_stem}_stabilized_kenburns_16x9_color.mp4",
-            "skin_smooth_path": f"{video_stem}_stabilized_kenburns_16x9_smooth.mp4",
-            "denoise_path": f"{video_stem}_stabilized_kenburns_16x9_smooth_denoise.mp4",
-            # 新模式（无 stabilize，smooth 模式保持原生分辨率）
-            "ken_burns_path": f"{video_stem}_kenburns.mp4",
-            # 通用产出
-            "beatflash_path": f"{video_stem}_beatflash.mp4",
-            "highlight_path": f"{video_stem}_highlight.mp4",
-            "energybar_path": f"{video_stem}_energybar.mp4",
-            "face_beautify2_path": f"{video_stem}_face_beautify2.mp4",
-            "rife_path": f"{video_stem}_rife.mp4",
+        from lib.utils import path_exists as _pe
+
+        # 每个 ctx key 对应一个或多个文件名变体（兼容新旧命名规则）
+        existing_patterns = {
+            "keypoints": [f"{video_stem}_keypoints.json"],
+            "stabilized_path": [f"{video_stem}_stabilized.mp4"],
+            "h2v_path": [f"{video_stem}_h2v.mp4"],
+            "skin_tone_filter_path": [f"{video_stem}_h2v_skin_tone.mp4"],
+            "watermark_path": [f"{video_stem}_h2v_watermark.mp4"],
+            "blush_path": [f"{video_stem}_h2v_blush.mp4"],
+            "warped_path": [f"{video_stem}_h2v_warped.mp4"],
+            "face_path": [f"{video_stem}_h2v_warped_face.mp4"],
+            "color_path": [
+                f"{video_stem}_h2v_kenburns_color.mp4",         # 新模式
+                f"{video_stem}_stabilized_kenburns_16x9_color.mp4",  # 旧模式
+            ],
+            "ken_burns_path": [
+                f"{video_stem}_kenburns.mp4",                       # 新模式
+                f"{video_stem}_h2v_kenburns.mp4",                   # h2v 模式
+                f"{video_stem}_stabilized_kenburns_16x9.mp4",       # 旧模式
+            ],
+            "audio_path": [f"{video_stem}_audio.aac"],
+            "skin_smooth_path": [f"{video_stem}_stabilized_kenburns_16x9_smooth.mp4"],
+            "denoise_path": [f"{video_stem}_stabilized_kenburns_16x9_smooth_denoise.mp4"],
+            "beatflash_path": [f"{video_stem}_beatflash.mp4"],
+            "highlight_path": [f"{video_stem}_highlight.mp4"],
+            "energybar_path": [f"{video_stem}_energybar.mp4"],
+            "face_beautify2_path": [f"{video_stem}_face_beautify2.mp4"],
+            "rife_path": [f"{video_stem}_rife.mp4"],
         }
         found = 0
-        for key, fname in extra_patterns.items():
-            if key not in ctx.data:  # 不覆盖已存在的
+        for key, fnames in existing_patterns.items():
+            if key in ctx.data:
+                continue
+            for fname in fnames:
                 fpath = ctx.output_dir / fname
-                if fpath.exists():
+                if _pe(str(fpath)):
                     ctx.set(key, str(fpath))
                     found += 1
-        for key, fname in known_files.items():
-            fpath = ctx.output_dir / fname
-            if fpath.exists():
-                self._set_path(ctx, key, str(fpath))
-                found += 1
+                    break
 
         # h2v_path 存在时，自动设置 h2v_size（避免后续 ken_burns 等阶段无法获取）
         h2v_path_val = ctx.get("h2v_path")
@@ -178,26 +177,33 @@ class PipelineEngine:
         # 写 run_metrics.json
         self._write_metrics(ctx, stage_times)
 
+    # 每个 stage 产出到 manifest 的 ctx key 映射
+    STAGE_OUTPUT_KEYS = {
+        "pose_detect": ["keypoints_path", "video_info"],
+        "h2v_convert": ["h2v_path", "h2v_size"],
+        "body_warp":   ["warped_path"],
+        "color_grade": ["color_path"],
+        "ken_burns":   ["ken_burns_path", "ken_burns_ratio"],
+        "beat_flash":  ["beatflash_path"],
+        "rife":        ["rife_path"],
+    }
+
     def _collect_stage_outputs(self, name: str, ctx: PipelineContext) -> Dict[str, Any]:
         """收集 stage 的产出路径"""
         outputs = {}
+        keys = self.STAGE_OUTPUT_KEYS.get(name, [])
+        for k in keys:
+            v = ctx.get(k)
+            if v is not None:
+                if k == "h2v_size":
+                    outputs[k] = list(v) if isinstance(v, tuple) else v
+                else:
+                    outputs[k] = v
 
-        if name == "pose_detect":
-            kp = ctx.get("keypoints")
-            vi = ctx.get("video_info")
-            kp_path = ctx.get("keypoints_path")
-            if kp_path:
-                outputs["keypoints_path"] = kp_path
-            if vi:
-                outputs["video_info"] = vi
-
-        elif name == "h2v_convert":
-            p = ctx.get("h2v_path")
-            if p:
-                outputs["h2v_path"] = p
+        # 特殊处理：h2v_convert 需要写回 cropped_keypoints.json
+        if name == "h2v_convert":
             ck = ctx.get("cropped_keypoints")
             if ck:
-                # 写回 cropped_keypoints_path
                 ckp = ctx.output_dir / f"{ctx.input_path.stem}_cropped_keypoints.json"
                 try:
                     with open(ckp, "w", encoding="utf-8") as f:
@@ -205,37 +211,6 @@ class PipelineEngine:
                     outputs["cropped_keypoints_path"] = str(ckp)
                 except Exception:
                     pass
-            h2v_size = ctx.get("h2v_size")
-            if h2v_size:
-                outputs["h2v_size"] = list(h2v_size)
-
-        elif name == "body_warp":
-            p = ctx.get("warped_path")
-            if p:
-                outputs["warped_path"] = p
-
-        elif name == "color_grade":
-            p = ctx.get("color_path")
-            if p:
-                outputs["color_path"] = p
-
-        elif name == "ken_burns":
-            p = ctx.get("ken_burns_path")
-            if p:
-                outputs["ken_burns_path"] = p
-            r = ctx.get("ken_burns_ratio")
-            if r:
-                outputs["ken_burns_ratio"] = r
-
-        elif name == "beat_flash":
-            p = ctx.get("beatflash_path")
-            if p:
-                outputs["beatflash_path"] = p
-
-        elif name == "rife":
-            p = ctx.get("rife_path")
-            if p:
-                outputs["rife_path"] = p
 
         return outputs
 

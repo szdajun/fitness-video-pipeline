@@ -32,7 +32,7 @@ os.environ["TMP"] = str(_TEMP_DIR)
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from pipeline.config import load_config, load_preset, _deep_merge
+from pipeline.config import load_config, load_preset, deep_merge
 from pipeline.engine import PipelineEngine, PipelineContext
 from split_video import split_video
 
@@ -222,7 +222,7 @@ def run_single(args):
 
     config = load_config(args.config or "config.yaml")
     if args.preset:
-        _deep_merge(config, load_preset(args.preset))
+        deep_merge(config, load_preset(args.preset), copy=False)
 
     if args.preview:
         config["preview"] = True
@@ -409,7 +409,7 @@ def run_batch(args):
     # 加载基础配置
     config = load_config(args.config)
     preset_name = args.preset or "sexy"
-    _deep_merge(config, load_preset(preset_name))
+    deep_merge(config, load_preset(preset_name), copy=False)
     _apply_cli_overrides(config, args)
 
     # 扫描视频
@@ -557,7 +557,7 @@ def _get_cli_overrides_dict(args):
 def _process_video_task(task):
     """在子进程中处理单个视频"""
     from pathlib import Path as _Path
-    from pipeline.config import load_config, load_preset, _deep_merge
+    from pipeline.config import load_config, load_preset, deep_merge
     from pipeline.engine import PipelineEngine, PipelineContext
     import importlib
     from split_video import split_video
@@ -585,7 +585,7 @@ def _process_video_task(task):
 
         # 重新构建 config
         file_config = load_config(None)
-        _deep_merge(file_config, load_preset(this_preset))
+        deep_merge(file_config, load_preset(this_preset), copy=False)
         _apply_cli_overrides_from_dict(file_config, cli_overrides)
 
         ctx = PipelineContext(str(video_path), file_config)
