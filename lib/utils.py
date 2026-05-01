@@ -26,6 +26,10 @@ def _to_short_path(path_str: str) -> str:
     return buf.value
 
 
+# 别名，兼容各阶段代码
+to_short = _to_short_path
+
+
 def path_exists(path_str: str) -> bool:
     """检查文件是否存在（Windows 中文路径兼容）
 

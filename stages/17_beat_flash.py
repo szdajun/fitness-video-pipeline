@@ -9,23 +9,10 @@ import numpy as np
 import json
 import shutil
 import subprocess
-import ctypes
 import time
 from pathlib import Path
 
-from lib.utils import path_exists
-
-GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
-GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
-GetShortPathNameW.restype = ctypes.c_uint
-
-def _to_short(path_str):
-    buf_size = GetShortPathNameW(str(path_str), None, 0)
-    if buf_size == 0:
-        return str(path_str)
-    buf = ctypes.create_unicode_buffer(buf_size)
-    GetShortPathNameW(str(path_str), buf, buf_size)
-    return buf.value
+from lib.utils import path_exists, to_short as _to_short
 
 
 class BeatFlashStage:

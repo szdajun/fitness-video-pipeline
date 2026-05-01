@@ -7,20 +7,10 @@
 
 import subprocess
 import shutil
-import ctypes
 import cv2
-from lib.utils import path_exists
+from lib.utils import path_exists, to_short as _to_short
 from lib.ai_upscale import AIUpscaler
 from pathlib import Path
-
-def _to_short(path_str):
-    """转换到 Windows 短路径（中文路径兼容）"""
-    buf_size = ctypes.windll.kernel32.GetShortPathNameW(str(path_str), None, 0)
-    if buf_size == 0:
-        return str(path_str)
-    buf = ctypes.create_unicode_buffer(buf_size)
-    ctypes.windll.kernel32.GetShortPathNameW(str(path_str), buf, buf_size)
-    return buf.value
 
 
 

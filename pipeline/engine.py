@@ -151,11 +151,12 @@ class PipelineEngine:
                 elapsed = time.time() - t0
                 stage_times[name] = elapsed
 
-                # 更新 manifest
+                # 更新 manifest 并保存（每阶段完成后即保存，支持崩溃恢复）
                 if ctx._manifest is not None:
                     outputs = self._collect_stage_outputs(name, ctx)
                     if outputs:
                         manifest_lib.record_stage_result(ctx._manifest, name, outputs)
+                        manifest_lib.save_manifest(ctx, ctx._manifest)
 
                 print(f"  [完成] {name} ({elapsed:.1f}s)")
                 executed.append((name, elapsed))

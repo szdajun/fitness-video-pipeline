@@ -209,107 +209,8 @@ def build_parser():
 
 
 def _apply_cli_overrides(config, args):
-    """将 CLI 参数合并到 config"""
-    if hasattr(args, 'preview') and args.preview:
-        config["preview"] = True
-
-    if args.no_stabilize:
-        config["stages"]["stabilize"] = False
-    if args.no_body_warp:
-        config["stages"]["body_warp"] = False
-    if args.no_face_warp:
-        config["stages"]["face_warp"] = False
-    if args.no_color_grade:
-        config["stages"]["color_grade"] = False
-    if args.no_ken_burns:
-        config["stages"]["ken_burns"] = False
-    if args.no_pose_gpu:
-        config["pose_gpu"] = False
-    if args.full_video:
-        config["full_video"] = True
-        config["stages"]["highlight"] = False
-
-    if getattr(args, 'audio', False):
-        config["stages"]["audio"] = True
-        config.setdefault("audio", {})["enabled"] = True
-    if getattr(args, 'bg_music', None):
-        config.setdefault("audio", {})["bg_music"] = args.bg_music
-    if getattr(args, 'bg_volume', None) is not None:
-        config.setdefault("audio", {})["bg_volume"] = args.bg_volume
-    if getattr(args, 'target_lufs', None) is not None:
-        config.setdefault("audio", {})["target_lufs"] = args.target_lufs
-    if getattr(args, 'auto_preset', False):
-        config["auto_preset"] = True
-
-    if hasattr(args, 'leg_lengthen') and args.leg_lengthen is not None:
-        config["body_warp"]["leg_lengthen"] = args.leg_lengthen
-    if hasattr(args, 'leg_slim') and args.leg_slim is not None:
-        config["body_warp"]["leg_slim"] = args.leg_slim
-    if hasattr(args, 'waist_slim') and args.waist_slim is not None:
-        config["body_warp"]["waist_slim"] = args.waist_slim
-    if hasattr(args, 'head_ratio') and args.head_ratio is not None:
-        config["body_warp"]["head_ratio"] = args.head_ratio
-    if hasattr(args, 'overall_slim') and args.overall_slim is not None:
-        config["body_warp"]["overall_slim"] = args.overall_slim
-    if hasattr(args, 'chest_enlarge') and args.chest_enlarge is not None:
-        config["body_warp"]["chest_enlarge"] = args.chest_enlarge
-    if hasattr(args, 'neck_lengthen') and args.neck_lengthen is not None:
-        config["body_warp"]["neck_lengthen"] = args.neck_lengthen
-
-    if hasattr(args, 'brightness') and args.brightness is not None:
-        config["color_grade"]["brightness"] = args.brightness
-    if hasattr(args, 'contrast') and args.contrast is not None:
-        config["color_grade"]["contrast"] = args.contrast
-    if hasattr(args, 'saturation') and args.saturation is not None:
-        config["color_grade"]["saturation"] = args.saturation
-    if hasattr(args, 'warmth') and args.warmth is not None:
-        config["color_grade"]["warmth"] = args.warmth
-    if hasattr(args, 'shadow') and args.shadow is not None:
-        config["color_grade"]["shadow"] = args.shadow
-    if getattr(args, 'auto_wb', False):
-        config["color_grade"]["auto_wb"] = True
-    if hasattr(args, 'adaptive_contrast') and args.adaptive_contrast is not None:
-        config["color_grade"]["adaptive_contrast"] = args.adaptive_contrast
-    if hasattr(args, 'pink_filter') and args.pink_filter is not None:
-        config["skin_tone_filter"]["pink_filter"] = args.pink_filter
-    if hasattr(args, 'warm_filter') and args.warm_filter is not None:
-        config["skin_tone_filter"]["warm_filter"] = args.warm_filter
-    if hasattr(args, 'cool_filter') and args.cool_filter is not None:
-        config["skin_tone_filter"]["cool_filter"] = args.cool_filter
-    if hasattr(args, 'soft_glow') and args.soft_glow is not None:
-        config["skin_tone_filter"]["soft_glow"] = args.soft_glow
-    if hasattr(args, 'denoise_strength') and args.denoise_strength is not None:
-        config["denoise"]["denoise_strength"] = args.denoise_strength
-    if hasattr(args, 'watermark_text') and args.watermark_text is not None:
-        config["watermark"]["watermark_text"] = args.watermark_text
-    if hasattr(args, 'watermark_position') and args.watermark_position is not None:
-        config["watermark"]["watermark_position"] = args.watermark_position
-    if hasattr(args, 'blush_strength') and args.blush_strength is not None:
-        config["blush"]["blush_strength"] = args.blush_strength
-    if hasattr(args, 'brighten_strength') and args.brighten_strength is not None:
-        config["blush"]["brighten_strength"] = args.brighten_strength
-
-    if hasattr(args, 'cut') and args.cut:
-        ranges = []
-        for part in args.cut.split(","):
-            try:
-                start, end = part.strip().split("-")
-                ranges.append([float(start), float(end)])
-            except ValueError:
-                print(f"  警告: 无法解析裁切范围: {part}")
-        if ranges:
-            config.setdefault("output", {})["cut_ranges"] = ranges
-
-    if hasattr(args, 'output_width') and args.output_width:
-        config.setdefault("output", {})["width"] = args.output_width
-    if hasattr(args, 'output_height') and args.output_height:
-        config.setdefault("output", {})["height"] = args.output_height
-    if hasattr(args, 'crf') and args.crf is not None:
-        config.setdefault("output", {})["crf"] = args.crf
-    if hasattr(args, 'enc_preset') and args.enc_preset:
-        config.setdefault("output", {})["preset"] = args.enc_preset
-    if hasattr(args, 'audio_bitrate') and args.audio_bitrate:
-        config.setdefault("output", {})["audio_bitrate"] = args.audio_bitrate
+    """将 CLI 参数合并到 config（委托给 dict 版本）"""
+    _apply_cli_overrides_from_dict(config, vars(args))
 
 
 def run_single(args):
@@ -613,6 +514,7 @@ def _get_cli_overrides_dict(args):
         'no_ken_burns': getattr(args, 'no_ken_burns', False),
         'no_pose_gpu': getattr(args, 'no_pose_gpu', False),
         'full_video': getattr(args, 'full_video', False),
+        'auto_preset': getattr(args, 'auto_preset', False),
         'audio': getattr(args, 'audio', False),
         'bg_music': getattr(args, 'bg_music', None),
         'bg_volume': getattr(args, 'bg_volume', 0.25),
@@ -620,7 +522,10 @@ def _get_cli_overrides_dict(args):
         'leg_lengthen': getattr(args, 'leg_lengthen', None),
         'leg_slim': getattr(args, 'leg_slim', None),
         'waist_slim': getattr(args, 'waist_slim', None),
+        'head_ratio': getattr(args, 'head_ratio', None),
         'overall_slim': getattr(args, 'overall_slim', None),
+        'chest_enlarge': getattr(args, 'chest_enlarge', None),
+        'neck_lengthen': getattr(args, 'neck_lengthen', None),
         'brightness': getattr(args, 'brightness', None),
         'contrast': getattr(args, 'contrast', None),
         'saturation': getattr(args, 'saturation', None),
@@ -628,6 +533,11 @@ def _get_cli_overrides_dict(args):
         'shadow': getattr(args, 'shadow', None),
         'auto_wb': getattr(args, 'auto_wb', False),
         'adaptive_contrast': getattr(args, 'adaptive_contrast', None),
+        'pink_filter': getattr(args, 'pink_filter', None),
+        'warm_filter': getattr(args, 'warm_filter', None),
+        'cool_filter': getattr(args, 'cool_filter', None),
+        'soft_glow': getattr(args, 'soft_glow', None),
+        'denoise_strength': getattr(args, 'denoise_strength', None),
         'watermark_text': getattr(args, 'watermark_text', None),
         'watermark_position': getattr(args, 'watermark_position', None),
         'blush_strength': getattr(args, 'blush_strength', None),
@@ -732,8 +642,8 @@ def _apply_cli_overrides_from_dict(config, overrides):
     if overrides.get('full_video'):
         config["full_video"] = True
         config["stages"]["highlight"] = False
-
-    if overrides.get('audio'):
+    if overrides.get('auto_preset'):
+        config["auto_preset"] = True
         config["stages"]["audio"] = True
         config.setdefault("audio", {})["enabled"] = True
     if overrides.get('bg_music'):
@@ -746,7 +656,10 @@ def _apply_cli_overrides_from_dict(config, overrides):
     for key, cfg_key in [('leg_lengthen', 'leg_lengthen'),
                           ('leg_slim', 'leg_slim'),
                           ('waist_slim', 'waist_slim'),
-                          ('overall_slim', 'overall_slim')]:
+                          ('head_ratio', 'head_ratio'),
+                          ('overall_slim', 'overall_slim'),
+                          ('chest_enlarge', 'chest_enlarge'),
+                          ('neck_lengthen', 'neck_lengthen')]:
         if overrides.get(key) is not None:
             config.setdefault("body_warp", {})[cfg_key] = overrides[key]
 
@@ -763,6 +676,11 @@ def _apply_cli_overrides_from_dict(config, overrides):
         config.setdefault("color_grade", {})["auto_wb"] = True
     if overrides.get('adaptive_contrast') is not None:
         config.setdefault("color_grade", {})["adaptive_contrast"] = overrides['adaptive_contrast']
+    for key in ('pink_filter', 'warm_filter', 'cool_filter', 'soft_glow'):
+        if overrides.get(key) is not None:
+            config.setdefault("skin_tone_filter", {})[key] = overrides[key]
+    if overrides.get('denoise_strength') is not None:
+        config.setdefault("denoise", {})["denoise_strength"] = overrides['denoise_strength']
     if overrides.get('watermark_text') is not None:
         config.setdefault("watermark", {})["watermark_text"] = overrides['watermark_text']
     if overrides.get('watermark_position') is not None:
