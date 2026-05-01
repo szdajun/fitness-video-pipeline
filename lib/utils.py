@@ -6,6 +6,9 @@ import os
 import ctypes
 from pathlib import Path
 
+# 视频文件扩展名集合（用于 path_exists 跳过 cv2.VideoCapture）
+VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mts', '.m2ts'}
+
 
 # Windows short path API for Chinese path support
 _GetShortPathNameW = getattr(ctypes.windll.kernel32, 'GetShortPathNameW', None)
@@ -43,14 +46,21 @@ def path_exists(path_str: str) -> bool:
     # 快速检查：先尝试 Path.exists()（对英文路径有效）
     if p.exists():
         return True
+    # 非视频文件（.exe, .aac, .ttf, .json 等），跳过 cv2.VideoCapture
+    ext = p.suffix.lower()
+    if ext not in VIDEO_EXTENSIONS:
+        try:
+            return p.stat().st_size > 0
+        except Exception:
+            return False
     # Windows 中文路径 bug：Path.exists() 返回 False 但文件实际存在
-    # 用 cv2.VideoCapture 探测（对视频文件有效）
+    # 仅对视频文件用 cv2.VideoCapture 探测
     cap = cv2.VideoCapture(path_str)
     opened = cap.isOpened()
     cap.release()
     if opened:
         return True
-    # 非视频文件：检查文件大小 > 0（绕过 Path.exists 的中文 bug）
+    # 最后一个 fallback：检查文件大小
     try:
         if p.stat().st_size > 0:
             return True
@@ -141,8 +151,27 @@ def transform_keypoints(keypoints, crop_x, crop_y, crop_w, crop_h, orig_w, orig_
 # ========== 领操人追踪（增强版） ==========
 # 所有彩蛋阶段共享同一个追踪函数，保证领操人 ID 一致性
 
-def track_lead_person(keypoints, lead_lock_tid=None, lead_lock_cx=None,
-                      match_threshold=0.2, lock_grace_frames=30):
+# 追踪参数常量
+MIN_VISIBLE_KPS = 6       # 最少可见关键点数，低于此认为无效检测
+DEFAULT_CENTER_X = 0.5     # 默认中心 x（关键点不足时）
+MATCH_THRESHOLD = 0.2      # 轨迹匹配阈值（归一化坐标）
+GRACE_FRAMES = 30          # 领操人消失后保持锁定帧数
+MATCH_MEDIAN_WINDOW = 5    # 匹配时取中位数的窗口大小
+
+
+def _person_center_x(person_kps, min_visible=MIN_VISIBLE_KPS):
+    """计算单人肩髋中点 x（归一化 0-1）"""
+    kps = np.array(person_kps)
+    vis = kps[:, 2] > 0.5
+    if vis.sum() < min_visible:
+        return DEFAULT_CENTER_X
+    shoulders_cx = (kps[5][0] + kps[6][0]) / 2   # 左肩5, 右肩6
+    hips_cx = (kps[11][0] + kps[12][0]) / 2      # 左髋11, 右髋12
+    return (shoulders_cx + hips_cx) / 2
+
+
+def track_lead_person(keypoints, lead_lock_tid=None,
+                      match_threshold=MATCH_THRESHOLD, lock_grace_frames=GRACE_FRAMES):
     """增强版领操人追踪
 
     特性：
@@ -153,7 +182,6 @@ def track_lead_person(keypoints, lead_lock_tid=None, lead_lock_cx=None,
     Args:
         keypoints: 关键点字典
         lead_lock_tid: 如果已知，强制使用此 tid 作为领操人
-        lead_lock_cx: 领操人已知的 x 中心位置
         match_threshold: x 匹配阈值
         lock_grace_frames: 领操人消失后保持锁定的帧数
     """
@@ -166,14 +194,7 @@ def track_lead_person(keypoints, lead_lock_tid=None, lead_lock_cx=None,
         if not frame_data:
             continue
         for pi, person_kps in enumerate(frame_data):
-            kps = np.array(person_kps)
-            vis = kps[:, 2] > 0.5
-            if vis.sum() < 6:
-                cx = 0.5
-            else:
-                shoulders_cx = (kps[5][0] + kps[6][0]) / 2
-                hips_cx = (kps[11][0] + kps[12][0]) / 2
-                cx = (shoulders_cx + hips_cx) / 2
+            cx = _person_center_x(person_kps)
 
             best_tid = None
             best_dist = float('inf')
@@ -196,15 +217,9 @@ def track_lead_person(keypoints, lead_lock_tid=None, lead_lock_cx=None,
             frame_tids = set()
             if frame_data:
                 for pi2, person_kps2 in enumerate(frame_data):
-                    kps2 = np.array(person_kps2)
-                    vis2 = kps2[:, 2] > 0.5
-                    if vis2.sum() < 6:
-                        continue
-                    shoulders_cx2 = (kps2[5][0] + kps2[6][0]) / 2
-                    hips_cx2 = (kps2[11][0] + kps2[12][0]) / 2
-                    cx2 = (shoulders_cx2 + hips_cx2) / 2
+                    cx2 = _person_center_x(person_kps2)
                     for tid, trk in tracks.items():
-                        prev_cx = np.median(trk["cx_list"][-5:]) if trk["cx_list"] else cx2
+                        prev_cx = np.median(trk["cx_list"][-MATCH_MEDIAN_WINDOW:]) if trk["cx_list"] else cx2
                         if abs(cx2 - prev_cx) < match_threshold:
                             frame_tids.add(tid)
                             break
