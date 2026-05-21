@@ -260,6 +260,7 @@ class FaceBeautify2Stage:
         face_slim = cfg.get("face_slim", 0.0)
         eye_enlarge = cfg.get("eye_enlarge", 0.0)
         num_workers = cfg.get("workers", 4)
+        detect_interval = cfg.get("detect_interval", 5)  # 跳帧检测：每 N 帧跑一次 InsightFace
 
         if skin_smooth <= 0 and eye_brighten <= 0 and face_whiten <= 0 and face_slim <= 0 and eye_enlarge <= 0:
             ctx.set("face_beautify2_path",
@@ -331,18 +332,18 @@ class FaceBeautify2Stage:
             max_frames = min(actual_frames, max_frames)
 
         print(f"    InsightFace美颜: 磨皮={skin_smooth}, 眼部提亮={eye_brighten}, "
-              f"肤色提亮={face_whiten}, 瘦脸={face_slim}, 大眼={eye_enlarge}, workers=1")
+              f"肤色提亮={face_whiten}, 瘦脸={face_slim}, 大眼={eye_enlarge}, "
+              f"检测间隔={detect_interval}帧")
 
-        # ---- 流式处理：逐帧处理避免内存溢出 ----
-        # 不再将所有帧加载到内存，逐帧处理后直接写 PNG
-        print(f"    处理 {max_frames} 帧（流式，无内存峰值）...")
+        # ---- 流式处理：逐帧处理，跳帧检测降低 CPU 负载 ----
+        print(f"    处理 {max_frames} 帧（检测间隔={detect_interval}，约节省{detect_interval-1}x时间）...")
         cap = cv2.VideoCapture(input_path)
         tmpdir = ctx.output_dir / f"_tmp_fb2_{Path(input_path).stem}_{int(time.time()*1000):08d}"
         tmpdir.mkdir(exist_ok=True)
         tmpdir_short = _to_short(str(tmpdir))
         app = FaceAnalysis('buffalo_l', providers=['CPUExecutionProvider'])
         app.prepare(ctx_id=0, det_size=(640, 640))
-        prev_kps = None
+        cached_face = None
         frame_idx = 0
 
         while frame_idx < max_frames:
@@ -365,11 +366,12 @@ class FaceBeautify2Stage:
                         curr_kps = person_kps
                         break
 
-            if curr_kps is not None:
+            # 跳帧检测：有缓存且非检测帧且跟踪到领操人 → 复用缓存
+            if cached_face is not None and frame_idx % detect_interval != 0 and curr_kps is not None:
+                main_face = cached_face
+            elif curr_kps is not None:
                 faces = app.get(frame)
                 if faces:
-                    lead_arr = np.array(curr_kps)
-                    lead_nose = (lead_arr[0][0], lead_arr[0][1]) if lead_arr[0][2] > 0.3 else None
                     best_dist = float('inf')
                     best_face = None
                     for face in faces:
@@ -377,16 +379,20 @@ class FaceBeautify2Stage:
                         if kps_face is None:
                             continue
                         face_cx_norm = kps_face[:, 0].mean()
-                        face_cx_pixel = int(face_cx_norm * orig_w)
-                        dist = abs(face_cx_pixel / orig_w - lead_cx)
+                        dist = abs(face_cx_norm - lead_cx)
                         if dist < best_dist:
                             best_dist = dist
                             best_face = face
                     main_face = best_face if best_dist < 0.15 else None
+                    if main_face is not None:
+                        cached_face = main_face
+                else:
+                    main_face = None
             else:
                 faces = app.get(frame)
                 if faces:
                     main_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+                    cached_face = main_face
                 else:
                     main_face = None
 

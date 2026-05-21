@@ -7,9 +7,10 @@ color_grade:
   saturation: 1.05
   warmth: 3
   clahe: true
-  sharpen: 0.7               # 自适应锐化，手机拍摄更清晰
+  sharpen: 1.5                # color 锐化，拉升前增强细节
   temporal_smooth: 0.25
   adaptive_contrast: 0.3
+  face_sharpen: 3.0           # 脸部放大增强（截取→2x放大→CLAHE+锐化→缩小混合）
   vignette_strength: 0.25    # 暗角强度
   vignette_radius: 0.8
   vignette_feather: 0.35
@@ -45,15 +46,15 @@ skin_smooth:
 ken_burns:
   mode: auto_track
   track_smooth_window: 20
-  track_zoom_range: [1.0, 1.08]
+  track_zoom_range: [1.0, 1.04]
   track_margin: 0.06
 
 output:
-  width: 1920
-  height: 1080
+  width: 1280
+  height: 720
   crf: 18                   # 高质量编码
   audio_bitrate: 128k
-  sharpen: 0                # 关闭全局锐化（避免放大压缩伪影）
+  sharpen: 0.4              # 拉升后 unsharp 锐化，补偿放大模糊
 
 stages:
   stabilize: false           # 关闭防抖（画面质量优先）
@@ -74,8 +75,8 @@ stages:
 energy_bar:
   width: 32
   margin_right: 20
-  margin_bottom: 60
-  height: 400
+  margin_bottom: 80
+  height: 250
   smoothing: 0.85
   min_fill_ratio: 0.15
   motion_scale: 200
@@ -91,7 +92,7 @@ intro_outro:
 
 audio:
   enabled: true
-  target_lufs: -14.0
+  target_lufs: -12.0
   fade_in: 0.5
   fade_out: 1.0
   denoise: 3                 # 音频降噪（环境噪音过滤）
@@ -117,4 +118,5 @@ face_beautify2:
   face_slim: 0.15
   eye_enlarge: 0.1
   workers: 4
+  detect_interval: 5          # 每5帧检测一次人脸，中间帧复用（CPU优化）
 

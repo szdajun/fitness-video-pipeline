@@ -152,7 +152,7 @@ def build_horizontal():
         font = cv2.FONT_HERSHEY_SIMPLEX
         text1 = "胭脂虎健身团"
         text2 = "带操人:丽丽"
-        text3 = "西安时代广场"
+        text3 = "汉细柳营故地"
         cv2.putText(frame, text1, (out_w//2 - 200, out_h//2 - 60), font, 1.5, (255, 255, 255), 2)
         cv2.putText(frame, text2, (out_w//2 - 150, out_h//2 + 20), font, 1.2, (200, 200, 100), 2)
         cv2.putText(frame, text3, (out_w//2 - 150, out_h//2 + 80), font, 1.0, (150, 150, 150), 1)

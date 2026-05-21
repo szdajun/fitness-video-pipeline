@@ -43,11 +43,13 @@ class ColorGradeStage:
         shadow = cfg.get("shadow", 0)
         auto_wb = cfg.get("auto_wb", False)
         adaptive_contrast = cfg.get("adaptive_contrast", 0)
+        face_sharpen = cfg.get("face_sharpen", 0)
 
         needs_grade = any(v != 0 and v != 1.0 and v is not False
                           for k, v in cfg.items()
                           if k in ("brightness", "contrast", "saturation", "warmth",
                                    "clahe", "shadow", "auto_wb", "adaptive_contrast",
+                                   "face_sharpen",
                                    "vignette_strength", "film_grain_strength"))
         if not needs_grade:
             lut_path = cfg.get("lut_path", "")
@@ -61,7 +63,8 @@ class ColorGradeStage:
 
         print(f"    参数: bright={brightness}, contrast={contrast:.2f}, "
               f"sat={saturation:.2f}, warm={warmth}, clahe={use_clahe}, "
-              f"shadow={shadow}, auto_wb={auto_wb}, ad_contrast={adaptive_contrast}")
+              f"shadow={shadow}, auto_wb={auto_wb}, ad_contrast={adaptive_contrast}"
+              f"{f', face_sharpen={face_sharpen}' if face_sharpen else ''}")
 
         # ==== LUT 预加载 + FFmpeg 加速检测 ====
         lut_path = cfg.get("lut_path", "")
@@ -123,6 +126,23 @@ class ColorGradeStage:
         tmpdir_short = to_short(str(tmpdir))
 
         frame_idx = 0
+
+        # load keypoints for face-localized CLAHE enhancement
+        face_keypoints = None
+        if face_sharpen > 0:
+            import json
+            kp_path = ctx.output_dir / f"{ctx.input_path.stem}_keypoints.json"
+            if kp_path.exists():
+                try:
+                    with open(kp_path, encoding="utf-8") as f:
+                        raw = json.load(f)
+                    face_keypoints = raw.get("keypoints", raw)
+                    if face_keypoints:
+                        print(f"    脸部放大增强: face_sharpen={face_sharpen}, 关键点已加载 ({len(face_keypoints)} 帧)")
+                except Exception:
+                    print(f"    警告: 脸部 CLAHE 关键点加载失败")
+            else:
+                print(f"    警告: 关键点文件不存在 ({kp_path.name})，脸部 CLAHE 跳过")
         prev_frame = None
         while frame_idx < max_frames:
             ret, frame = cap.read()
@@ -270,14 +290,69 @@ class ColorGradeStage:
                     # 首帧：全局锐化
                     frame = cv2.addWeighted(frame, 1.0 + sharpen, blurred, -sharpen, 0)
 
-            # 12. 时间平滑 (帧间混合，消除色块跳动)
+            # 12. 脸部放大增强：截取→放大→CLAHE+锐化→缩小→混合
+            if face_sharpen > 0 and face_keypoints is not None:
+                h_f, w_f = frame.shape[:2]
+                frame_kps = face_keypoints.get(str(frame_idx))
+                if frame_kps:
+                    for person_kps in frame_kps:
+                        kps_arr = np.array(person_kps)
+                        # BlazePose 33: 0=鼻子, 11=左肩, 12=右肩（有真实数据）
+                        nose = kps_arr[0]
+                        if nose[2] > 0.3:
+                            nx, ny = int(nose[0] * w_f), int(nose[1] * h_f)
+                            l_sh = kps_arr[11]
+                            r_sh = kps_arr[12]
+                            if l_sh[2] > 0.3 and r_sh[2] > 0.3:
+                                shoulder_dist = np.sqrt(
+                                    (l_sh[0] - r_sh[0]) ** 2 +
+                                    (l_sh[1] - r_sh[1]) ** 2
+                                ) * max(w_f, h_f)
+                                face_r = int(shoulder_dist * 0.22)
+                            else:
+                                face_r = int(min(w_f, h_f) * 0.08)
+                            face_r = max(face_r, 30)
+                            # 截取脸部区域（2倍半径含上下文）
+                            ext_r = int(face_r * 2.0)
+                            x1 = max(0, nx - ext_r)
+                            y1 = max(0, ny - ext_r)
+                            x2 = min(w_f, nx + ext_r)
+                            y2 = min(h_f, ny + ext_r)
+                            roi = frame[y1:y2, x1:x2].copy()
+                            rh, rw = roi.shape[:2]
+                            if rh < 10 or rw < 10:
+                                break
+                            # 放大2倍使 CLAHE 有更多像素发挥
+                            roi_up = cv2.resize(roi, (rw * 2, rh * 2), interpolation=cv2.INTER_CUBIC)
+                            lab_up = cv2.cvtColor(roi_up, cv2.COLOR_BGR2LAB)
+                            l_up, a_up, b_up = cv2.split(lab_up)
+                            clahe_f = cv2.createCLAHE(clipLimit=face_sharpen * 0.8, tileGridSize=(8, 8))
+                            l_enhanced = clahe_f.apply(l_up)
+                            roi_up = cv2.cvtColor(cv2.merge([l_enhanced, a_up, b_up]), cv2.COLOR_LAB2BGR)
+                            # 放大后轻微锐化
+                            blr_up = cv2.GaussianBlur(roi_up, (0, 0), 1.0)
+                            roi_up = cv2.addWeighted(roi_up, 1.3, blr_up, -0.3, 0)
+                            # 缩小回原始尺寸
+                            roi_enhanced = cv2.resize(roi_up, (rw, rh), interpolation=cv2.INTER_AREA)
+                            # 高斯权重 mask：中心=1.0，往边缘平滑过渡到0
+                            cy, cx = np.ogrid[:rh, :rw]
+                            dist = np.sqrt((cx - (nx - x1)) ** 2 + (cy - (ny - y1)) ** 2)
+                            weight = np.exp(-dist ** 2 / (2 * (face_r * 0.45) ** 2))
+                            weight = np.clip(weight, 0, 1).astype(np.float32)
+                            weight_3ch = np.stack([weight] * 3, axis=-1)
+                            roi_blend = (roi.astype(np.float32) * (1 - weight_3ch) +
+                                         roi_enhanced.astype(np.float32) * weight_3ch).astype(np.uint8)
+                            frame[y1:y2, x1:x2] = roi_blend
+                        break  # only first detected person
+
+            # 13. 时间平滑 (帧间混合，消除色块跳动)
             temporal_smooth = cfg.get("temporal_smooth", 0)
             if temporal_smooth > 0 and prev_frame is not None:
                 frame = cv2.addWeighted(frame, 1.0 - temporal_smooth,
                                         prev_frame, temporal_smooth, 0)
             prev_frame = frame.copy()
 
-            # 13. 暗角 (vignette) — 预计算径向掩码
+            # 14. 暗角 (vignette) — 预计算径向掩码
             vignette_strength = cfg.get("vignette_strength", 0)
             if vignette_strength > 0:
                 if not hasattr(self, '_vignette_mask'):
@@ -294,7 +369,7 @@ class ColorGradeStage:
                     self._vignette_mask = (1.0 - mask * vignette_strength).astype(np.float32)
                 frame = (frame.astype(np.float32) * self._vignette_mask[:, :, None]).astype(np.uint8)
 
-            # 14. 胶片颗粒 (film grain) — 确定性噪声避免闪烁
+            # 15. 胶片颗粒 (film grain) — 确定性噪声避免闪烁
             film_grain_strength = cfg.get("film_grain_strength", 0)
             if film_grain_strength > 0:
                 rng = np.random.RandomState(frame_idx)
@@ -305,7 +380,7 @@ class ColorGradeStage:
                     noise = cv2.GaussianBlur(noise, (grain_size * 2 + 1,) * 2, grain_size * 0.5)
                 frame = np.clip(frame.astype(np.float32) + noise, 0, 255).astype(np.uint8)
 
-            # 15. 3D LUT 调色 (Python fallback：FFmpeg 加速时跳过)
+            # 16. 3D LUT 调色 (Python fallback：FFmpeg 加速时跳过)
             if hasattr(self, '_current_lut') and not use_ffmpeg_lut:
                 lut_frame = apply_lut(frame, self._current_lut, lut_intensity)
                 # 肤色保护: LUT 调色后还原肤色区域，避免偏色

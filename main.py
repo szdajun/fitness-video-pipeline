@@ -20,6 +20,9 @@ import os
 import sys
 import time
 from datetime import date
+
+# OpenCV 4.13.0 FFMPEG DLL 编译时依赖 openh264 DLL，系统缺少则 VideoWriter 初始化失败。
+os.environ.setdefault("OPENCV_VIDEOIO_PRIORITY_LIST", "MSMF")
 from pathlib import Path
 
 # 将临时目录设置为 F:\wkspace\fitness-video-pipeline\_temp（避免 C 盘空间）
@@ -41,6 +44,7 @@ import importlib
 def _import_stage(module_name, class_name):
     return getattr(importlib.import_module(f"stages.{module_name}"), class_name)
 
+PreDeblockStage = _import_stage("00_pre_deblock", "PreDeblockStage")
 PoseDetectStage = _import_stage("01_pose_detect", "PoseDetectStage")
 StabilizeStage = _import_stage("02_stabilize", "StabilizeStage")
 H2VConvertStage = _import_stage("03_h2v_convert", "H2VConvertStage")
@@ -57,6 +61,7 @@ FaceBlurStage = _import_stage("14_face_blur", "FaceBlurStage")
 MotionHeatmapStage = _import_stage("15_motion_heatmap", "MotionHeatmapStage")
 SyncScoreStage = _import_stage("16_sync_score", "SyncScoreStage")
 BeatFlashStage = _import_stage("17_beat_flash", "BeatFlashStage")
+MascotStage = _import_stage("29_mascot", "MascotStage")
 HighlightStage = _import_stage("18_highlight", "HighlightStage")
 EnergyBarStage = _import_stage("19_energy_bar", "EnergyBarStage")
 IntroOutroStage = _import_stage("20_intro_outro", "IntroOutroStage")
@@ -68,6 +73,14 @@ BlushStage = _import_stage("25_blush", "BlushStage")
 FaceBeautifyStage = _import_stage("26_face_beautify", "FaceBeautifyStage")
 FaceBeautify2Stage = _import_stage("27_face_beautify2", "FaceBeautify2Stage")
 RIFEInterpolateStage = _import_stage("28_rife_interpolate", "RIFEInterpolateStage")
+FaceEnhanceStage = _import_stage("30_face_enhance", "FaceEnhanceStage")
+BGMBeatStage = _import_stage("30_bgm_beat", "BGMBeatStage")
+PiPStage = _import_stage("31_pip", "PiPStage")
+SpeedRampStage = _import_stage("32_speed_ramp", "SpeedRampStage")
+FilmLookStage = _import_stage("33_film_look", "FilmLookStage")
+DanmakuStage = _import_stage("34_danmaku", "DanmakuStage")
+IntensityBurstStage = _import_stage("35_intensity_burst", "IntensityBurstStage")
+QinColdOpenStage = _import_stage("36_qin_cold_open", "QinColdOpenStage")
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -213,12 +226,33 @@ def _apply_cli_overrides(config, args):
     _apply_cli_overrides_from_dict(config, vars(args))
 
 
+MIN_WIDTH = 1280
+MIN_HEIGHT = 480
+
+def _check_resolution(path):
+    """检查视频分辨率是否达标，返回 True 达标 / False 跳过"""
+    import cv2
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return True  # 无法读取时放行，让下游报错
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    if w < MIN_WIDTH or h < MIN_HEIGHT:
+        print(f"    跳过: 分辨率 {w}x{h} 低于 {MIN_WIDTH}x{MIN_HEIGHT}")
+        return False
+    return True
+
+
 def run_single(args):
     """处理单个视频"""
     input_path = Path(args.input)
     if not input_path.exists():
         print(f"错误: 文件不存在: {input_path}")
         sys.exit(1)
+
+    if not _check_resolution(input_path):
+        return
 
     config = load_config(args.config or "config.yaml")
     if args.preset:
@@ -254,6 +288,8 @@ def run_single(args):
     engine = PipelineEngine(config)
     stages_cfg = config["stages"]
 
+    engine.add_stage("pre_deblock", PreDeblockStage(),
+                     enabled=stages_cfg.get("pre_deblock", False))
     engine.add_stage("pose_detect", PoseDetectStage(),
                      enabled=stages_cfg.get("pose_detect", True))
     engine.add_stage("stabilize", StabilizeStage(),
@@ -300,6 +336,8 @@ def run_single(args):
                      enabled=stages_cfg.get("intro_outro", False))
     engine.add_stage("watermark", WatermarkStage(),
                      enabled=stages_cfg.get("watermark", False))
+    engine.add_stage("mascot", MascotStage(),
+                     enabled=stages_cfg.get("mascot", False))
     engine.add_stage("blush", BlushStage(),
                      enabled=stages_cfg.get("blush", False))
     engine.add_stage("face_beautify", FaceBeautifyStage(),
@@ -308,8 +346,24 @@ def run_single(args):
                      enabled=stages_cfg.get("face_beautify2", False))
     engine.add_stage("rife", RIFEInterpolateStage(),
                      enabled=stages_cfg.get("rife", False))
+    engine.add_stage("speed_ramp", SpeedRampStage(),
+                     enabled=stages_cfg.get("speed_ramp", False))
+    engine.add_stage("danmaku", DanmakuStage(),
+                     enabled=stages_cfg.get("danmaku", False))
+    engine.add_stage("intensity_burst", IntensityBurstStage(),
+                     enabled=stages_cfg.get("intensity_burst", False))
+    engine.add_stage("film_look", FilmLookStage(),
+                     enabled=stages_cfg.get("film_look", False))
+    engine.add_stage("pip", PiPStage(),
+                     enabled=stages_cfg.get("pip", False))
+    engine.add_stage("bgm_beat", BGMBeatStage(),
+                     enabled=stages_cfg.get("bgm_beat", False))
+    engine.add_stage("qin_cold_open", QinColdOpenStage(),
+                     enabled=stages_cfg.get("qin_cold_open", False))
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
+    engine.add_stage("face_enhance", FaceEnhanceStage(),
+                     enabled=stages_cfg.get("face_enhance", False))
 
     engine.run(ctx)
 
@@ -385,6 +439,9 @@ def _scan_videos(input_dir: Path):
             continue
         # 跳过隐藏文件
         if f.name.startswith("."):
+            continue
+        # 跳过低分辨率视频
+        if not _check_resolution(f):
             continue
         videos.append(f)
     return videos
@@ -612,6 +669,8 @@ def _process_video_task(task):
                          enabled=stages_cfg.get("audio", False))
         engine.add_stage("export", ExportStage(),
                          enabled=stages_cfg.get("export", True))
+        engine.add_stage("face_enhance", FaceEnhanceStage(),
+                         enabled=stages_cfg.get("face_enhance", False))
 
         engine.run(ctx)
 

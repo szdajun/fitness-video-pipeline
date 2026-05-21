@@ -3,6 +3,7 @@
 将处理后的视频与原始音频合并，输出最终 H.264 编码视频。
 支持放大到 1080x1920 全高清竖版。
 支持裁切重复片段（--cut 30-60,120-150）。
+GPU 加速: 自动检测 h264_nvenc，优先使用硬件编码。
 """
 
 import subprocess
@@ -15,6 +16,42 @@ from pathlib import Path
 
 
 class ExportStage:
+    _nvenc_available = None  # lazy probe
+
+    @classmethod
+    def _probe_nvenc(cls) -> bool:
+        """检测 h264_nvenc 编码器是否可用"""
+        if cls._nvenc_available is not None:
+            return cls._nvenc_available
+        for ffmpeg in ["ffmpeg", "C:/Users/18091/ffmpeg/ffmpeg.exe"]:
+            r = subprocess.run(
+                [ffmpeg, "-hide_banner", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.1",
+                 "-c:v", "h264_nvenc", "-preset", "p1", "-b:v", "1M", "-an", "-f", "null", "-"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+            if r.returncode == 0:
+                cls._nvenc_available = True
+                return True
+        cls._nvenc_available = False
+        return False
+
+    def _encoder_args(self, output_cfg: dict) -> list:
+        """根据 GPU 可用性和配置返回编码器参数"""
+        encoder = output_cfg.get("encoder", "auto")
+
+        if encoder == "nvenc" or (encoder == "auto" and self._probe_nvenc()):
+            return ["-c:v", "h264_nvenc", "-preset", "p6",
+                    "-rc", "vbr", "-cq", "18", "-b:v", "0",
+                    "-spatial-aq", "1", "-aq-strength", "8"]
+        elif encoder == "nvenc":
+            print("    提示: NVENC 不可用，回退 libx264")
+        # libx264 fallback
+        preset = output_cfg.get("preset", "fast")
+        crf = output_cfg.get("crf", 26)
+        deblock = output_cfg.get("deblock", "")
+        args = ["-c:v", "libx264", "-preset", preset, "-crf", str(crf)]
+        if deblock:
+            args += ["-x264-params", f"deblock={deblock}".replace(":", "\\:")]
+        return args
     def run(self, ctx):
         # 按优先级找最终处理的视频
         # face_beautify2 优先于 face_beautify（InsightFace vs MediaPipe）
@@ -22,9 +59,14 @@ class ExportStage:
         processed_path = (ctx.get("rife_path") or
                   ctx.get("face_beautify2_path") or
                          ctx.get("face_beautify_path") or
-                         ctx.get("beatflash_path") or
+                         ctx.get("bgm_path") or
+                         ctx.get("pip_path") or
+                         ctx.get("burst_path") or
+                         ctx.get("mascot_path") or
+                         ctx.get("watermark_path") or
                          ctx.get("energybar_path") or
                          ctx.get("highlight_path") or
+                         ctx.get("beatflash_path") or
                          ctx.get("sync_path") or
                          ctx.get("heatmap_path") or
                          ctx.get("faceblur_path") or
@@ -60,12 +102,16 @@ class ExportStage:
         # 片头片尾拼接
         intro_path = ctx.get("intro_path")
         outro_path = ctx.get("outro_path")
+        coldopen_path = ctx.get("coldopen_path")
         has_intro = intro_path and path_exists(intro_path)
         has_outro = outro_path and path_exists(outro_path)
+        has_coldopen = coldopen_path and path_exists(coldopen_path)
 
-        if has_intro or has_outro:
+        if has_intro or has_outro or has_coldopen:
             # 纯视频拼接（音频在最后导出阶段从原片提取 + 填充静音）
             concat_files = []
+            if has_coldopen:
+                concat_files.append(str(Path(coldopen_path).resolve()))
             if has_intro:
                 concat_files.append(str(Path(intro_path).resolve()))
             concat_files.append(str(Path(processed_path).resolve()))
@@ -118,6 +164,7 @@ class ExportStage:
         out_w = output_cfg.get("width", None)
         out_h = output_cfg.get("height", None)
         crf = output_cfg.get("crf", 26)           # 默认用26，省体积（23太保守）
+        deblock = output_cfg.get("deblock", "")   # x264 deblock 参数，如 "-1:-1"
 
         # 自动检测输入视频方向，保持原方向不强制缩放
         cap_d = cv2.VideoCapture(processed_path)
@@ -192,47 +239,51 @@ class ExportStage:
                     tile=output_cfg.get("realesrgan_tile", 256),
                     gpu=output_cfg.get("realesrgan_gpu", True),
                 )
+                max_ai_frames = output_cfg.get("realesrgan_max_frames", 300)
+                total_in_frames = int(cv2.VideoCapture(processed_path).get(cv2.CAP_PROP_FRAME_COUNT))
                 if upscaler.is_available() and AIUpscaler.need_upscale(in_w, in_h, out_w, out_h):
-                    print(f"    AI 超分: {in_w}x{in_h} → {out_w}x{out_h} ...")
-                    import tempfile, os
-                    tmpdir = Path(tempfile.mkdtemp(prefix="esrgan_"))
-                    try:
-                        cap_ai = cv2.VideoCapture(processed_path)
-                        fi = 0
-                        while True:
-                            ret, frm = cap_ai.read()
-                            if not ret:
-                                break
-                            up = upscaler.upscale(frm)
-                            up = AIUpscaler.preprocess(up, out_w, out_h)
-                            cv2.imwrite(str(tmpdir / f"f_{fi:06d}.png"), up)
-                            fi += 1
-                            if fi % 200 == 0:
-                                print(f"    超分进度: {fi} 帧")
-                        cap_ai.release()
-                        # 编码超分后视频（无音频）
-                        esrgan_video = ctx.output_dir / f"{video_path.stem}_esrgan.mp4"
-                        short_in = _to_short(str(tmpdir))
-                        short_out = _to_short(str(esrgan_video))
-                        subprocess.run([
-                            ffmpeg, "-y", "-framerate", str(fps),
-                            "-i", f"{short_in}/f_%06d.png",
-                            "-c:v", "libx264", "-preset", preset,
-                            "-crf", str(crf), "-pix_fmt", "yuv444p", "-an",
-                            short_out,
-                        ], capture_output=True, check=True)
-                        processed_path = str(esrgan_video)
-                        in_w, in_h = out_w, out_h
-                        # 替换 scale_filter 为空（已经超分到目标分辨率）
-                        scale_filter = ""
-                        if sharpen > 0:
-                            scale_filter = f"unsharp=5:5:{sharpen}"
-                        res_info = f"{out_w}x{out_h}(AI)"
-                        print(f"    AI 超分完成: {fi} 帧")
-                    except Exception as e:
-                        print(f"    AI 超分失败: {e}，回退 lanczos")
-                    finally:
-                        shutil.rmtree(tmpdir, ignore_errors=True)
+                    if total_in_frames > max_ai_frames:
+                        print(f"    AI 超分跳过: {total_in_frames} 帧 > {max_ai_frames} 上限，回退 {resize_filter}")
+                    else:
+                        print(f"    AI 超分: {in_w}x{in_h} → {out_w}x{out_h} ...")
+                        import tempfile, os
+                        tmpdir = Path(tempfile.mkdtemp(prefix="esrgan_"))
+                        try:
+                            cap_ai = cv2.VideoCapture(processed_path)
+                            fi = 0
+                            while True:
+                                ret, frm = cap_ai.read()
+                                if not ret:
+                                    break
+                                up = upscaler.upscale(frm)
+                                up = AIUpscaler.preprocess(up, out_w, out_h)
+                                cv2.imwrite(str(tmpdir / f"f_{fi:06d}.png"), up)
+                                fi += 1
+                                if fi % 200 == 0:
+                                    print(f"    超分进度: {fi} 帧")
+                            cap_ai.release()
+                            # 编码超分后视频（无音频）
+                            esrgan_video = ctx.output_dir / f"{video_path.stem}_esrgan.mp4"
+                            short_in = _to_short(str(tmpdir))
+                            short_out = _to_short(str(esrgan_video))
+                            subprocess.run([
+                                ffmpeg, "-y", "-framerate", str(fps),
+                                "-i", f"{short_in}/f_%06d.png",
+                                "-c:v", "libx264", "-preset", preset,
+                                "-crf", str(crf), "-pix_fmt", "yuv444p", "-an",
+                                short_out,
+                            ], capture_output=True, check=True)
+                            processed_path = str(esrgan_video)
+                            in_w, in_h = out_w, out_h
+                            scale_filter = ""
+                            if sharpen > 0:
+                                scale_filter = f"unsharp=5:5:{sharpen}"
+                            res_info = f"{out_w}x{out_h}(AI)"
+                            print(f"    AI 超分完成: {fi} 帧")
+                        except Exception as e:
+                            print(f"    AI 超分失败: {e}，回退 lanczos")
+                        finally:
+                            shutil.rmtree(tmpdir, ignore_errors=True)
                 elif not upscaler.is_available():
                     print(f"    提示: Real-ESRGAN 未安装，回退 {resize_filter} 缩放")
 
@@ -247,6 +298,7 @@ class ExportStage:
                 vf_parts = [f"select='not({cut_or})'", "setpts=N/FRAME_RATE/TB"]
                 if scale_filter:
                     vf_parts.append(scale_filter)
+                vf_parts.append("deband=0.1:0.1:0.1:0.1:8")  # 强deband减轻色块
                 vf_parts.append(f"fade=t=out:st={fade_start:.2f}:d={video_fade_out}")
                 vf = ",".join(vf_parts)
 
@@ -260,23 +312,28 @@ class ExportStage:
                     cmd = [ffmpeg, "-y", "-i", str(processed_path), "-i", str(audio_path)]
                     cmd.extend(["-filter_complex", f"[0:v]{vf}[v]"])
                     cmd.extend(["-map", "[v]", "-map", "1:a"])
-                    cmd.extend(["-c:v", "libx264", "-preset", preset,
-                                "-crf", str(crf), "-c:a", "copy"])
+                    cmd.extend(self._encoder_args(output_cfg))
+                    cmd.extend(["-c:a", "copy"])
                 else:
                     af = f"aselect='not({cut_or})',asetpts=N/SR/TB"
                     cmd = [ffmpeg, "-y", "-i", str(processed_path), "-i", str(video_path)]
                     cmd.extend(["-filter_complex",
                                 f"[0:v]{vf}[v];[1:a]{af}[a]"])
                     cmd.extend(["-map", "[v]", "-map", "[a]"])
-                    cmd.extend(["-c:v", "libx264", "-preset", preset,
-                                "-crf", str(crf), "-c:a", "aac", "-b:a", audio_bitrate])
+                    cmd.extend(self._encoder_args(output_cfg))
+                    cmd.extend(["-c:a", "aac", "-b:a", audio_bitrate])
             else:
                 # 无裁切: 直接合并
-                print(f"    FFmpeg 合并输出 ({res_info}, CRF {crf}, preset={preset}, audio={audio_bitrate})...")
+                _enc_name = 'NVENC' if 'nvenc' in str(self._encoder_args(output_cfg)) else 'libx264'
+                if _enc_name == 'NVENC':
+                    print(f"    GPU 编码: h264_nvenc (preset p6, CQ 18, deband)")
+                else:
+                    print(f"    CPU 编码: libx264 (preset {preset}, CRF {crf})")
+                print(f"    FFmpeg 合并输出 ({res_info}, audio={audio_bitrate})...")
 
                 # 音频淡出滤镜（使用intro_outro配置中的audio_fade_out）
                 # 注意：combined视频时长可能比原音频长，从原片提取音频 + apad填充静音 + 淡出
-                vf_final = scale_filter  # 禁用 export 阶段的视频淡出（outro已有内置淡出）
+                vf_final = f"{scale_filter},deband=0.1:0.1:0.1:0.1:8"  # 强deband减轻色块
 
                 if has_intro or has_outro:
                     # 拼接后的视频是纯视频，从原片提取音频
@@ -350,8 +407,8 @@ class ExportStage:
                                "-map", "0:v", "-map", "1:a"]
 
                 cmd.extend(["-vf", vf_final])
-                cmd.extend(["-c:v", "libx264", "-preset", preset,
-                            "-crf", str(crf), "-pix_fmt", "yuv420p",
+                cmd.extend(self._encoder_args(output_cfg))
+                cmd.extend(["-pix_fmt", "yuv420p",
                             "-c:a", "aac", "-b:a", audio_bitrate])
 
             if is_preview:
@@ -384,7 +441,7 @@ class ExportStage:
         video_stem = final_path.stem.replace("_final", "").replace("_full", "").replace("_9x16", "").replace("_16x9", "")
         is_full = "_full" in final_path.name
         intermediates = [
-            "_keypoints.json",
+            # "_keypoints.json",  # keep for Shorts lead tracking
             "_stabilized.mp4",
             "_vectors.trf",
             "_h2v.mp4",

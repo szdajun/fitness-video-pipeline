@@ -86,7 +86,7 @@ def make_intro():
         draw.text(((W_img - tw) // 2, cy2), lead_text, font=font_md, fill=(255, 220, 50))
 
         font_sm = get_font(int(H_img * 0.05))
-        date_text = "西安时代广场 / 2026-04-20"
+        date_text = "细柳营·时代广场 / 2026-04-20"
         bbox = draw.textbbox((0, 0), date_text, font=font_sm)
         tw = bbox[2] - bbox[0]
         cy3 = overlay_top + int((H_img - overlay_top) * 0.3)

@@ -139,8 +139,6 @@ class PoseDetectStage:
 
         model = _YOLO(model_name)
         model.to(device)
-        if device.startswith("cuda"):
-            model.half()
 
         # 预热
         ret, frame = cap.read()

@@ -25,10 +25,48 @@ debug_*.png
 *.tmp
 *.log
 
-# Model files
+# Model files (large)
 *.pt
+*.pth
 *.onnx
 *.tflite
+gfpgan/weights/
+weights/
+
+# Venv
+venv/
+
+# Assets (large files)
+assets/bgm.mp3
+assets/bgm.raw
+assets/qin_cold_open.mp3
+
+# Temp scripts
+_make_shorts.py
+_upload_now.py
+*.log
+
+# Output keep final
+output/*_keypoints.json
+output/*_manifest.json
+output/*_metrics.json
+output/*_stabilized*
+output/*_kenburns*
+output/*_smooth*
+output/*_denoise*
+output/*_beatflash*
+output/*_highlight*
+output/*_energybar_watermark*
+output/*_mascot_danmaku*
+output/*_burst*
+output/*_film*
+output/*_pip*
+output/*_withbgm*
+output/*_hook*
+output/*_qinopen*
+output/_*
+output/*.fade
+output/*.wav
 
 # OS
 .DS_Store

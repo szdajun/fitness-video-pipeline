@@ -6,6 +6,7 @@ from copy import deepcopy
 
 DEFAULT_CONFIG = {
     "stages": {
+        "pre_deblock": False,
         "pose_detect": True,
         "stabilize": True,
         "h2v_convert": True,
@@ -17,6 +18,7 @@ DEFAULT_CONFIG = {
         "watermark": False,
         "blush": False,
         "export": True,
+        "face_enhance": False,
     },
     "h2v": {
         "target_ratio": 9 / 16,
@@ -83,11 +85,26 @@ DEFAULT_CONFIG = {
     },
     "preview": False,
     "preview_seconds": 3,
+    "cloud_enhance": {
+        "enabled": False,
+        "strength": 0.8,
+        "mode": "cloud",
+        "host": "",
+        "port": 22,
+        "user": "root",
+        "password": "",
+        "model_path": "",
+    },
     "rife": {
         "enabled": False,
         "target_fps": 60,
         "gpu": True,
         "half_precision": True,
+    },
+    "pre_deblock": {
+        "enabled": False,
+        "quality": 4,
+        "mode": 1,
     },
 }
 
@@ -109,13 +126,14 @@ def _build_all_known_keys() -> set:
         "lead_box", "lead_ghost", "face_blur", "motion_heatmap",
         "sync_score", "beat_flash", "highlight", "energy_bar",
         "intro_outro", "face_beautify", "face_beautify2", "export",
+        "pre_deblock", "mascot", "bgm_beat",
         "output", "pose_backend", "pose_model", "pose_gpu",
-        "full_video", "auto_preset", "skin_smooth",
+        "full_video", "auto_preset", "skin_smooth", "face_enhance",
     })
     # output section sub-keys
     known.update({
-        "width", "height", "crf", "preset", "cut_ranges", "sharpen",
-        "resize_filter", "upscale_mode", "realesrgan_model",
+        "width", "height", "crf", "preset", "cut_ranges", "sharpen", "deblock",
+        "encoder", "resize_filter", "upscale_mode", "realesrgan_model",
         "realesrgan_scale", "realesrgan_tile", "realesrgan_gpu",
         "audio_bitrate", "video_fade_out",
     })
@@ -140,6 +158,11 @@ def _build_all_known_keys() -> set:
         "strength", "d", "sigmaColor", "sigmaSpace", "downscale",
         "skin_detect",
     })
+    # cloud_enhance sub-keys
+    known.update({
+        "enabled", "strength", "mode", "host", "port", "user", "password",
+        "model_path",
+    })
     # stabilize extends (beyond DEFAULT_CONFIG)
     known.update({
         "smoothing",
@@ -148,6 +171,7 @@ def _build_all_known_keys() -> set:
     known.update({
         "eye_brighten", "face_smooth", "eye_radius", "face_fill_light",
         "workers", "skin_smooth", "face_whiten", "face_slim", "eye_enlarge",
+        "detect_interval",
     })
     # color_grade — keys added mid-session (not yet in DEFAULT_CONFIG)
     known.update({

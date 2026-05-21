@@ -35,7 +35,9 @@ class EnergyBarStage:
             return
 
         # 输入视频：优先 ken_burns 输出，其次 h2v
-        input_path = (ctx.get("ken_burns_path") or
+        input_path = (ctx.get("ghost_path") or
+                     ctx.get("leadbox_path") or
+                     ctx.get("ken_burns_path") or
                      ctx.get("beatflash_path") or
                      ctx.get("color_path") or
                      ctx.get("warped_path") or
@@ -124,7 +126,8 @@ class EnergyBarStage:
 
         bar_x = orig_w - bar_margin_right - bar_width
         bar_bottom = orig_h - bar_margin_bottom
-        bar_top = bar_bottom - bar_height
+        bar_top = max(10, bar_bottom - bar_height)  # 安全钳位，不超出画面顶部
+        bar_height = bar_bottom - bar_top
 
         print(f"    能量条: {orig_w}x{orig_h}, bar=({bar_x},{bar_top})-({bar_x+bar_width},{bar_bottom}), lead_tid={lead_tid}")
 
