@@ -157,11 +157,11 @@ class IntroOutroStage:
             print("    已存在，跳过")
             return
 
-        # 片头和片尾都用主内容视频（不用能量条视频，能量条底部有黑背景）
-        video_path = (ctx.get("color_path") or
-                     ctx.get("ken_burns_path") or
+        # 片头和片尾用未经 color_grade 的视频（避免 brightness/CLAHE 导致过亮偏色）
+        video_path = (ctx.get("ken_burns_path") or
                      ctx.get("warped_path") or
                      ctx.get("h2v_path") or
+                     ctx.get("color_path") or  # fallback
                      str(ctx.input_path))
         outro_video_path = video_path
         if not video_path or not cv2.VideoCapture(video_path).isOpened():
@@ -183,7 +183,7 @@ class IntroOutroStage:
         lead_name = ctx.get("lead_name")
         if not lead_name:
             lead_name = re.sub(r'[\d_]+.*$', '', stem)
-        location = cfg.get("location", "西安时代广场")
+        location = cfg.get("location", "汉细柳营故地·时代广场")
         date_str = cfg.get("date") or "2026-04-20"
 
         print(f"    片头片尾生成: {channel_name} | 带操人:{lead_name} | {location}/{date_str}")
@@ -395,10 +395,10 @@ class IntroOutroStage:
         # 4行文字配置（用短边作为基准，横竖屏文字大小一致）
         ref = min(w, h)
         lines = [
-            ("打工牛马", int(ref * 0.075), (255, 220, 50)),
-            ("健身达人", int(ref * 0.075), (255, 220, 50)),
-            ("关注不迷路", int(ref * 0.070), (255, 255, 255)),
-            ("点击关注", int(ref * 0.060), (200, 200, 200)),
+            ("岁月不留痕", int(ref * 0.065), (255, 220, 50)),
+            ("青春不打烊", int(ref * 0.065), (255, 220, 50)),
+            ("细柳营中练 秦人血脉醒", int(ref * 0.055), (255, 255, 255)),
+            ("每天跟练打卡", int(ref * 0.050), (200, 200, 200)),
         ]
 
         # 计算行间距和总高度，居中于视频下半部分

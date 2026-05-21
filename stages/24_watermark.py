@@ -30,13 +30,15 @@ class WatermarkStage:
             return
 
         input_path = (
+            ctx.get("energybar_path") or
+            ctx.get("beatflash_path") or
+            ctx.get("ghost_path") or
+            ctx.get("leadbox_path") or
             ctx.get("color_path") or
-            ctx.get("skin_tone_filter_path") or
             ctx.get("denoise_path") or
             ctx.get("ken_burns_path") or
-            ctx.get("face_warp_path") or
-            ctx.get("warped_path") or
-            ctx.get("h2v_path")
+            ctx.get("h2v_path") or
+            str(ctx.input_path)
         )
         if not input_path or not path_exists(input_path):
             print("    跳过: 无输入视频")
@@ -93,20 +95,22 @@ class WatermarkStage:
 
         tmpdir_short = to_short(str(tmpdir))
 
-        # 字体：尝试多种中文字体
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        # 中文字体fallback
+        # 中文字体
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
         import os
         font_paths = [
             "C:/Windows/Fonts/msyh.ttc",   # 微软雅黑
             "C:/Windows/Fonts/simhei.ttf",  # 黑体
             "C:/Windows/Fonts/simsun.ttc",  # 宋体
         ]
-        chinese_font = None
+        pil_font = None
         for fp in font_paths:
             if os.path.exists(fp):
-                chinese_font = cv2.FONT_HERSHEY_SIMPLEX
+                pil_font = ImageFont.truetype(fp, font_size)
                 break
+        if not pil_font:
+            pil_font = ImageFont.load_default()
 
         cap = cv2.VideoCapture(input_path)
         frame_idx = 0
@@ -127,16 +131,18 @@ class WatermarkStage:
                 lines.append(date_str)
 
             if lines:
-                # 计算文字区域大小
-                max_w, max_h = 0, 0
+                # 用 PIL 计算文字大小（支持中文）
+                line_heights = []
+                max_w = 0
                 for line in lines:
-                    (tw, th), _ = cv2.getTextSize(line, font, font_size / 28, 2)
-                    max_w = max(max_w, tw)
-                    max_h += th + 10
+                    bbox = pil_font.getbbox(line)
+                    lw = bbox[2] - bbox[0]
+                    lh = bbox[3] - bbox[1]
+                    max_w = max(max_w, lw)
+                    line_heights.append(lh)
 
-                # 背景区域
                 pad = 8
-                bg_h = max_h + pad * 2
+                bg_h = sum(line_heights) + pad * 2 + (len(lines) - 1) * 4
                 bg_w = max_w + pad * 2
 
                 # 计算位置
@@ -159,17 +165,20 @@ class WatermarkStage:
                     x = orig_w - bg_w - margin
                     y = orig_h - bg_h - margin
 
-                # 画半透明背景
+                # 画半透明背景 (OpenCV)
                 overlay = frame.copy()
                 cv2.rectangle(overlay, (x, y), (x + bg_w, y + bg_h), (0, 0, 0), -1)
                 frame = cv2.addWeighted(overlay, alpha * 0.5, frame, 1 - alpha * 0.5, 0)
 
-                # 画文字
+                # 用 PIL 画中文文字
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(frame_rgb)
+                draw = ImageDraw.Draw(pil_img)
                 cy = y + pad
-                for line in lines:
-                    cv2.putText(frame, line, (x + pad, cy + font_size),
-                                font, font_size / 28, color, 2)
-                    cy += font_size + 10
+                for i, line in enumerate(lines):
+                    draw.text((x + pad, cy), line, font=pil_font, fill=(255, 255, 255))
+                    cy += line_heights[i] + 4
+                frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
             cv2.imwrite(f"{tmpdir_short}/f_{frame_idx:06d}.png", frame)
             frame_idx += 1

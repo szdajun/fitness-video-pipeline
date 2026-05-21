@@ -1,16 +1,17 @@
-# 健身短视频处理流水线 — 默认配置
+# 健身短视频处理流水线 — 低码率源专用配置
 # 用法: python main.py input.mp4 -c config.yaml
 
 stages:
+  pre_deblock: false
   pose_detect: true
-  stabilize: true           # 手机拍摄防抖
+  stabilize: false          # 排查
   h2v_convert: false
   body_warp: false
-  ken_burns: true
+  ken_burns: true           # 开
   face_warp: false
-  color_grade: true
+  color_grade: false
   skin_tone_filter: false
-  denoise: true             # 暗光/手机拍摄降噪
+  denoise: true             # 开（测试）
   audio: false
   skeleton_overlay: false
   person_count: false
@@ -22,20 +23,37 @@ stages:
   beat_flash: true
   highlight: true
   energy_bar: true
-  skin_smooth: true
+  skin_smooth: true         # 开
   intro_outro: true
-  watermark: false
+  watermark: true           # 叠加：水印
   blush: false
+  mascot: true             # 叠加：吉祥物猫咪
+  rife: false              # 关：磁盘空间不够暂关
+  bgm_beat: true            # BGM 节拍卡点
+  pip: true                 # 画中画
+  speed_ramp: false         # 关：此源节拍太密
+  film_look: true           # 电影滤镜
+  danmaku: true            # 弹幕特效
+  intensity_burst: true     # 爆燃大字
+  qin_cold_open: false      # 秦腔开场（未调通，暂关）
   export: true
 
 pose_backend: yolo
 pose_model: yolov8n-pose
+pose_gpu: true             # RTX 4070 CUDA 加速
 
 output:
   width: 1920
-  height: 1080   # 横屏 16:9
-  crf: 18        # 画质优先
-  sharpen: 0     # 关闭全局锐化（避免放大压缩伪影）
+  height: 1080
+  encoder: auto
+  crf: 14
+  deblock: "0:0"
+  sharpen: 0.8
+  upscale_mode: lanczos    # lanczos=快速缩放, realesrgan=AI超分(仅限高清源)
+  realesrgan_scale: 2
+  realesrgan_tile: 256
+  realesrgan_gpu: true
+  realesrgan_max_frames: 0   # 关闭AI超分，低码率源只会放大噪点
 
 color_grade:
   brightness: 0
@@ -55,11 +73,11 @@ energy_bar:
   min_fill_ratio: 0.15
 
 denoise:
-  denoise_strength: 3        # 轻微降噪，保留细节
-  denoise_mode: fastNlMeans
+  denoise_strength: 2
+  denoise_mode: hqdn3d
 
 stabilize:
-  shakiness: 7              # 手机手持拍摄抖动较大
+  shakiness: 7
   accuracy: 15
   smoothing: 15
 
@@ -71,3 +89,55 @@ skin_smooth:
   sigmaSpace: 15
   downscale: 0.5
 
+rife:
+  enabled: true
+  target_fps: 60
+  gpu: true
+  half_precision: true
+
+pre_deblock:
+  enabled: true
+  quality: 4
+  mode: 1
+
+watermark:
+  watermark_text: "细柳营·胭脂虎"
+
+mascot:
+  enabled: true
+  size: 120
+  position: bottom-left
+  bounce_range: 15
+
+bgm_beat:
+  enabled: true
+  bgm_file: "F:/wkspace/fitness-video-pipeline/assets/bgm.mp3"  # BGM 文件路径
+  bg_volume: 0.5
+  beat_volume: 0.8
+  beat_width: 0.12
+  bgm_ratio: 0.35
+
+pip:
+  enabled: true
+  position: bottom-right
+  scale: 0.25
+  margin: 10
+  border: 3
+
+speed_ramp:
+  enabled: true
+  slow_speed: 0.6
+  slow_window: 0.15
+
+film_look:
+  enabled: true
+  preset: golden_hour    # warm_vintage / cool_cinema / bw_classic / golden_hour / teal_orange
+
+danmaku:
+  enabled: true
+  font_size: 28
+  interval: 30
+
+qin_cold_open:
+  enabled: true
+  audio_file: "F:/wkspace/fitness-video-pipeline/assets/qin_cold_open.mp3"

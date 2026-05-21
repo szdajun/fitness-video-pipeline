@@ -36,6 +36,7 @@ stages:
   ken_burns: false
   face_warp: true
   audio: false
+  face_enhance: false        # 设为 true 开启 GFPGAN 云增强（需配置下方 cloud_enhance）
 
 audio:
   enabled: false
@@ -44,3 +45,15 @@ audio:
   fade_out: 2.0
   # bg_music: "C:/path/to/bgm.mp3"
   # bg_volume: 0.25
+
+# GFPGAN 云增强配置（face_enhance 启用后生效）
+cloud_enhance:
+  enabled: false              # true = 在 export 后自动执行人脸增强
+  strength: 0.8
+  mode: cloud                 # cloud | local
+  # SSH 连接信息
+  host: connect.westd.seetacloud.com
+  port: 19088
+  user: root
+  password: ""
+  model_path: /root/gfpgan_weights/GFPGANv1.4.pth

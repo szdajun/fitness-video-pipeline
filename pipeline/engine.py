@@ -4,7 +4,6 @@ import time, json, cv2
 from pathlib import Path
 from typing import Dict, Any
 
-from .config import load_config, load_preset
 from . import manifest as manifest_lib
 
 
@@ -69,6 +68,7 @@ class PipelineEngine:
             "energybar_path": [f"{video_stem}_energybar.mp4"],
             "face_beautify2_path": [f"{video_stem}_face_beautify2.mp4"],
             "rife_path": [f"{video_stem}_rife.mp4"],
+            "face_enhance_path": [f"{video_stem}_final_16x9_enhanced.mp4"],
         }
         found = 0
         for key, fnames in existing_patterns.items():
@@ -114,6 +114,9 @@ class PipelineEngine:
         total_start = time.time()
         executed = []
         stage_times = {}
+
+        # 确保输出目录在中间阶段写入前已创建
+        ctx.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Manifest 增量恢复
         m = manifest_lib.load_manifest(ctx)

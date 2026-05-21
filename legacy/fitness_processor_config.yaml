@@ -1,0 +1,32 @@
+# 健身视频处理流水线配置
+
+# 素材目录（健身群视频存放位置）
+input_dir: "C:/Users/18091/Desktop/短视频素材"
+
+# 输出目录（处理后视频存放位置，按日期建立子目录）
+output_dir: "F:/wkspace/fitness-video-pipeline/output"
+
+# FFmpeg 可执行文件路径
+ffmpeg_path: "C:/Users/18091/ffmpeg/ffmpeg.exe"
+
+# 色彩增强参数（auto=true 时忽略手动参数）
+auto_brightness: true
+manual_brightness: 5
+manual_contrast: 1.05
+saturation: 1.10
+warmth: -5
+gamma: 1.1        # Gamma校正，>1提亮暗部更自然，默认1.2
+sharpen: 0.12     # 锐化强度
+denoise_h: 3        # 降噪强度 0~20，夜间视频建议5-10
+skin_protect: true  # 肤色保护，检测皮肤区域保留原始肤色
+skin_blend_strength: 0.2  # 肤色保留强度 0~1，越高越保留原肤色
+temporal_smooth: 0.2
+clahe: true
+
+# 编码质量（crf 18-28，值越小越清晰）
+crf: 23
+encoder: libx265   # libx264 (H.264) 或 libx265 (H.265，更小但更慢)
+audio_bitrate: "128k"
+
+# 监控间隔（秒）
+watch_interval: 5

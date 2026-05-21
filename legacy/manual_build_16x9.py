@@ -1,0 +1,89 @@
+"""手动构建横版最终视频（不使用concat）：
+策略：提取不含intro/outro的energybar主体 + 单独生成intro/outro"""
+import subprocess, shutil, os
+from pathlib import Path
+
+ffmpeg = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+output_dir = Path("F:/wkspace/fitness-video-pipeline/output/2026-04-14")
+audio_orig = "C:/Users/18091/Desktop/短视频素材/丽丽1.mp4"
+
+# Step 1: 提取片尾（最后5秒，不含intro）
+print("Step 1: 提取片尾（最后5秒）...")
+outro_raw = output_dir / "outro_raw.mp4"
+r = subprocess.run([
+    ffmpeg, "-y",
+    "-i", str(output_dir / "丽丽1_energybar.mp4"),
+    "-ss", "77.4", "-t", "5.0",
+    "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-an",
+    str(outro_raw)
+], capture_output=True, text=True, encoding="utf-8", errors="replace")
+if r.returncode != 0:
+    print(f"FAILED: {r.stderr[-200:]}")
+else:
+    r2 = subprocess.run([ffmpeg, "-v", "error", "-show_entries", "stream=nb_frames", "-select_streams", "v:0", "-of", "csv=p=0", str(outro_raw)], capture_output=True, text=True)
+    print(f"片尾帧数: {r2.stdout.strip()}")
+
+# Step 2: 提取主体（去掉intro的4秒和outro的5秒 = 去掉最后9秒）
+# energybar总长82.4s，前73.4秒
+print("\nStep 2: 提取主体（前73.4秒）...")
+main_part = output_dir / "main_part.mp4"
+r = subprocess.run([
+    ffmpeg, "-y",
+    "-i", str(output_dir / "丽丽1_energybar.mp4"),
+    "-t", "77.4",  # 前77.4秒（4s intro + 73.4s main）
+    "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-an",
+    str(main_part)
+], capture_output=True, text=True, encoding="utf-8", errors="replace")
+if r.returncode != 0:
+    print(f"FAILED: {r.stderr[-200:]}")
+else:
+    r2 = subprocess.run([ffmpeg, "-v", "error", "-show_entries", "stream=nb_frames", "-select_streams", "v:0", "-of", "csv=p=0", str(main_part)], capture_output=True, text=True)
+    print(f"主体帧数: {r2.stdout.strip()}")
+
+# Step 3: 合并 intro + main_part + outro_raw
+print("\nStep 3: 合并3段视频...")
+combined = output_dir / "_combined_16x9.mp4"
+concat_list = output_dir / "concat_manual.txt"
+intro = output_dir / "丽丽1_intro.mp4"
+with open(concat_list, "w", encoding="utf-8", newline="\n") as f:
+    f.write(f"file '{intro.as_posix()}'\n")
+    f.write(f"file '{main_part.as_posix()}'\n")
+    f.write(f"file '{outro_raw.as_posix()}'\n")
+
+r = subprocess.run([
+    ffmpeg, "-y",
+    "-f", "concat", "-safe", "0",
+    "-i", str(concat_list),
+    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+    "-an", str(combined)
+], capture_output=True, text=True, encoding="utf-8", errors="replace")
+if r.returncode != 0:
+    print(f"合并失败: {r.stderr[-200:]}")
+else:
+    r2 = subprocess.run([ffmpeg, "-v", "error", "-show_entries", "stream=nb_frames,duration", "-select_streams", "v:0", "-of", "csv=p=0", str(combined)], capture_output=True, text=True)
+    print(f"合并后: {r2.stdout.strip()}")
+
+    # Step 4: 添加音频
+    print("\nStep 4: 添加音频...")
+    total_sec = 4.0 + 77.4 + 5.0  # 86.4s
+    fade_start = total_sec - 3.0
+
+    final = output_dir / "丽丽1_full_16x9.mp4"
+    r2 = subprocess.run([
+        ffmpeg, "-y",
+        "-i", str(combined),
+        "-i", str(audio_orig),
+        "-map", "0:v:0", "-map", "1:a:0?",
+        "-af", f"afade=type=out:st={fade_start:.2f}:d=3.0",
+        "-vf", f"fade=t=out:st={fade_start:.2f}:d=3.0",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "26",
+        "-c:a", "aac", "-b:a", "96k",
+        str(final)
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r2.returncode != 0:
+        print(f"音频失败: {r2.stderr[-300:]}")
+    else:
+        final_size = final.stat().st_size / 1024 / 1024
+        print(f"\n完成: {final.name} ({final_size:.1f}MB)")
+        r3 = subprocess.run([ffmpeg, "-v", "error", "-show_entries", "stream=nb_frames,width,height", "-select_streams", "v:0", "-of", "csv=p=0", str(final)], capture_output=True, text=True)
+        print(f"验证: {r3.stdout.strip()}")

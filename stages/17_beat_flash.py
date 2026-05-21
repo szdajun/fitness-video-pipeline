@@ -23,7 +23,9 @@ class BeatFlashStage:
             return
 
         # 找输入视频
-        input_path = (ctx.get("ken_burns_path") or
+        input_path = (ctx.get("ghost_path") or
+                     ctx.get("leadbox_path") or
+                     ctx.get("ken_burns_path") or
                      ctx.get("color_path") or
                      ctx.get("warped_path") or
                      ctx.get("h2v_path") or
