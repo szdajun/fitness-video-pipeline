@@ -28,14 +28,28 @@ FFMPEG         = r"C:\Users\18091\ffmpeg\ffmpeg.exe"
 COACH_MAP = {
     "艳青": "胭脂虎", "艳玲": "俏玲珑", "丽丽": "腰女", "建玲": "三宝妈",
     "小红豆": "红娘子", "郭海军": "老兵不老", "枫林红": "霸道总裁",
-    "李刚": "托塔天王", "小飞侠": "节拍战神",
+    "李刚": "托塔天王", "小飞侠": "节拍战神", "张杰": "飞毛腿",
+}
+# 教练描述词库
+COACH_DESC = {
+    "胭脂虎": "踏步如虎啸 纤腰扭似涛 刚柔并济胭脂虎",
+    "腰女": "腰细若柳摇金殿 腿长随风步步轻 柔姿丽影醉银屏",
+    "三宝妈": "三孩母亲带操利落 岁月不催韵犹在 吉祥三宝福在手",
+    "红娘子": "红豆香汗透罗裳 花枝乱颤舞红妆 娇喘微微惹人怜",
+    "老兵不老": "老兵卸甲不卸魂 铁骨铮铮踏乐行 老当益壮谁与争",
+    "霸道总裁": "总裁一怒百媚生 气场全开霸气横 纤腰玉臂柔中劲",
+    "托塔天王": "天王托塔镇四方 铁骨铮铮气势昂 带操阵前万人王",
+    "节拍战神": "飞侠踏乐步生风 节拍入魂韵无穷 举手投足皆律动",
+    "俏玲珑": "玲珑身段柔中刚 娇俏带操步步香 一笑倾城细柳营",
+    "飞毛腿": "马拉松跑者耐力王 飞毛腿带操疾如风 万里征途始于足下",
 }
 CHANNEL       = "fitness"
 PRIVACY       = "private"
 TAGS          = [
-    "细柳营胭脂虎", "有氧健身操", "打工族健身", "暴汗燃脂",
-    "每日打卡", "30天挑战", "零基础健身", "华人健身",
-    "996后的救赎", "苦中作乐",
+    "细柳营胭脂虎", "有氧健身操", "减肥操", "暴汗燃脂", "瘦全身",
+    "零基础", "在家健身", "打工族健身", "燃脂操",
+    "每日打卡", "30天挑战", "有氧运动", "健身操", "华人健身",
+    "996后的救赎", "免费健身",
 ]
 
 logging.basicConfig(
@@ -124,14 +138,21 @@ def generate_title(coach, nickname, day):
     ])
 
 def generate_description(nickname, day):
-    return f"""细柳营·胭脂虎 | {nickname}有氧操 | Day{day}
+    desc_line = COACH_DESC.get(nickname, f"{nickname}领操有氧健身")
+    return f"""【细柳营Day{day}】{nickname}有氧健身操 | 零基础暴汗燃脂 瘦全身减肥操 在家就能跳
 
-汉细柳营故地 打工族每日功课 天黑下班吃饱开练
-996后的救赎 苦中作乐 逆风飞扬 躺不平就动起来
+{desc_line}
 
-跟练打卡挑战：每天一条，30天见效果！今天你打卡了吗？
+🔥 新手友好 男女老少都能跟
+📍 汉细柳营故地 · 西安时代广场
+🎵 天黑了下班了吃过了乡党们锻炼了
+💪 996后的救赎 苦中作乐 逆风飞扬
+🏃 躺不平病不起 来细柳营拿身体对抗生活
 
-#细柳营胭脂虎 #{'#' + nickname if nickname else ''} #有氧健身操 #打工族健身 #暴汗燃脂 #每日打卡 #30天挑战"""
+📌 每天免费更新 点关注不迷路
+✍️ 今天你打卡了吗？评论区喊一声「练了」！
+
+#细柳营胭脂虎 #{'#' + nickname if nickname else ''} #有氧健身操 #减肥操 #暴汗燃脂 #瘦全身 #零基础 #在家健身 #打工族健身 #每日打卡 #30天挑战"""
 
 # ── 视频处理（调用现有管线）─────────────────────────────
 def run_pipeline(src_path):
@@ -209,8 +230,8 @@ def add_hook_overlay(video_path, coach_nickname, day):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-def generate_thumbnail(video_path, coach_nickname, title):
-    """提取 2s 帧 + 文字生成 YouTube 缩略图"""
+def generate_thumbnail(video_path, coach_nickname, title, day=1):
+    """提取运动帧 + 大号文字生成 YouTube 缩略图"""
     import cv2, numpy as np
     from PIL import Image, ImageDraw, ImageFont
 
@@ -218,41 +239,57 @@ def generate_thumbnail(video_path, coach_nickname, title):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     w, h = int(cap.get(3)), int(cap.get(4))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, int(fps * 2))
+    # 取视频 1/3 处帧（运动高潮段）
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(cap.get(cv2.CAP_PROP_FRAME_COUNT) * 0.33))
     ok, frame = cap.read()
     cap.release()
     if not ok:
         return None
 
-    for fp in ["C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/simhei.ttf"]:
-        if os.path.exists(fp):
-            flg = ImageFont.truetype(fp, int(h * 0.09))
-            break
-    else:
+    pi = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pi)
+    ref = min(w, h)
+
+    # 大字标题 — 顶部
+    try:
+        font_title = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", int(ref * 0.10))
+        font_sub = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", int(ref * 0.06))
+        font_cta = ImageFont.truetype("C:/Windows/Fonts/simhei.ttf", int(ref * 0.055))
+    except Exception:
         return None
 
-    stitle = title.split("|")[0].strip() if "|" in title else title[:20]
-    lines = [f"{coach_nickname}带操", stitle, "暴汗燃脂·每日打卡"]
-    pi = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    d = ImageDraw.Draw(pi)
-    ls = int(h * 0.04)
-    lh = [d.textbbox((0, 0), ln, font=flg)[3] - d.textbbox((0, 0), ln, font=flg)[1] for ln in lines]
-    tt = sum(lh) + ls * (len(lines) - 1)
+    # 黑色半透明底条 — 顶部
+    bar_h = int(ref * 0.35)
+    overlay = Image.new("RGBA", pi.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.rectangle([(0, 0), (w, bar_h)], fill=(0, 0, 0, 140))
+    # 底部条
+    od.rectangle([(0, h - int(ref * 0.18)), (w, h)], fill=(0, 0, 0, 140))
 
-    ov = Image.new("RGBA", pi.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(ov)
-    bt = h - tt - int(h * 0.12)
-    od.rectangle([(0, bt - 20), (w, h)], fill=(0, 0, 0, 160))
-    y = bt
-    for i, ln in enumerate(lines):
-        color = (255, 220, 50) if i == 0 else (255, 255, 255)
-        tw = d.textbbox((0, 0), ln, font=flg)[2] - d.textbbox((0, 0), ln, font=flg)[0]
-        cx = (w - tw) // 2
-        od.text((cx + 1, y + 1), ln, font=flg, fill=(0, 0, 0, 80))
-        od.text((cx, y), ln, font=flg, fill=color)
-        y += lh[i] + ls
+    # 顶部文字: DayN 暴汗燃脂
+    title_lines = [
+        (f"细柳营 Day{day}", font_title, (255, 220, 50)),
+        (f"{coach_nickname}领操 · 暴汗燃脂", font_sub, (255, 255, 255)),
+    ]
+    y = int(ref * 0.03)
+    for text, fnt, color in title_lines:
+        bbox = draw.textbbox((0, 0), text, font=fnt)
+        tw = bbox[2] - bbox[0]
+        tx = (w - tw) // 2
+        od.text((tx + 2, y + 2), text, font=fnt, fill=(0, 0, 0, 100))
+        od.text((tx, y), text, font=fnt, fill=color)
+        y += int(ref * 0.14)
 
-    Image.alpha_composite(pi.convert("RGBA"), ov).convert("RGB").save(thumb, "JPEG", quality=92)
+    # 底部文字: 每日打卡 跟练30天
+    cta_text = "每日免费跟练 | 点击订阅不迷路"
+    bbox = draw.textbbox((0, 0), cta_text, font=font_cta)
+    tw = bbox[2] - bbox[0]
+    tx = (w - tw) // 2
+    ty = h - int(ref * 0.12)
+    od.text((tx + 2, ty + 2), cta_text, font=font_cta, fill=(0, 0, 0, 100))
+    od.text((tx, ty), cta_text, font=font_cta, fill=(255, 255, 255))
+
+    Image.alpha_composite(pi.convert("RGBA"), overlay).convert("RGB").save(thumb, "JPEG", quality=92)
     return thumb
 
 def make_shorts_clip(video_path, duration=15):
