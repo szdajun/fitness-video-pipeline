@@ -27,9 +27,10 @@ stages:
   intro_outro: true
   watermark: true           # 叠加：水印
   blush: false
+  face_beautify2: false      # 关：CPU 太慢，GPU 修复后再开
   mascot: true             # 叠加：吉祥物猫咪
   rife: false              # 关：磁盘空间不够暂关
-  bgm_beat: true            # BGM 节拍卡点
+  bgm_beat: false           # 关闭: 原视频自带伴奏节拍，不混入外部BGM
   pip: true                 # 画中画
   speed_ramp: false         # 关：此源节拍太密
   film_look: true           # 电影滤镜
@@ -39,7 +40,7 @@ stages:
   export: true
 
 pose_backend: yolo
-pose_model: yolov8n-pose
+pose_model: yolov8m-pose
 pose_gpu: true             # RTX 4070 CUDA 加速
 
 output:
@@ -102,10 +103,11 @@ pre_deblock:
 
 watermark:
   watermark_text: "细柳营·胭脂虎"
+  watermark_position: top-right
 
 mascot:
   enabled: true
-  size: 120
+  size: 180
   position: bottom-left
   bounce_range: 15
 
@@ -122,7 +124,7 @@ pip:
   position: bottom-right
   scale: 0.25
   margin: 10
-  border: 3
+  border: 6
 
 speed_ramp:
   enabled: true
@@ -136,8 +138,34 @@ film_look:
 danmaku:
   enabled: true
   font_size: 28
-  interval: 30
+  interval: 60
+
+face_beautify2:
+  enabled: true
+  mode: insightface
+  skin_smooth: 0.42    # 自然磨皮（Gemini建议0.4-0.45）
+  eye_brighten: 0.28   # 眼周提亮
+  face_whiten: 0.22    # 肤色美白
+  face_slim: 0.05      # 轻微瘦脸（几何变形有风险，保守）
+  eye_enlarge: 0.03    # 微大眼（几何变形有风险，保守）
 
 qin_cold_open:
   enabled: true
   audio_file: "F:/wkspace/fitness-video-pipeline/assets/qin_cold_open.mp3"
+
+# 搜索引擎优化（自动生成标题/描述/标签）
+seo:
+  enabled: true
+  channel: "细柳营健身"
+  intensity: "中等强度"
+  audience: "所有水平 / 新手友好"
+  tags:
+    - "有氧健身操"
+    - "暴汗燃脂"
+    - "瘦全身"
+    - "居家健身"
+    - "跟练"
+    - "瘦肚子"
+    - "女性健身"
+    - "新手友好"
+    - "细柳营胭脂虎"
