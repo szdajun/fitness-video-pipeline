@@ -9,11 +9,12 @@
 """
 
 import cv2
-from lib.utils import path_exists
+from lib.utils import path_exists, to_short
 import numpy as np
 import subprocess
 import shutil
 import re
+import hashlib
 import ctypes
 import tempfile
 import os
@@ -49,7 +50,9 @@ def _ensure_frame_brightness(video_path: str, min_mean: float = 8.0):
     # 加亮暗帧：叠加微亮层
     cap = cv2.VideoCapture(video_path)
     tmpdir = Path(video_path).parent / f"_brightness_fix_{Path(video_path).stem}"
-    tmpdir.mkdir(exist_ok=True)
+    if tmpdir.exists():
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    tmpdir.mkdir(parents=True, exist_ok=True)
     i = 0
     while True:
         ret, frame = cap.read()
@@ -70,7 +73,7 @@ def _ensure_frame_brightness(video_path: str, min_mean: float = 8.0):
     cmd = [str(ffmpeg_bin), "-y", "-v", "warning",
            "-framerate", str(fps),
            "-i", str(tmpdir / "f_%06d.png"),
-           "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+           "-c:v", "libx264", "-preset", "fast", "-crf", "18",
            "-pix_fmt", "yuv444p", "-an",
            str(video_path).replace("\\", "/")]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -79,16 +82,13 @@ def _ensure_frame_brightness(video_path: str, min_mean: float = 8.0):
         print(f"    加亮重编码失败: {r.stderr[-200:]}")
 
 
-def _write_video(frames, output_path, fps):
-    """将帧列表通过 PNG+FFmpeg 写入视频（解决 create_writer 中文路径问题）"""
-    # Use output directory for temp PNGs to avoid short-path issues
+def _encode_pngs_to_video(tmpdir, frame_count, output_path, fps, tag=""):
+    """将临时目录中的 PNG 序列编码为视频"""
     out_dir = Path(output_path).parent
-    tmpdir = out_dir / f"_intro_tmp_{Path(output_path).stem}"
-    tmpdir.mkdir(exist_ok=True)
-    for i, frame in enumerate(frames):
-        cv2.imwrite(str(tmpdir / f"f_{i:06d}.png"), frame)
+    stem_hash = hashlib.md5(str(output_path).encode()).hexdigest()[:8]
 
-    tmp_out_path = out_dir / f"_intro_out_{Path(output_path).stem}.mp4"
+    tmp_out_path = out_dir / f"_intro_out_{stem_hash}_{tag}.mp4"
+    tmp_out_path.unlink(missing_ok=True)
 
     ffmpeg_bin = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
     if ffmpeg_bin.exists():
@@ -100,29 +100,19 @@ def _write_video(frames, output_path, fps):
     cmd = [ffmpeg_bin, "-y", "-v", "warning",
            "-framerate", str(fps),
            "-i", input_pattern,
-           "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+           "-c:v", "libx264", "-preset", "fast", "-crf", "18",
            "-pix_fmt", "yuv444p", "-an",
            output_str]
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120.0)
     if r.returncode != 0:
         print(f"    FFmpeg 失败 (return={r.returncode})")
-        print(f"    前3帧mean: {[float(frames[i].mean()) for i in range(min(3, len(frames)))]}")
         print(f"    FFmpeg stderr: {r.stderr[-500:]}")
-        # Save frames to output dir for debugging
-        for i in range(min(3, len(frames))):
-            cv2.imwrite(str(out_dir / f"_debug_frame_{i:06d}.png"), frames[i])
-        # DON'T clean up tmpdir on failure - leave for debugging
-        print(f"    Temp PNGs left in: {tmpdir}")
         raise RuntimeError(f"FFmpeg error: {r.stderr[-300:]}")
 
-    # Safety: ensure all frames have minimum average brightness to avoid x264 black-screen failures
-    _ensure_frame_brightness(tmp_out_path, min_mean=8.0)
-
+    # Brightness check skipped — fade-in already starts from alpha=0.35, well above threshold
     shutil.move(str(tmp_out_path), str(output_path))
-    shutil.rmtree(tmpdir, ignore_errors=True)
-    # Clean up any leftover temp files
-    for f in out_dir.glob(f"_intro_tmp_*"):
-        shutil.rmtree(f, ignore_errors=True)
+
+    # Clean up leftover temp files
     for f in out_dir.glob("_intro_out_*"):
         f.unlink(missing_ok=True)
 
@@ -231,7 +221,7 @@ class IntroOutroStage:
             out_short = _get_short_path(str(output_path))
             inp_short = _get_short_path(str(video_path))
             cmd = [ffmpeg_bin, "-y", "-i", inp_short,
-                   "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+                   "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                    "-pix_fmt", "yuv444p", "-an", out_short]
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if r.returncode != 0:
@@ -264,33 +254,42 @@ class IntroOutroStage:
                 best_score = score
                 best_start = i
 
-        # 渲染片头：先收集所有帧
+        # 渲染片头：逐帧写入 PNG（不累积帧列表到内存，避免 OOM）
+        stem_hash = hashlib.md5(str(output_path).encode()).hexdigest()[:8]
+        tmpdir = output_path.parent / f"_intro_tmp_{stem_hash}_intro"
+        if tmpdir.exists():
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        tmpdir.mkdir(parents=True, exist_ok=True)
+
         cap = cv2.VideoCapture(video_path)
         cap.set(cv2.CAP_PROP_POS_FRAMES, best_start)
 
         fade_in_frames = int(cfg.get("fade_in_seconds", 1.0) * actual_fps)
-        frames_to_write = []
+        frame_count = 0
 
-        while len(frames_to_write) < window:
+        while frame_count < window:
             ret, frame = cap.read()
             if not ret:
                 break
 
             # 叠加中文文字（用 PIL）
-            frame = self._draw_intro_text_pil(frame, lead_name, channel, location, date_str, len(frames_to_write) / window)
+            frame = self._draw_intro_text_pil(frame, lead_name, channel, location, date_str, frame_count / window)
 
             # 帧淡入（淡入整个合成画面，包括文字）
-            # 避免从完全黑色开始（会导致x264编码失败）
-            if len(frames_to_write) < fade_in_frames:
-                alpha = max(0.35, len(frames_to_write) / fade_in_frames)  # 最小0.35，避免过暗帧导致x264失败
-                overlay = np.full_like(frame, 12)  # 微暗底而非纯黑，避免编码崩溃
+            if frame_count < fade_in_frames:
+                alpha = max(0.35, frame_count / fade_in_frames)
+                overlay = np.full_like(frame, 12)
                 frame = (frame * alpha + overlay * (1 - alpha)).astype(np.uint8)
 
-            frames_to_write.append(frame)
+            # 立即写入 PNG，不保留帧引用
+            cv2.imwrite(str(tmpdir / f"f_{frame_count:06d}.png"), frame)
+            frame_count += 1
 
         cap.release()
-        print(f"    片头渲染完成: {len(frames_to_write)} 帧")
-        _write_video(frames_to_write, str(output_path), actual_fps)
+        print(f"    片头渲染完成: {frame_count} 帧")
+
+        _encode_pngs_to_video(tmpdir, frame_count, str(output_path), actual_fps, tag="intro")
+        shutil.rmtree(tmpdir, ignore_errors=True)
         return output_path
 
     def _draw_intro_text_pil(self, frame, lead_name: str, channel: str, location: str, date_str: str, progress: float):
@@ -353,26 +352,33 @@ class IntroOutroStage:
         cap = cv2.VideoCapture(video_path)
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        frames_to_write = []
         max_frames = int(duration * actual_fps)
         fade_out_frames = int(cfg.get("fade_out_seconds", 1.0) * actual_fps)  # 默认1秒淡出
 
-        while len(frames_to_write) < max_frames:
+        stem_hash = hashlib.md5(str(output_path).encode()).hexdigest()[:8]
+        tmpdir = output_path.parent / f"_intro_tmp_{stem_hash}_outro"
+        if tmpdir.exists():
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        tmpdir.mkdir(parents=True, exist_ok=True)
+
+        frame_count = 0
+        while frame_count < max_frames:
             ret, frame = cap.read()
             if not ret:
                 break
 
             # 视频淡出：最后 fade_out_frames 帧渐变到纯黑
-            frame_idx = len(frames_to_write)
-            if frame_idx >= max_frames - fade_out_frames:
-                alpha = 1.0 - (frame_idx - (max_frames - fade_out_frames)) / fade_out_frames
+            if frame_count >= max_frames - fade_out_frames:
+                alpha = 1.0 - (frame_count - (max_frames - fade_out_frames)) / fade_out_frames
                 alpha = max(0.0, alpha)
                 overlay = np.full_like(frame, 0)
                 frame = (frame * alpha + overlay * (1 - alpha)).astype(np.uint8)
 
             # 叠加 CTA 文字
             frame = self._draw_outro_text_pil(frame)
-            frames_to_write.append(frame)
+            # 立即写入 PNG
+            cv2.imwrite(str(tmpdir / f"f_{frame_count:06d}.png"), frame)
+            frame_count += 1
 
         cap.release()
 
@@ -381,8 +387,9 @@ class IntroOutroStage:
         with open(audio_fade_file, 'w') as f:
             f.write(str(audio_fade_out))
 
-        print(f"    片尾渲染完成: {len(frames_to_write)} 帧")
-        _write_video(frames_to_write, str(output_path), actual_fps)
+        print(f"    片尾渲染完成: {frame_count} 帧")
+        _encode_pngs_to_video(tmpdir, frame_count, str(output_path), actual_fps, tag="outro")
+        shutil.rmtree(tmpdir, ignore_errors=True)
         return output_path
 
     def _draw_outro_text_pil(self, frame, progress: float = 0.0):

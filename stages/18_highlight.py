@@ -12,6 +12,7 @@
 import cv2
 import numpy as np
 import json
+import hashlib
 from pathlib import Path
 
 from lib.utils import path_exists, create_writer
@@ -211,6 +212,7 @@ class HighlightStage:
                 selected.append(seg)
 
         selected.sort(key=lambda x: x['start_f'])  # 按时间排序，保证连贯性
+        ctx.set("highlight_segments", [(int(seg['start_f']), int(seg['end_f'])) for seg in selected])
 
         highlight_sec = len(selected) * segment_seconds
         print(f"    亮点片段: 选取 {len(selected)} 段，共 {highlight_sec:.0f} 秒")
@@ -225,8 +227,11 @@ class HighlightStage:
         if not cap.isOpened():
             raise ValueError(f"无法打开视频: {ctx.input_path}")
 
-        temp_path = ctx.output_dir / f"{ctx.input_path.stem}_highlight.mp4"
-        writer = create_writer(str(temp_path), fps, orig_w, orig_h)
+        # 使用无中文的临时文件名（OpenCV VideoWriter 对中文路径写文件名会乱码）
+        stem_hash = hashlib.md5(str(ctx.input_path).encode()).hexdigest()[:8]
+        tmp_write = ctx.output_dir / f"_highlight_{stem_hash}.mp4"
+        tmp_write.unlink(missing_ok=True)
+        writer = create_writer(str(tmp_write), fps, orig_w, orig_h)
 
         for seg in selected:
             start_f = seg['start_f']
@@ -252,6 +257,12 @@ class HighlightStage:
 
         cap.release()
         writer.release()
+
+        # 重命名为含中文的最终文件名
+        temp_path = ctx.output_dir / f"{ctx.input_path.stem}_highlight.mp4"
+        if temp_path.exists():
+            temp_path.unlink()
+        tmp_write.rename(temp_path)
 
         ctx.set("highlight_path", str(temp_path))
         ctx.set("highlight_duration", highlight_sec)
