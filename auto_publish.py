@@ -12,6 +12,7 @@
 import os, sys, time, json, random, subprocess, glob, logging, argparse
 from pathlib import Path
 from datetime import datetime
+from lib.coach_profiles import get_coach, detect_coach_from_filename, get_shorts_en, DEFAULT_CHANNEL
 
 # ── 配置 ──────────────────────────────────────────────
 SOURCE_DIR     = r"C:\Users\18091\Desktop\短视频素材"
@@ -25,31 +26,14 @@ PIPELINE_CFG   = os.path.join(os.path.dirname(__file__), "config.yaml")
 VENV_PY        = os.path.join(os.path.dirname(__file__), "venv", "Scripts", "python.exe")
 FFMPEG         = r"C:\Users\18091\ffmpeg\ffmpeg.exe"
 
-COACH_MAP = {
-    "艳青": "胭脂虎", "艳玲": "俏玲珑", "丽丽": "腰女", "建玲": "三宝妈",
-    "小红豆": "红娘子", "郭海军": "老兵不老", "枫林红": "霸道总裁",
-    "李刚": "托塔天王", "小飞侠": "节拍战神", "张杰": "飞毛腿",
-}
-# 教练描述词库
-COACH_DESC = {
-    "胭脂虎": "踏步如虎啸 纤腰扭似涛 刚柔并济胭脂虎",
-    "腰女": "腰细若柳摇金殿 腿长随风步步轻 柔姿丽影醉银屏",
-    "三宝妈": "三孩母亲带操利落 岁月不催韵犹在 吉祥三宝福在手",
-    "红娘子": "红豆香汗透罗裳 花枝乱颤舞红妆 娇喘微微惹人怜",
-    "老兵不老": "老兵卸甲不卸魂 铁骨铮铮踏乐行 老当益壮谁与争",
-    "霸道总裁": "总裁一怒百媚生 气场全开霸气横 纤腰玉臂柔中劲",
-    "托塔天王": "天王托塔镇四方 铁骨铮铮气势昂 带操阵前万人王",
-    "节拍战神": "飞侠踏乐步生风 节拍入魂韵无穷 举手投足皆律动",
-    "俏玲珑": "玲珑身段柔中刚 娇俏带操步步香 一笑倾城细柳营",
-    "飞毛腿": "马拉松跑者耐力王 飞毛腿带操疾如风 万里征途始于足下",
-}
 CHANNEL       = "fitness"
 PRIVACY       = "private"
 TAGS          = [
-    "细柳营胭脂虎", "有氧健身操", "减肥操", "暴汗燃脂", "瘦全身",
-    "零基础", "在家健身", "打工族健身", "燃脂操",
-    "每日打卡", "30天挑战", "有氧运动", "健身操", "华人健身",
-    "996后的救赎", "免费健身",
+    "有氧健身操", "减肥操", "暴汗燃脂", "瘦全身", "瘦肚子",
+    "瘦大腿", "瘦手臂", "瘦腿", "居家运动", "在家健身",
+    "零基础健身", "新手小白", "女性健身", "燃脂操",
+    "细柳营胭脂虎", "每日打卡", "30天挑战", "免费健身",
+    "大体重减肥", "快速燃脂", "塑形", "马甲线",
 ]
 
 logging.basicConfig(
@@ -111,13 +95,6 @@ def _save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ── 教练检测 ───────────────────────────────────────────
-def detect_coach(filename):
-    for key, nick in COACH_MAP.items():
-        if key in filename:
-            return key, nick
-    return None, None
-
 # ── 日计数器 ───────────────────────────────────────────
 def get_next_day(coach):
     coils = _load_json(DAY_COUNTER, {})
@@ -127,19 +104,19 @@ def get_next_day(coach):
     return day
 
 # ── SEO 文案（模板，无 AI）───────────────────────────────
-def generate_title(coach, nickname, day):
-    if not coach:
-        return f"胭脂虎健身团 有氧健身操 暴汗燃脂"
+def generate_title(coach_name, nickname, day):
+    if not coach_name:
+        return f"有氧健身操 暴汗燃脂减肥操 瘦全身零基础在家跳"
     return random.choice([
-        f"细柳营Day{day} | {nickname}有氧操 | 996后的暴汗救赎",
-        f"打工族每日功课 Day{day} | {nickname}带操 | 苦中作乐暴汗燃脂",
-        f"细柳营风雨无阻Day{day} | {nickname}领操 | 逆风飞扬燃脂操",
-        f"Day{day}零基础有氧操 | {nickname}细柳营 | 躺不平病不起就练",
+        f"30分钟暴汗燃脂 瘦肚子瘦大腿 零基础在家跳就能瘦 | {nickname}带操 Day{day}",
+        f"在家就能跳的减肥操 瘦全身高效燃脂 新手小白友好 | {nickname}领操 Day{day}",
+        f"零基础有氧健身操 瘦腿瘦腰瘦肚子 居家运动燃脂 | {nickname}细柳营 Day{day}",
+        f"30分钟暴汗有氧操 大体重友好全身燃脂 站着就能瘦 | {nickname}带操 Day{day}",
     ])
 
-def generate_description(nickname, day):
-    desc_line = COACH_DESC.get(nickname, f"{nickname}领操有氧健身")
-    return f"""【细柳营Day{day}】{nickname}有氧健身操 | 零基础暴汗燃脂 瘦全身减肥操 在家就能跳
+def generate_description(coach, nickname, day):
+    desc_line = coach.get("judgment", f"{nickname}领操有氧健身")
+    return f"""【{DEFAULT_CHANNEL}Day{day}】{nickname}有氧健身操 | 零基础暴汗燃脂 瘦全身减肥操 在家就能跳
 
 {desc_line}
 
@@ -152,7 +129,7 @@ def generate_description(nickname, day):
 📌 每天免费更新 点关注不迷路
 ✍️ 今天你打卡了吗？评论区喊一声「练了」！
 
-#细柳营胭脂虎 #{'#' + nickname if nickname else ''} #有氧健身操 #减肥操 #暴汗燃脂 #瘦全身 #零基础 #在家健身 #打工族健身 #每日打卡 #30天挑战"""
+#{DEFAULT_CHANNEL} #{'#' + nickname if nickname else ''} #有氧健身操 #减肥操 #暴汗燃脂 #瘦全身 #零基础 #在家健身 #打工族健身 #每日打卡 #30天挑战"""
 
 # ── 视频处理（调用现有管线）─────────────────────────────
 def run_pipeline(src_path):
@@ -230,17 +207,97 @@ def add_hook_overlay(video_path, coach_nickname, day):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-def generate_thumbnail(video_path, coach_nickname, title, day=1):
-    """提取运动帧 + 大号文字生成 YouTube 缩略图"""
+def find_best_thumbnail_frame(keypoints_file, total_frames, fps):
+    """用关键点数据找最燃封面帧：运动强度 + 人数 + 构图 + 姿态展开度"""
+    if not keypoints_file or not os.path.exists(keypoints_file):
+        return int(total_frames * 0.33)
+
+    try:
+        with open(keypoints_file, encoding="utf-8") as f:
+            kps_data = json.load(f)
+    except Exception:
+        return int(total_frames * 0.33)
+
+    kps = kps_data.get("keypoints", kps_data)
+    if not isinstance(kps, dict):
+        return int(total_frames * 0.33)
+
+    best_score = -1.0
+    best_frame = int(total_frames * 0.33)
+    sample_interval = max(1, int(fps * 0.5))  # 每0.5秒采样
+
+    for fi in range(0, total_frames, sample_interval):
+        entry = kps.get(str(fi))
+        if not entry or not isinstance(entry, list) or not entry:
+            continue
+
+        # 检查第一个人的关键点格式
+        person0 = entry[0]
+        if not isinstance(person0, list) or not person0:
+            continue
+        if not isinstance(person0[0], (list, tuple)):
+            continue
+
+        # ---- 人数分 ----
+        visible_persons = 0
+        for person in entry:
+            if isinstance(person, list) and len(person) >= 12:
+                vis = sum(1 for kp in person if len(kp) >= 3 and kp[2] > 0.3)
+                if vis >= 6:
+                    visible_persons += 1
+        person_score = min(visible_persons, 8) / 8.0
+
+        # ---- 姿态展开度 (手臂张开 + 腿分开 = 视觉冲击力) ----
+        coach = person0
+        spread_score = 0.0
+        if len(coach) >= 17:
+            # 手腕间距 (9, 10) 相对于肩宽 (5, 6)
+            if all(len(coach[i]) >= 3 and coach[i][2] > 0.3 for i in [5, 6, 9, 10]):
+                shoulder_w = abs(coach[5][0] - coach[6][0])
+                wrist_w = abs(coach[9][0] - coach[10][0])
+                if shoulder_w > 0.01:
+                    spread_score += min(wrist_w / shoulder_w, 3.0) / 3.0
+            # 脚踝间距 (15, 16) 相对于髋宽 (11, 12)
+            if all(len(coach[i]) >= 3 and coach[i][2] > 0.3 for i in [11, 12, 15, 16]):
+                hip_w = abs(coach[11][0] - coach[12][0])
+                ankle_w = abs(coach[15][0] - coach[16][0])
+                if hip_w > 0.01:
+                    spread_score += min(ankle_w / hip_w, 3.0) / 3.0
+            spread_score = min(spread_score, 1.0)
+
+        # ---- 构图分 (教练居中) ----
+        center_score = 0.5
+        if len(coach) >= 13:
+            pts = [coach[i] for i in [5, 6, 11, 12] if len(coach[i]) >= 3 and coach[i][2] > 0.3]
+            if pts:
+                cx = sum(v[0] for v in pts) / len(pts)
+                center_score = 1.0 - abs(cx - 0.5) * 2
+
+        # ---- 综�合得分 ----
+        score = spread_score * 4.0 + person_score * 2.5 + center_score * 1.5
+
+        if score > best_score:
+            best_score = score
+            best_frame = fi
+
+    return best_frame
+
+
+def generate_thumbnail(video_path, coach_nickname, title, day=1,
+                       keypoints_file=None, coach_name=None):
+    """智能封面：最燃帧 + 双语大字标题"""
     import cv2, numpy as np
     from PIL import Image, ImageDraw, ImageFont
 
     thumb = video_path.replace(".mp4", "_thumb.jpg")
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w, h = int(cap.get(3)), int(cap.get(4))
-    # 取视频 1/3 处帧（运动高潮段）
-    cap.set(cv2.CAP_PROP_POS_FRAMES, int(cap.get(cv2.CAP_PROP_FRAME_COUNT) * 0.33))
+
+    # 智能选帧 or fallback
+    best_fi = find_best_thumbnail_frame(keypoints_file, total, fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, best_fi)
     ok, frame = cap.read()
     cap.release()
     if not ok:
@@ -250,44 +307,57 @@ def generate_thumbnail(video_path, coach_nickname, title, day=1):
     draw = ImageDraw.Draw(pi)
     ref = min(w, h)
 
-    # 大字标题 — 顶部
+    # 获取教练英文 Shorts 标题
+    en_data = {}
+    if coach_name:
+        try:
+            en_data = get_shorts_en(coach_name)
+        except Exception:
+            pass
+    en_title = en_data.get("title", "DAILY AEROBIC WORKOUT")
+
+    # 字体
     try:
-        font_title = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", int(ref * 0.10))
-        font_sub = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", int(ref * 0.06))
-        font_cta = ImageFont.truetype("C:/Windows/Fonts/simhei.ttf", int(ref * 0.055))
+        font_en = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", int(ref * 0.10))
+        font_cn = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", int(ref * 0.06))
+        font_cta = ImageFont.truetype("C:/Windows/Fonts/simhei.ttf", int(ref * 0.05))
     except Exception:
         return None
 
-    # 黑色半透明底条 — 顶部
-    bar_h = int(ref * 0.35)
+    # 半透明底条
+    bar_top_h = int(ref * 0.38)
+    bar_bot_h = int(ref * 0.16)
     overlay = Image.new("RGBA", pi.size, (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
-    od.rectangle([(0, 0), (w, bar_h)], fill=(0, 0, 0, 140))
-    # 底部条
-    od.rectangle([(0, h - int(ref * 0.18)), (w, h)], fill=(0, 0, 0, 140))
+    od.rectangle([(0, 0), (w, bar_top_h)], fill=(0, 0, 0, 150))
+    od.rectangle([(0, h - bar_bot_h), (w, h)], fill=(0, 0, 0, 150))
 
-    # 顶部文字: DayN 暴汗燃脂
-    title_lines = [
-        (f"细柳营 Day{day}", font_title, (255, 220, 50)),
-        (f"{coach_nickname}领操 · 暴汗燃脂", font_sub, (255, 255, 255)),
-    ]
-    y = int(ref * 0.03)
-    for text, fnt, color in title_lines:
-        bbox = draw.textbbox((0, 0), text, font=fnt)
-        tw = bbox[2] - bbox[0]
-        tx = (w - tw) // 2
-        od.text((tx + 2, y + 2), text, font=fnt, fill=(0, 0, 0, 100))
-        od.text((tx, y), text, font=fnt, fill=color)
-        y += int(ref * 0.14)
-
-    # 底部文字: 每日打卡 跟练30天
-    cta_text = "每日免费跟练 | 点击订阅不迷路"
-    bbox = draw.textbbox((0, 0), cta_text, font=font_cta)
+    # 顶部文字: 英文大字 + 细柳营 DayN
+    cy = int(ref * 0.04)
+    # 英文标题（黄色大字）
+    bbox = draw.textbbox((0, 0), en_title, font=font_en)
     tw = bbox[2] - bbox[0]
     tx = (w - tw) // 2
-    ty = h - int(ref * 0.12)
-    od.text((tx + 2, ty + 2), cta_text, font=font_cta, fill=(0, 0, 0, 100))
-    od.text((tx, ty), cta_text, font=font_cta, fill=(255, 255, 255))
+    od.text((tx + 3, cy + 3), en_title, font=font_en, fill=(0, 0, 0, 120))
+    od.text((tx, cy), en_title, font=font_en, fill=(255, 220, 50))
+
+    # 细柳营 DayN + 教练名
+    cn_line = f"细柳营 Day{day} | {coach_nickname}领操 · 暴汗燃脂"
+    cy2 = cy + int(ref * 0.13)
+    bbox2 = draw.textbbox((0, 0), cn_line, font=font_cn)
+    tw2 = bbox2[2] - bbox2[0]
+    tx2 = (w - tw2) // 2
+    od.text((tx2 + 2, cy2 + 2), cn_line, font=font_cn, fill=(0, 0, 0, 120))
+    od.text((tx2, cy2), cn_line, font=font_cn, fill=(255, 255, 255))
+
+    # 底部 CTA: 中英双语
+    cta_text = "每日免费跟练 | 点赞订阅不迷路 | SUBSCRIBE FOR DAILY WORKOUTS"
+    bb3 = draw.textbbox((0, 0), cta_text, font=font_cta)
+    tw3 = bb3[2] - bb3[0]
+    tx3 = (w - tw3) // 2
+    ty3 = h - int(ref * 0.10)
+    od.text((tx3 + 2, ty3 + 2), cta_text, font=font_cta, fill=(0, 0, 0, 120))
+    od.text((tx3, ty3), cta_text, font=font_cta, fill=(255, 255, 255))
 
     Image.alpha_composite(pi.convert("RGBA"), overlay).convert("RGB").save(thumb, "JPEG", quality=92)
     return thumb
@@ -323,9 +393,12 @@ def process_one(video_path):
     fname = os.path.basename(video_path)
     log.info(f"处理: {fname}")
 
-    coach, nickname = detect_coach(fname)
-    day = get_next_day(coach) if coach else 1
-    title = generate_title(coach, nickname, day)
+    coach_name = detect_coach_from_filename(fname)
+    coach = get_coach(coach_name) if coach_name else None
+    nickname = coach["nickname"] if coach else None
+    coach_key = coach["name"] if coach else coach_name
+    day = get_next_day(coach_key) if coach_key else 1
+    title = generate_title(coach_key, nickname, day)
     log.info(f"  Day{day} | {nickname or '未知'} | {title[:50]}")
 
     # 1. 完整管线（片头片尾/水印/特效/出片）
@@ -347,7 +420,17 @@ def process_one(video_path):
     log.info("  [3/5] 缩略图...")
     thumb = None
     try:
-        thumb = generate_thumbnail(final, nickname, title)
+        # 查找关键点文件用于智能选帧
+        kp_file = None
+        for root, dirs, files in os.walk(OUTPUT_BASE):
+            for f in files:
+                if f.endswith("_keypoints.json") and not f.endswith("_cropped_keypoints.json"):
+                    kp_file = os.path.join(root, f)
+                    break
+            if kp_file:
+                break
+        thumb = generate_thumbnail(final, nickname, title, day=day,
+                                   keypoints_file=kp_file, coach_name=coach_name)
     except Exception as e:
         log.warning(f"  缩略图失败: {e}")
 
@@ -374,7 +457,7 @@ def process_one(video_path):
 
     # 5. 上传
     log.info("  [5/5] 上传 YouTube...")
-    desc = generate_description(nickname, day)
+    desc = generate_description(coach, nickname, day)
     try:
         ytid = upload(final, title, desc, TAGS, thumb)
         log.info(f"  主视频: https://youtube.com/watch?v={ytid}")
