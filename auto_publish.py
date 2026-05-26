@@ -315,49 +315,67 @@ def generate_thumbnail(video_path, coach_nickname, title, day=1,
         except Exception:
             pass
     en_title = en_data.get("title", "DAILY AEROBIC WORKOUT")
+    # 提取教练英文名（去掉中文后缀，如 "3-Mommy Coach · 三宝妈" → "3-Mommy Coach"）
+    coach_en_name = en_data.get("subtitle", "Outdoor Group Fitness")
+    if "·" in coach_en_name:
+        coach_en_name = coach_en_name.split("·")[0].strip()
 
     # 字体
     try:
         font_en = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", int(ref * 0.10))
-        font_cn = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", int(ref * 0.06))
-        font_cta = ImageFont.truetype("C:/Windows/Fonts/simhei.ttf", int(ref * 0.05))
+        font_mid = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", int(ref * 0.06))
+        font_sm = ImageFont.truetype("C:/Windows/Fonts/simhei.ttf", int(ref * 0.045))
+        font_cta = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", int(ref * 0.065))
     except Exception:
         return None
 
     # 半透明底条
-    bar_top_h = int(ref * 0.38)
-    bar_bot_h = int(ref * 0.16)
+    bar_top_h = int(ref * 0.42)
+    bar_bot_h = int(ref * 0.18)
     overlay = Image.new("RGBA", pi.size, (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
-    od.rectangle([(0, 0), (w, bar_top_h)], fill=(0, 0, 0, 150))
-    od.rectangle([(0, h - bar_bot_h), (w, h)], fill=(0, 0, 0, 150))
+    od.rectangle([(0, 0), (w, bar_top_h)], fill=(0, 0, 0, 155))
+    od.rectangle([(0, h - bar_bot_h), (w, h)], fill=(0, 0, 0, 155))
 
-    # 顶部文字: 英文大字 + 细柳营 DayN
+    # 顶部文字: 三层结构
     cy = int(ref * 0.04)
-    # 英文标题（黄色大字）
+    row_gap = int(ref * 0.12)
+    row_gap_sm = int(ref * 0.09)
+
+    # 第一行: 英文标题（黄色大字）
     bbox = draw.textbbox((0, 0), en_title, font=font_en)
-    tw = bbox[2] - bbox[0]
-    tx = (w - tw) // 2
+    tx = (w - (bbox[2] - bbox[0])) // 2
     od.text((tx + 3, cy + 3), en_title, font=font_en, fill=(0, 0, 0, 120))
     od.text((tx, cy), en_title, font=font_en, fill=(255, 220, 50))
 
-    # 细柳营 DayN + 教练名
-    cn_line = f"细柳营 Day{day} | {coach_nickname}领操 · 暴汗燃脂"
-    cy2 = cy + int(ref * 0.13)
-    bbox2 = draw.textbbox((0, 0), cn_line, font=font_cn)
-    tw2 = bbox2[2] - bbox2[0]
-    tx2 = (w - tw2) // 2
-    od.text((tx2 + 2, cy2 + 2), cn_line, font=font_cn, fill=(0, 0, 0, 120))
-    od.text((tx2, cy2), cn_line, font=font_cn, fill=(255, 255, 255))
+    # 第二行: Daily Outdoor Aerobics（白色中号）
+    line2 = "Daily Outdoor Aerobics"
+    cy2 = cy + row_gap
+    bbox2 = draw.textbbox((0, 0), line2, font=font_mid)
+    tx2 = (w - (bbox2[2] - bbox2[0])) // 2
+    od.text((tx2 + 2, cy2 + 2), line2, font=font_mid, fill=(0, 0, 0, 120))
+    od.text((tx2, cy2), line2, font=font_mid, fill=(255, 255, 255))
 
-    # 底部 CTA: 中英双语
-    cta_text = "每日免费跟练 | 点赞订阅不迷路 | SUBSCRIBE FOR DAILY WORKOUTS"
-    bb3 = draw.textbbox((0, 0), cta_text, font=font_cta)
-    tw3 = bb3[2] - bb3[0]
-    tx3 = (w - tw3) // 2
-    ty3 = h - int(ref * 0.10)
-    od.text((tx3 + 2, ty3 + 2), cta_text, font=font_cta, fill=(0, 0, 0, 120))
-    od.text((tx3, ty3), cta_text, font=font_cta, fill=(255, 255, 255))
+    # 第三行: 教练英文名（白色小号）
+    cy3 = cy2 + row_gap_sm
+    bbox3 = draw.textbbox((0, 0), coach_en_name, font=font_sm)
+    tx3 = (w - (bbox3[2] - bbox3[0])) // 2
+    od.text((tx3 + 2, cy3 + 2), coach_en_name, font=font_sm, fill=(0, 0, 0, 120))
+    od.text((tx3, cy3), coach_en_name, font=font_sm, fill=(255, 255, 255))
+
+    # 底部 CTA: LIKE 👍 SUBSCRIBE ❤️
+    cta_text = "LIKE 👍   SUBSCRIBE ❤️"
+    bb4 = draw.textbbox((0, 0), cta_text, font=font_cta)
+    tx4 = (w - (bb4[2] - bb4[0])) // 2
+    ty4 = h - int(ref * 0.12)
+    # 红色底色条
+    pad_x, pad_y = 30, 16
+    od.rectangle(
+        [(tx4 - pad_x, ty4 - pad_y),
+         (tx4 + (bb4[2] - bb4[0]) + pad_x, ty4 + (bb4[3] - bb4[1]) + pad_y)],
+        fill=(220, 30, 30, 200))
+    od.text((tx4 + 2, ty4 + 2), cta_text, font=font_cta, fill=(0, 0, 0, 100))
+    od.text((tx4, ty4), cta_text, font=font_cta, fill=(255, 255, 50))
 
     Image.alpha_composite(pi.convert("RGBA"), overlay).convert("RGB").save(thumb, "JPEG", quality=92)
     return thumb
