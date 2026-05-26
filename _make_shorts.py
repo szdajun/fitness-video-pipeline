@@ -1,8 +1,8 @@
-"""独立 Shorts 生成器 v3 — 从源视频裁剪 + 音频 + 大字诗词 + CTA
+"""独立 Shorts 生成器 v3 — 从源视频裁剪 + 音频 + 双语标题 + CTA
 
 v3 改进:
   - loudnorm 音频响度标准化
-  - 教练个性化文字叠加
+  - 教练个性化双语文字叠加（英文标题 + 中文教练名）
   - YouTube Shorts 推荐码率参数
 """
 import cv2, numpy as np, json, os, subprocess, tempfile, ctypes, shutil
