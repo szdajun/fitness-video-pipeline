@@ -11,7 +11,7 @@ from lib.utils import path_exists
 
 class PreDeblockStage:
     def run(self, ctx):
-        if ctx.get("deblocked_path") and path_exists(ctx.get("deblocked_path")):
+        if ctx.get("pre_deblock_path") and path_exists(ctx.get("pre_deblock_path")):
             print("    已存在，跳过")
             return
 
@@ -21,7 +21,7 @@ class PreDeblockStage:
 
         cfg = ctx.config.get("pre_deblock", {})
         if not cfg.get("enabled", False):
-            ctx.set("deblocked_path", input_path)
+            ctx.set("pre_deblock_path", input_path)
             return
 
         # spp 参数: quality(0-6), mode(0=hard,1=soft)
@@ -37,7 +37,7 @@ class PreDeblockStage:
         cmd = [
             ffmpeg, "-y", "-i", input_path,
             "-vf", f"spp={quality}:{mode}:1",  # quality:mode:use_bframes
-            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
             "-pix_fmt", "yuv420p", "-c:a", "copy", str(out_path)
         ]
 
@@ -45,9 +45,9 @@ class PreDeblockStage:
                                encoding="utf-8", errors="replace")
         if result.returncode != 0:
             print(f"    spp 失败: {result.stderr[-300:]}")
-            ctx.set("deblocked_path", input_path)
+            ctx.set("pre_deblock_path", input_path)
             return
 
-        ctx.set("deblocked_path", str(out_path))
+        ctx.set("pre_deblock_path", str(out_path))
         ctx.input_path = out_path  # 后续所有阶段自动用清洗后的版本
         print(f"    输出: {out_path.name}")

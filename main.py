@@ -99,7 +99,11 @@ def build_single_parser():
     p.add_argument("--preview", action="store_true", help="预览模式（只处理前3秒）")
     p.add_argument("--preview-seconds", type=int, default=3, help="预览秒数")
 
-    # 禁用阶段
+    # 通用阶段控制
+    p.add_argument("--skip-stages", default="", help="跳过的 stage，逗号分隔，如 'beat_flash,highlight'")
+    p.add_argument("--continue", action="store_true", dest="continue_mode",
+                   help="启用所有 stage（覆盖 preset），已有产出自动跳过")
+    # 禁用阶段（保留快捷键）
     p.add_argument("--no-stabilize", action="store_true")
     p.add_argument("--no-body-warp", action="store_true")
     p.add_argument("--no-face-warp", action="store_true")
@@ -166,6 +170,9 @@ def build_batch_parser():
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
     p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance"],
                    default=None, help="预设风格 (默认: sexy)")
+    p.add_argument("--skip-stages", default="", help="跳过的 stage，逗号分隔")
+    p.add_argument("--continue", action="store_true", dest="continue_mode",
+                   help="启用所有 stage，已有产出自动跳过")
     p.add_argument("--no-stabilize", action="store_true")
     p.add_argument("--no-body-warp", action="store_true")
     p.add_argument("--no-face-warp", action="store_true")
@@ -226,8 +233,7 @@ def _apply_cli_overrides(config, args):
     _apply_cli_overrides_from_dict(config, vars(args))
 
 
-MIN_WIDTH = 1280
-MIN_HEIGHT = 480
+MIN_DIM = 720  # 任意一边不低于此值（竖屏 720x1280 也达标）
 
 def _check_resolution(path):
     """检查视频分辨率是否达标，返回 True 达标 / False 跳过"""
@@ -238,8 +244,8 @@ def _check_resolution(path):
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
-    if w < MIN_WIDTH or h < MIN_HEIGHT:
-        print(f"    跳过: 分辨率 {w}x{h} 低于 {MIN_WIDTH}x{MIN_HEIGHT}")
+    if w < MIN_DIM and h < MIN_DIM:
+        print(f"    跳过: 分辨率 {w}x{h} 两端都低于 {MIN_DIM}p")
         return False
     return True
 
@@ -564,6 +570,8 @@ def run_batch(args):
 def _get_cli_overrides_dict(args):
     """从 args 提取可序列化的 overrides dict"""
     return {
+        'skip_stages': getattr(args, 'skip_stages', ''),
+        'continue_mode': getattr(args, 'continue_mode', False),
         'no_stabilize': getattr(args, 'no_stabilize', False),
         'no_body_warp': getattr(args, 'no_body_warp', False),
         'no_face_warp': getattr(args, 'no_face_warp', False),
@@ -571,6 +579,7 @@ def _get_cli_overrides_dict(args):
         'no_ken_burns': getattr(args, 'no_ken_burns', False),
         'no_pose_gpu': getattr(args, 'no_pose_gpu', False),
         'full_video': getattr(args, 'full_video', False),
+        'skeleton_overlay': getattr(args, 'skeleton_overlay', False),
         'auto_preset': getattr(args, 'auto_preset', False),
         'audio': getattr(args, 'audio', False),
         'bg_music': getattr(args, 'bg_music', None),
@@ -669,7 +678,8 @@ def _process_video_task(task):
                          enabled=stages_cfg.get("audio", False))
         engine.add_stage("export", ExportStage(),
                          enabled=stages_cfg.get("export", True))
-        engine.add_stage("face_enhance", FaceEnhanceStage(),
+        _fe = importlib.import_module("stages.30_face_enhance")
+        engine.add_stage("face_enhance", getattr(_fe, "FaceEnhanceStage")(),
                          enabled=stages_cfg.get("face_enhance", False))
 
         engine.run(ctx)
@@ -684,8 +694,40 @@ def _process_video_task(task):
         return (False, video_path.name, str(e))
 
 
+ALL_STAGES = [
+    "pre_deblock", "pose_detect", "stabilize", "h2v_convert",
+    "body_warp", "ken_burns", "face_warp", "color_grade",
+    "skin_smooth", "skin_tone_filter", "denoise", "audio",
+    "skeleton_overlay", "person_count", "lead_box", "lead_ghost",
+    "face_blur", "motion_heatmap", "sync_score", "beat_flash",
+    "highlight", "energy_bar", "intro_outro", "watermark",
+    "mascot", "blush", "face_beautify", "face_beautify2",
+    "rife", "speed_ramp", "danmaku", "intensity_burst",
+    "film_look", "pip", "bgm_beat", "qin_cold_open",
+    "export", "face_enhance",
+]
+
+
 def _apply_cli_overrides_from_dict(config, overrides):
     """将 overrides dict 合并到 config"""
+    # --continue: 启用所有 stage，让幂等性决定跳过
+    if overrides.get('continue_mode'):
+        config.setdefault("stages", {})
+        for s in ALL_STAGES:
+            config["stages"][s] = True
+
+    # --skip-stages: 禁用指定 stage
+    skip_list = overrides.get('skip_stages', '')
+    if skip_list:
+        config.setdefault("stages", {})
+        for name in skip_list.split(","):
+            name = name.strip()
+            if name:
+                if name not in ALL_STAGES:
+                    print(f"    警告: 未知 stage '{name}'，已忽略")
+                    continue
+                config["stages"][name] = False
+
     if overrides.get('no_stabilize'):
         config["stages"]["stabilize"] = False
     if overrides.get('no_body_warp'):
@@ -701,6 +743,11 @@ def _apply_cli_overrides_from_dict(config, overrides):
     if overrides.get('full_video'):
         config["full_video"] = True
         config["stages"]["highlight"] = False
+    if overrides.get('skeleton_overlay'):
+        config["stages"]["skeleton_overlay"] = True
+    if overrides.get('audio'):
+        config["stages"]["audio"] = True
+        config.setdefault("audio", {})["enabled"] = True
     if overrides.get('auto_preset'):
         config["auto_preset"] = True
         config["stages"]["audio"] = True

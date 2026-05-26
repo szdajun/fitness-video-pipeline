@@ -44,21 +44,25 @@ class PipelineEngine:
         # 每个 ctx key 对应一个或多个文件名变体（兼容新旧命名规则）
         existing_patterns = {
             "keypoints": [f"{video_stem}_keypoints.json"],
+            "pre_deblock_path": [f"{video_stem}_deblocked.mp4"],
             "stabilized_path": [f"{video_stem}_stabilized.mp4"],
             "h2v_path": [f"{video_stem}_h2v.mp4"],
             "skin_tone_filter_path": [f"{video_stem}_h2v_skin_tone.mp4"],
-            "watermark_path": [f"{video_stem}_h2v_watermark.mp4"],
+            "watermark_path": [
+                f"{video_stem}_watermark.mp4",
+                f"{video_stem}_h2v_watermark.mp4",
+            ],
             "blush_path": [f"{video_stem}_h2v_blush.mp4"],
             "warped_path": [f"{video_stem}_h2v_warped.mp4"],
             "face_path": [f"{video_stem}_h2v_warped_face.mp4"],
             "color_path": [
-                f"{video_stem}_h2v_kenburns_color.mp4",         # 新模式
-                f"{video_stem}_stabilized_kenburns_16x9_color.mp4",  # 旧模式
+                f"{video_stem}_h2v_kenburns_color.mp4",
+                f"{video_stem}_stabilized_kenburns_16x9_color.mp4",
             ],
             "ken_burns_path": [
-                f"{video_stem}_kenburns.mp4",                       # 新模式
-                f"{video_stem}_h2v_kenburns.mp4",                   # h2v 模式
-                f"{video_stem}_stabilized_kenburns_16x9.mp4",       # 旧模式
+                f"{video_stem}_kenburns.mp4",
+                f"{video_stem}_h2v_kenburns.mp4",
+                f"{video_stem}_stabilized_kenburns_16x9.mp4",
             ],
             "audio_path": [f"{video_stem}_audio.aac"],
             "skin_smooth_path": [f"{video_stem}_stabilized_kenburns_16x9_smooth.mp4"],
@@ -66,9 +70,47 @@ class PipelineEngine:
             "beatflash_path": [f"{video_stem}_beatflash.mp4"],
             "highlight_path": [f"{video_stem}_highlight.mp4"],
             "energybar_path": [f"{video_stem}_energybar.mp4"],
+            "mascot_path": [
+                f"{video_stem}_mascot.mp4",
+                f"{video_stem}_energybar_watermark_mascot.mp4",
+            ],
+            "danmaku_path": [
+                f"{video_stem}_danmaku.mp4",
+                f"{video_stem}_energybar_watermark_mascot_danmaku.mp4",
+            ],
+            "burst_path": [
+                f"{video_stem}_burst.mp4",
+                f"{video_stem}_energybar_watermark_mascot_danmaku_burst.mp4",
+            ],
+            "filmlook_path": [
+                f"{video_stem}_film.mp4",
+                f"{video_stem}_energybar_watermark_mascot_danmaku_film.mp4",
+            ],
+            "pip_path": [
+                f"{video_stem}_pip.mp4",
+                f"{video_stem}_energybar_watermark_mascot_danmaku_film_pip.mp4",
+            ],
+            "bgm_path": [
+                f"{video_stem}_bgm.mp4",
+                f"{video_stem}_energybar_watermark_mascot_danmaku_film_pip_withbgm.mp4",
+            ],
+            "speedramp_path": [f"{video_stem}_speedramp.mp4"],
+            "face_beautify_path": [f"{video_stem}_face_beautify.mp4"],
             "face_beautify2_path": [f"{video_stem}_face_beautify2.mp4"],
             "rife_path": [f"{video_stem}_rife.mp4"],
             "face_enhance_path": [f"{video_stem}_final_16x9_enhanced.mp4"],
+            "intro_path": [f"{video_stem}_intro.mp4"],
+            "outro_path": [f"{video_stem}_outro.mp4"],
+            "coldopen_path": [f"{video_stem}_coldopen.mp4"],
+            "skeleton_path": [f"{video_stem}_skeleton.mp4"],
+            "count_path": [f"{video_stem}_count.mp4"],
+            "leadbox_path": [f"{video_stem}_leadbox.mp4"],
+            "ghost_path": [f"{video_stem}_ghost.mp4"],
+            "faceblur_path": [f"{video_stem}_faceblur.mp4"],
+            "heatmap_path": [f"{video_stem}_heatmap.mp4"],
+            "sync_path": [f"{video_stem}_sync.mp4"],
+            "final_path": [f"{video_stem}_final_16x9.mp4"],
+            "shorts_path": [f"{video_stem}_shorts.mp4", f"{video_stem}_shorts_v2.mp4"],
         }
         found = 0
         for key, fnames in existing_patterns.items():
@@ -77,8 +119,19 @@ class PipelineEngine:
             for fname in fnames:
                 fpath = ctx.output_dir / fname
                 if _pe(str(fpath)):
-                    ctx.set(key, str(fpath))
-                    found += 1
+                    # 关键点需要加载为数据，不是路径字符串
+                    if key == "keypoints":
+                        try:
+                            with open(fpath, encoding="utf-8") as f:
+                                raw = json.load(f)
+                                ctx.set("keypoints", raw.get("keypoints", raw))
+                                ctx.set("keypoints_path", str(fpath))
+                            found += 1
+                        except Exception:
+                            pass
+                    else:
+                        ctx.set(key, str(fpath))
+                        found += 1
                     break
 
         # h2v_path 存在时，自动设置 h2v_size（避免后续 ken_burns 等阶段无法获取）
@@ -103,12 +156,6 @@ class PipelineEngine:
         if found > 0:
             print(f"  增量: 发现 {found} 个已有文件，将跳过")
         return found
-
-    def _set_path(self, ctx: PipelineContext, key: str, value: str):
-        """安全设置 path（已存在的文件不会覆盖）"""
-        existing = ctx.data.get(key)
-        if existing is None:
-            ctx.set(key, value)
 
     def run(self, ctx: PipelineContext):
         total_start = time.time()
@@ -142,8 +189,20 @@ class PipelineEngine:
 
         for name, stage, enabled in self.stages:
             if not enabled:
-                print(f"  [跳过] {name}")
+                output_keys = self.STAGE_OUTPUT_KEYS.get(name, [])
+                has_output = any(ctx.get(k) is not None for k in output_keys)
+                if has_output:
+                    print(f"  [已有] {name}")
+                else:
+                    print(f"  [跳过] {name}")
                 continue
+
+            # 已启用的 stage：若已有全部产出，跳过（继续模式）
+            if enabled:
+                output_keys = self.STAGE_OUTPUT_KEYS.get(name, [])
+                if output_keys and all(ctx.get(k) is not None for k in output_keys):
+                    print(f"  [已有] {name}")
+                    continue
 
             # 检查是否可从 manifest 恢复（stage 内部已设置了输出路径）
             print(f"\n  [运行] {name}...")
@@ -182,13 +241,44 @@ class PipelineEngine:
 
     # 每个 stage 产出到 manifest 的 ctx key 映射
     STAGE_OUTPUT_KEYS = {
-        "pose_detect": ["keypoints_path", "video_info"],
-        "h2v_convert": ["h2v_path", "h2v_size"],
-        "body_warp":   ["warped_path"],
-        "color_grade": ["color_path"],
-        "ken_burns":   ["ken_burns_path", "ken_burns_ratio"],
-        "beat_flash":  ["beatflash_path"],
-        "rife":        ["rife_path"],
+        "pose_detect":       ["keypoints_path", "video_info"],
+        "pre_deblock":       ["pre_deblock_path"],
+        "stabilize":         ["stabilized_path"],
+        "h2v_convert":       ["h2v_path", "h2v_size", "cropped_keypoints"],
+        "body_warp":         ["warped_path"],
+        "ken_burns":         ["ken_burns_path", "ken_burns_ratio"],
+        "face_warp":         ["face_path"],
+        "color_grade":       ["color_path"],
+        "skin_smooth":       ["skin_smooth_path"],
+        "skin_tone_filter":  ["skin_tone_filter_path"],
+        "denoise":           ["denoise_path"],
+        "audio":             ["audio_path"],
+        "skeleton_overlay":  ["skeleton_path"],
+        "person_count":      ["count_path"],
+        "lead_box":          ["leadbox_path"],
+        "lead_ghost":        ["ghost_path"],
+        "face_blur":         ["faceblur_path"],
+        "motion_heatmap":    ["heatmap_path"],
+        "sync_score":        ["sync_path"],
+        "beat_flash":        ["beatflash_path"],
+        "highlight":         ["highlight_path"],
+        "energy_bar":        ["energybar_path"],
+        "intro_outro":       ["intro_path", "outro_path"],
+        "watermark":         ["watermark_path"],
+        "mascot":            ["mascot_path"],
+        "blush":             ["blush_path"],
+        "face_beautify":     ["face_beautify_path"],
+        "face_beautify2":    ["face_beautify2_path"],
+        "rife":              ["rife_path"],
+        "speed_ramp":        ["speedramp_path"],
+        "danmaku":           ["danmaku_path"],
+        "intensity_burst":   ["burst_path"],
+        "film_look":         ["filmlook_path"],
+        "pip":               ["pip_path"],
+        "bgm_beat":          ["bgm_path"],
+        "qin_cold_open":     ["coldopen_path"],
+        "export":            ["final_path", "shorts_path"],
+        "face_enhance":      ["face_enhance_path"],
     }
 
     def _collect_stage_outputs(self, name: str, ctx: PipelineContext) -> Dict[str, Any]:
@@ -250,5 +340,5 @@ class PipelineEngine:
         try:
             with open(metrics_path, "w", encoding="utf-8") as f:
                 json.dump(metrics, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"    警告: 无法保存 metrics: {e}")

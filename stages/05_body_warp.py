@@ -36,6 +36,8 @@ class BodyWarpStage:
         # 如果 h2v 被跳过（cropped_keypoints 为 None），检查是否需要变形
         if not cropped_keypoints:
             warp_cfg = ctx.config.get("body_warp", {})
+            if not isinstance(warp_cfg, dict):
+                warp_cfg = {}
             needs_warp = any(v != 1.0 for k, v in warp_cfg.items()
                            if k in ("leg_lengthen", "waist_slim", "overall_slim",
                                     "leg_slim", "head_ratio", "chest_enlarge",
@@ -53,6 +55,8 @@ class BodyWarpStage:
         fps = video_info["fps"]
         max_frames = video_info.get("process_frames", video_info["frames"])
         warp_cfg = ctx.config.get("body_warp", {})
+        if not isinstance(warp_cfg, dict):
+            warp_cfg = {}
 
         # 检查是否有实际需要变形的参数
         needs_warp = any(v != 1.0 for k, v in warp_cfg.items()
@@ -144,7 +148,7 @@ class BodyWarpStage:
         cmd = [ffmpeg_bin, "-y", "-v", "info",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:

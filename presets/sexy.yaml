@@ -1,5 +1,4 @@
 # 性感风格横屏版 (16:9)
-body_warp: false
 
 color_grade:
   brightness: 5
@@ -34,6 +33,13 @@ color_grade:
   light_region_min_area: 2500
   light_region_blur: 21
 
+body_warp:
+  leg_lengthen: 1.06
+  waist_slim: 0.94
+  overall_slim: 0.97
+  leg_slim: 1.0
+  head_ratio: 1.0
+
 skin_smooth:
   enabled: true
   strength: 0.35
@@ -59,11 +65,11 @@ output:
 stages:
   stabilize: false           # 关闭防抖（画面质量优先）
   h2v_convert: false
-  body_warp: false
+  body_warp: true            # 身材塑形
   ken_burns: true
   skin_smooth: false
   skin_tone_filter: false
-  denoise: false            # 关闭降噪（源视频清晰，GaussianBlur 只会模糊画面）
+  denoise: false
   beat_flash: true
   highlight: true
   energy_bar: true
@@ -99,8 +105,12 @@ audio:
   ducking: 0
 
 denoise:
-  denoise_strength: 3        # 视频降噪（手机暗光拍摄）
-  denoise_mode: GaussianBlur
+  denoise_strength: 2
+  denoise_mode: hqdn3d
+
+danmaku:
+  font_size: 28
+  interval: 60
 
 face_beautify:
   enabled: true

@@ -129,13 +129,17 @@ def _build_all_known_keys() -> set:
         "pre_deblock", "mascot", "bgm_beat",
         "output", "pose_backend", "pose_model", "pose_gpu",
         "full_video", "auto_preset", "skin_smooth", "face_enhance",
+        "seo",
+        # Missing top-level stage sections
+        "pip", "speed_ramp", "film_look", "danmaku", "intensity_burst",
+        "qin_cold_open",
     })
     # output section sub-keys
     known.update({
         "width", "height", "crf", "preset", "cut_ranges", "sharpen", "deblock",
         "encoder", "resize_filter", "upscale_mode", "realesrgan_model",
         "realesrgan_scale", "realesrgan_tile", "realesrgan_gpu",
-        "audio_bitrate", "video_fade_out",
+        "realesrgan_max_frames", "audio_bitrate", "video_fade_out",
     })
     # energy_bar section sub-keys
     known.update({
@@ -173,6 +177,34 @@ def _build_all_known_keys() -> set:
         "workers", "skin_smooth", "face_whiten", "face_slim", "eye_enlarge",
         "detect_interval",
     })
+    # mascot sub-keys
+    known.update({
+        "size", "position", "bounce_range",
+    })
+    # bgm_beat sub-keys
+    known.update({
+        "bgm_file", "bg_volume", "beat_volume", "beat_width", "bgm_ratio",
+    })
+    # pip sub-keys
+    known.update({
+        "position", "scale", "margin", "border",
+    })
+    # speed_ramp sub-keys
+    known.update({
+        "slow_speed", "slow_window",
+    })
+    # film_look sub-keys
+    known.update({
+        "preset",
+    })
+    # danmaku sub-keys
+    known.update({
+        "font_size", "interval",
+    })
+    # qin_cold_open sub-keys
+    known.update({
+        "audio_file",
+    })
     # color_grade — keys added mid-session (not yet in DEFAULT_CONFIG)
     known.update({
         "shadow", "auto_wb", "adaptive_contrast",
@@ -181,6 +213,10 @@ def _build_all_known_keys() -> set:
         "white_sat_threshold", "white_protect_blur",
         "light_region_protect", "light_region_threshold",
         "light_region_min_area", "light_region_blur",
+    })
+    # seo sub-keys
+    known.update({
+        "enabled", "channel", "intensity", "audience", "tags",
     })
     return known
 
@@ -237,5 +273,7 @@ def deep_merge(base: dict, override: dict, copy: bool = True) -> dict:
         if k in base and isinstance(base[k], dict) and isinstance(v, dict):
             deep_merge(base[k], v, copy=False)
         else:
+            if k in base and isinstance(base[k], dict) and not isinstance(v, dict):
+                print(f"  [配置警告] '{k}': 非字典值({type(v).__name__})覆盖了默认字典配置，可能导致阶段崩溃", flush=True)
             base[k] = v
     return base

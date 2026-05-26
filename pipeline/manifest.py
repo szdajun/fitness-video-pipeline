@@ -37,7 +37,10 @@ def compute_config_hash(config: dict) -> str:
     relevant_keys = [
         "stages", "body_warp", "color_grade", "ken_burns", "face_beautify",
         "face_beautify2", "skin_smooth", "energy_bar", "intro_outro",
-        "output", "preview", "full_video", "rife"
+        "output", "preview", "full_video", "rife", "mascot", "bgm_beat",
+        "pip", "speed_ramp", "film_look", "danmaku", "qin_cold_open",
+        "watermark", "denoise", "blush", "pre_deblock", "stabilize",
+        "skin_tone_filter", "audio", "seo", "face_enhance",
     ]
     hash_data = {}
     for key in relevant_keys:
