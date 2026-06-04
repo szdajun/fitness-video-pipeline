@@ -88,7 +88,9 @@ class BeatFlashStage:
         beat_set = set(beat_frames)  # 快速查找
 
         # ---- 输出到 PNG 序列，避免 cv2.VideoWriter 强制 yuv420p ----
-        tmpdir = ctx.output_dir / f"_tmp_bf_{Path(input_path).stem}_{int(time.time()*1000):08d}"
+        # 用 uuid 后缀避免毫秒级撞名 (并发跑两个视频或快速重跑会冲突)
+        import uuid
+        tmpdir = ctx.output_dir / f"_tmp_bf_{Path(input_path).stem}_{uuid.uuid4().hex[:8]}"
         tmpdir.mkdir(exist_ok=True)
 
         frame_idx = 0

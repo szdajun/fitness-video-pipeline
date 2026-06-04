@@ -68,20 +68,21 @@ def _deserialize_to_ctx(ctx, data: bytes):
 
 
 def _stage_worker(stage_module: str, stage_class: str,
-                  ctx_pickle: bytes, config_yaml: str,
+                  ctx_pickle: bytes, config_dump: str,
                   result_queue: multiprocessing.Queue):
     """子进程：加载 stage → 运行 → pickle 回传结果"""
     try:
-        import yaml
         from pipeline.engine import PipelineContext
 
         ctx_data = pickle.loads(ctx_pickle)
 
         # 重建 ctx（子进程内独立，不继承父进程 GPU 上下文）
+        # config 由父进程 dump 传入 (json), 避免子进程硬编码 "config.yaml" 找不到
+        ctx_config = json.loads(config_dump) if config_dump else {}
         ctx = PipelineContext(
             input_path=ctx_data.get("input_path", ""),
             output_dir=ctx_data.get("output_dir", "output"),
-            config=yaml.safe_load(open(config_yaml, encoding="utf-8")))
+            config=ctx_config)
 
         # 把父进程 ctx.data 全部恢复（h2v_size / ken_burns_path / final_path 等）
         # 这是 _serialize_ctx -> pickle -> ctx_data 链路的关键环节
@@ -134,12 +135,15 @@ class ProcessStage:
 
     def run(self, ctx):
         ctx_pickle = _serialize_ctx(ctx)
+        # 把 config dict 一起传给子进程, 避免子进程硬编码 "config.yaml" 找不到
+        # 用户用 `-c other.yaml` 时也能工作
+        config_dump = json.dumps(ctx.config, ensure_ascii=False, default=str)
 
         result_queue = multiprocessing.Queue()
         p = multiprocessing.Process(
             target=_stage_worker,
             args=(self.stage_module, self.stage_class,
-                  ctx_pickle, "config.yaml", result_queue))
+                  ctx_pickle, config_dump, result_queue))
 
         p.start()
         p.join()  # 阻塞等待 → OS 回收子进程 GPU
