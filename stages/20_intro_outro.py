@@ -13,6 +13,11 @@ from lib.utils import path_exists, to_short
 import numpy as np
 import subprocess
 import shutil
+
+try:
+    from lib.coach_profiles import to_traditional
+except ImportError:
+    def to_traditional(t): return t
 import re
 import hashlib
 import ctypes
@@ -29,57 +34,6 @@ def _get_short_path(p):
     buf = ctypes.create_unicode_buffer(buf_size)
     ctypes.windll.kernel32.GetShortPathNameW(str(p), buf, buf_size)
     return buf.value
-
-
-def _ensure_frame_brightness(video_path: str, min_mean: float = 8.0):
-    """检查编码后的视频是否有平均亮度过低的帧，如有则重新编码（加亮后）"""
-    cap = cv2.VideoCapture(video_path)
-    dark_frames = []
-    idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if frame.mean() < min_mean:
-            dark_frames.append(idx)
-        idx += 1
-    cap.release()
-    if not dark_frames:
-        return  # 亮度正常，无需处理
-    print(f"    警告: 检测到 {len(dark_frames)} 个暗帧，重新编码加亮...")
-    # 加亮暗帧：叠加微亮层
-    cap = cv2.VideoCapture(video_path)
-    tmpdir = Path(video_path).parent / f"_brightness_fix_{Path(video_path).stem}"
-    if tmpdir.exists():
-        shutil.rmtree(tmpdir, ignore_errors=True)
-    tmpdir.mkdir(parents=True, exist_ok=True)
-    i = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if i in set(dark_frames):
-            frame = np.clip(frame.astype(np.float32) + (min_mean - frame.mean()), 0, 255).astype(np.uint8)
-        cv2.imwrite(str(tmpdir / f"f_{i:06d}.png"), frame)
-        i += 1
-    cap.release()
-
-    ffmpeg_bin = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
-    if not ffmpeg_bin.exists():
-        ffmpeg_bin = Path(shutil.which("ffmpeg") or str(ffmpeg_bin))
-    cap_fps = cv2.VideoCapture(video_path)
-    fps = cap_fps.get(cv2.CAP_PROP_FPS)
-    cap_fps.release()
-    cmd = [str(ffmpeg_bin), "-y", "-v", "warning",
-           "-framerate", str(fps),
-           "-i", str(tmpdir / "f_%06d.png"),
-           "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-           "-pix_fmt", "yuv444p", "-an",
-           str(video_path).replace("\\", "/")]
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    shutil.rmtree(tmpdir, ignore_errors=True)
-    if r.returncode != 0:
-        print(f"    加亮重编码失败: {r.stderr[-200:]}")
 
 
 def _encode_pngs_to_video(tmpdir, frame_count, output_path, fps, tag=""):
@@ -123,7 +77,7 @@ def _get_font(size, bold=False):
     """加载支持中文的字体"""
     font_paths = [
         ("C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc", "微软雅黑"),
-        ("C:/Windows/Fonts/simheittf" if bold else "C:/Windows/Fonts/simhei.ttf", "黑体"),
+        ("C:/Windows/Fonts/simheib.ttf" if bold else "C:/Windows/Fonts/simhei.ttf", "黑体"),
         ("C:/Windows/Fonts/simsun.ttc", "宋体"),
         ("C:/Windows/Fonts/arial.ttf", "fallback"),
     ]
@@ -176,32 +130,35 @@ class IntroOutroStage:
         location = cfg.get("location", "汉细柳营故地·时代广场")
         date_str = cfg.get("date") or "2026-04-20"
 
+        # 繁体转换
+        use_tc = ctx.config.get("seo", {}).get("traditional", False)
+        if use_tc:
+            channel_name = to_traditional(channel_name)
+            cta_text = to_traditional(cta_text)
+            location = to_traditional(location)
+            lead_name = to_traditional(lead_name)
+
         print(f"    片头片尾生成: {channel_name} | 带操人:{lead_name} | {location}/{date_str}")
         print(f"    频道: {channel_name}, 片头:{intro_duration}s, 片尾:{outro_duration}s, 音频淡出:{audio_fade_out}s")
 
         intro_path = self._create_intro(
             video_path, ctx.output_dir / f"{stem}_intro.mp4",
-            lead_name, channel_name, location, date_str, intro_duration, fps, cfg
+            lead_name, channel_name, location, date_str, intro_duration, fps, cfg, use_tc
         )
 
         outro_path = self._create_outro(
             outro_video_path, ctx.output_dir / f"{stem}_outro.mp4",
-            outro_duration, audio_fade_out, fps, cfg
+            outro_duration, audio_fade_out, fps, cfg, use_tc
         )
 
         ctx.set("intro_path", str(intro_path))
         ctx.set("outro_path", str(outro_path))
         print(f"    输出: 片头={intro_path.name}, 片尾={outro_path.name}")
 
-    def _extract_title(self, stem: str) -> str:
-        stem = re.sub(r'^[\d]+', '', stem)
-        stem = re.sub(r'[_\-\s]', '', stem)
-        return stem[:6] if stem else stem
-
     def _create_intro(self, video_path: str, output_path: Path,
                        lead_name: str, channel: str, location: str,
                        date_str: str, duration: float,
-                       fps: float, cfg: dict) -> Path:
+                       fps: float, cfg: dict, use_tc: bool = False) -> Path:
         """生成片头：运动强度最高的片段 + 中文文字动画"""
         cap = cv2.VideoCapture(video_path)
         actual_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -273,13 +230,13 @@ class IntroOutroStage:
                 break
 
             # 叠加中文文字（用 PIL）
-            frame = self._draw_intro_text_pil(frame, lead_name, channel, location, date_str, frame_count / window)
+            frame = self._draw_intro_text_pil(frame, lead_name, channel, location, date_str, frame_count / window, use_tc)
 
             # 帧淡入（淡入整个合成画面，包括文字）
             if frame_count < fade_in_frames:
                 alpha = max(0.35, frame_count / fade_in_frames)
                 overlay = np.full_like(frame, 12)
-                frame = (frame * alpha + overlay * (1 - alpha)).astype(np.uint8)
+                frame = (frame.astype(np.float32) * alpha + overlay.astype(np.float32) * (1 - alpha)).astype(np.uint8)
 
             # 立即写入 PNG，不保留帧引用
             cv2.imwrite(str(tmpdir / f"f_{frame_count:06d}.png"), frame)
@@ -292,7 +249,7 @@ class IntroOutroStage:
         shutil.rmtree(tmpdir, ignore_errors=True)
         return output_path
 
-    def _draw_intro_text_pil(self, frame, lead_name: str, channel: str, location: str, date_str: str, progress: float):
+    def _draw_intro_text_pil(self, frame, lead_name: str, channel: str, location: str, date_str: str, progress: float, use_tc: bool = False):
         """用 PIL 绘制片头中文文字 - 3行格式:
         第1行(顶部): channel 频道名
         第2行(中部): 带操人：领操人名字
@@ -319,7 +276,8 @@ class IntroOutroStage:
 
         # 第2行：带操人：xxx（视频区域中部，中等黄色）
         font_md = _get_font(int(ref * 0.09), bold=True)
-        lead_text = f"带操人：{lead_name}"
+        lead_prefix = "带操人：" if not use_tc else to_traditional("带操人：")
+        lead_text = f"{lead_prefix}{lead_name}"
         bbox = draw.textbbox((0, 0), lead_text, font=font_md)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
@@ -341,7 +299,7 @@ class IntroOutroStage:
 
     def _create_outro(self, video_path: str, output_path: Path,
                        duration: float,
-                       audio_fade_out: float, fps: float, cfg: dict) -> Path:
+                       audio_fade_out: float, fps: float, cfg: dict, use_tc: bool = False) -> Path:
         """生成片尾：末尾片段 + CTA 文字 + 视频淡出"""
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -372,10 +330,10 @@ class IntroOutroStage:
                 alpha = 1.0 - (frame_count - (max_frames - fade_out_frames)) / fade_out_frames
                 alpha = max(0.0, alpha)
                 overlay = np.full_like(frame, 0)
-                frame = (frame * alpha + overlay * (1 - alpha)).astype(np.uint8)
+                frame = (frame.astype(np.float32) * alpha + overlay.astype(np.float32) * (1 - alpha)).astype(np.uint8)
 
             # 叠加 CTA 文字
-            frame = self._draw_outro_text_pil(frame)
+            frame = self._draw_outro_text_pil(frame, 0.0, use_tc)
             # 立即写入 PNG
             cv2.imwrite(str(tmpdir / f"f_{frame_count:06d}.png"), frame)
             frame_count += 1
@@ -392,7 +350,7 @@ class IntroOutroStage:
         shutil.rmtree(tmpdir, ignore_errors=True)
         return output_path
 
-    def _draw_outro_text_pil(self, frame, progress: float = 0.0):
+    def _draw_outro_text_pil(self, frame, progress: float = 0.0, use_tc: bool = False):
         """用 PIL 绘制片尾 CTA 中文文字 - 直接叠加在视频上
         4行：打工牛马 / 健身达人 / 关注不迷路 / 点击关注"""
         pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -401,11 +359,18 @@ class IntroOutroStage:
 
         # 4行文字配置（用短边作为基准，横竖屏文字大小一致）
         ref = min(w, h)
-        lines = [
-            ("明天同一时间 细柳营见", int(ref * 0.065), (255, 220, 50)),
-            ("点关注不迷路 暴汗不掉队", int(ref * 0.060), (255, 255, 255)),
-            ("打工人的救赎 就在这里", int(ref * 0.050), (200, 200, 200)),
-        ]
+        if use_tc:
+            lines = [
+                (to_traditional("明天同一时间 细柳营见"), int(ref * 0.065), (255, 220, 50)),
+                (to_traditional("点关注不迷路 暴汗不掉队"), int(ref * 0.060), (255, 255, 255)),
+                (to_traditional("打工人的救赎 就在这里"), int(ref * 0.050), (200, 200, 200)),
+            ]
+        else:
+            lines = [
+                ("明天同一时间 细柳营见", int(ref * 0.065), (255, 220, 50)),
+                ("点关注不迷路 暴汗不掉队", int(ref * 0.060), (255, 255, 255)),
+                ("打工人的救赎 就在这里", int(ref * 0.050), (200, 200, 200)),
+            ]
 
         # 计算行间距和总高度，居中于视频下半部分
         line_spacing = int(ref * 0.04)

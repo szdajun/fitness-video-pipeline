@@ -1,8 +1,11 @@
 """配置加载与管理"""
 
+import logging
 import yaml
 from pathlib import Path
 from copy import deepcopy
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG = {
     "stages": {
@@ -19,6 +22,7 @@ DEFAULT_CONFIG = {
         "blush": False,
         "export": True,
         "face_enhance": False,
+        "face_swap": False,
     },
     "h2v": {
         "target_ratio": 9 / 16,
@@ -122,6 +126,7 @@ def _build_all_known_keys() -> set:
 
     # 补充不在 DEFAULT_CONFIG 中但合法的 section / stage 名
     known.update({
+        "process_isolate",  # 引擎子进程隔离开关 (config.yaml)
         "face_warp", "audio", "skeleton_overlay", "person_count",
         "lead_box", "lead_ghost", "face_blur", "motion_heatmap",
         "sync_score", "beat_flash", "highlight", "energy_bar",
@@ -217,6 +222,11 @@ def _build_all_known_keys() -> set:
     # seo sub-keys
     known.update({
         "enabled", "channel", "intensity", "audience", "tags",
+        "traditional", "seo_keywords",
+    })
+    # face_swap sub-keys
+    known.update({
+        "every_n", "max_frames",
     })
     return known
 
@@ -228,7 +238,7 @@ def _validate_config_keys(user_cfg: dict, prefix: str = ""):
     for key in user_cfg:
         full_key = f"{prefix}.{key}" if prefix else key
         if key not in _ALL_KNOWN_KEYS:
-            print(f"  [配置警告] 未知配置项: '{full_key}'", flush=True)
+            logger.warning("未知配置项: '%s'", full_key)
         elif isinstance(user_cfg[key], dict):
             _validate_config_keys(user_cfg[key], full_key)
 
@@ -274,6 +284,7 @@ def deep_merge(base: dict, override: dict, copy: bool = True) -> dict:
             deep_merge(base[k], v, copy=False)
         else:
             if k in base and isinstance(base[k], dict) and not isinstance(v, dict):
-                print(f"  [配置警告] '{k}': 非字典值({type(v).__name__})覆盖了默认字典配置，可能导致阶段崩溃", flush=True)
+                logger.warning("'%s': 非字典值(%s)覆盖了默认字典配置，可能导致阶段崩溃",
+                               k, type(v).__name__)
             base[k] = v
     return base

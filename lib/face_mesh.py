@@ -80,6 +80,16 @@ class FaceMeshDetector:
         if HAS_MEDIAPIPE_TASKS and MODEL_PATH.exists():
             return "tasks"
         if HAS_MEDIAPIPE_SOLUTIONS:
+            # 降级时警告: 两种 backend 输出语义不同
+            #   - tasks: 包含 468+ 瞳孔/虹膜点 (LANDMARK_LEFT_PUPIL=468 等)
+            #   - solutions: 仅有 468 点无瞳孔
+            # 下游 stage 26/27 用到 pupil 时可能崩
+            import warnings
+            warnings.warn(
+                f"face_landmarker.task 模型未找到 ({MODEL_PATH}), "
+                f"回退到 MediaPipe solutions API (无瞳孔/虹膜点, 部分功能可能失效)",
+                RuntimeWarning, stacklevel=2,
+            )
             return "solutions"
         raise RuntimeError(
             "No compatible MediaPipe face landmark backend is available. "

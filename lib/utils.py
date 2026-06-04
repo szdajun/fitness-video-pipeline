@@ -78,7 +78,7 @@ def create_writer(output_path: str, fps: float, width: int, height: int):
     final_path = _to_short_path(str(output_path))
 
     writer = None
-    for codec in ["avc1", "mp4v"]:
+    for codec in ["mp4v", "avc1"]:
         writer = cv2.VideoWriter(final_path,
                                  cv2.VideoWriter_fourcc(*codec),
                                  fps, (width, height))
@@ -138,11 +138,20 @@ def body_center(kps):
 
 
 def transform_keypoints(keypoints, crop_x, crop_y, crop_w, crop_h, orig_w, orig_h):
-    """将关键点从原始坐标系变换到裁剪坐标系"""
+    """将关键点从原始坐标系变换到裁剪坐标系
+
+    返回坐标会被 clamp 到 [0, 1], 避免越界关键点污染下游 stage 的 ROI 计算。
+    越界关键点保持原始 vis 不变, 仍可被过滤掉 (后续 stage 会跳过低 vis 点)。
+    """
+    if crop_w <= 0 or crop_h <= 0:
+        # 防御: 0 尺寸 crop 会触发除零, 全部返回中心点
+        return [[0.5, 0.5, kp[2]] for kp in keypoints]
     result = []
     for kp in keypoints:
         x = (kp[0] * orig_w - crop_x) / crop_w
         y = (kp[1] * orig_h - crop_y) / crop_h
+        x = max(0.0, min(1.0, x))
+        y = max(0.0, min(1.0, y))
         vis = kp[2]
         result.append([x, y, vis])
     return result

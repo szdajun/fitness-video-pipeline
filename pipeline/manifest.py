@@ -201,6 +201,15 @@ def restore_context_from_manifest(ctx, manifest: dict) -> bool:
             ctx.set("rife_path", rife_path)
         restored_count += 1
 
+    # face_swap 恢复（manifest 增量跳过）
+    swap_stage = stages.get("face_swap", {})
+    if swap_stage.get("status") == "done":
+        outputs = swap_stage.get("outputs", {})
+        swap_path = outputs.get("face_swap_path")
+        if swap_path and Path(swap_path).exists():
+            ctx.set("face_swap_path", swap_path)
+        restored_count += 1
+
     return restored_count > 0
 
 

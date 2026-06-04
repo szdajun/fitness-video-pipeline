@@ -1,4 +1,5 @@
 """流水线编排引擎"""
+from pipeline.process_stage import ProcessStage
 
 import time, json, cv2
 from pathlib import Path
@@ -32,8 +33,11 @@ class PipelineEngine:
     def __init__(self, config: dict):
         self.config = config
         self.stages = []  # [(name, stage_instance, enabled), ...]
+        self._use_process = config.get("process_isolate", False)
 
     def add_stage(self, name: str, stage, enabled: bool = True):
+        if self._use_process and not isinstance(stage, ProcessStage):
+            stage = ProcessStage(stage)
         self.stages.append((name, stage, enabled))
 
     def _scan_existing_outputs(self, ctx: PipelineContext):
@@ -209,6 +213,10 @@ class PipelineEngine:
             t0 = time.time()
             try:
                 stage.run(ctx)
+                # 入口校验失败 → 中断所有后续 stage
+                if name == "preflight" and ctx.get("preflight_ok") is False:
+                    print("  [中断] 入口校验失败，跳过所有后续阶段")
+                    break
                 elapsed = time.time() - t0
                 stage_times[name] = elapsed
 
@@ -279,6 +287,7 @@ class PipelineEngine:
         "qin_cold_open":     ["coldopen_path"],
         "export":            ["final_path", "shorts_path"],
         "face_enhance":      ["face_enhance_path"],
+        "face_swap":         ["face_swap_path"],
     }
 
     def _collect_stage_outputs(self, name: str, ctx: PipelineContext) -> Dict[str, Any]:

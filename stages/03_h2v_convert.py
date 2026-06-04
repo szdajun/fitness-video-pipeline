@@ -57,8 +57,6 @@ class H2VConvertStage:
 
         target_ratio = 9.0 / 16.0  # 9:16  portrait
 
-        target_ratio = 9.0 / 16.0  # 9:16  portrait
-
         # 输出尺寸: 使用最终分辨率 1080x1920
         out_w = 1080
         out_h = 1920
@@ -164,7 +162,7 @@ class H2VConvertStage:
                 "-i", str(video_path),
                 "-t", str(dur_sec),
                 "-vf", vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                 "-an",
                 str(tmp_path)
             ]
@@ -172,7 +170,24 @@ class H2VConvertStage:
                                    encoding="utf-8", errors="replace")
             if result.returncode != 0:
                 print(f"    段{i} FFmpeg失败: {result.stderr[-150:]}")
-                self._create_black(tmp_path, out_w, out_h, fps, duration)
+                # 退化: 复制原段（不裁切, 不缩放, 但保持时间长度对齐）
+                # 比黑帧好: 至少能看到原视频内容, 不会卡黑屏
+                # 然后在标准化步骤统一 resize 到目标尺寸
+                fallback_cmd = [
+                    ffmpeg, "-y",
+                    "-ss", str(start_sec),
+                    "-i", str(video_path),
+                    "-t", str(dur_sec),
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-an",
+                    str(tmp_path)
+                ]
+                fallback_result = subprocess.run(fallback_cmd, capture_output=True, text=True,
+                                                 encoding="utf-8", errors="replace")
+                if fallback_result.returncode != 0:
+                    # 真不行了才黑帧（最后兜底, 不让 concat 失败）
+                    print(f"    段{i} 复制原段也失败, 用黑帧兜底")
+                    self._create_black(tmp_path, out_w, out_h, fps, duration)
             seg_info.append((str(tmp_path), duration, seg_crop_x, seg_crop_w, dtype))
 
         # ========== concat: 标准化所有片段尺寸后合并 ==========
@@ -192,7 +207,7 @@ class H2VConvertStage:
                     std_path = ctx.output_dir / f"_std_{i}.mp4"
                     cmd = [ffmpeg, "-y", "-i", str(seg_path),
                            "-vf", f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2",
-                           "-c:v", "libx264", "-preset", "fast", "-crf", "1", "-an", str(std_path)]
+                           "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-an", str(std_path)]
                     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
                     if r.returncode != 0:
                         print(f"    段{i} 重新编码失败，使用原片段")
@@ -211,7 +226,7 @@ class H2VConvertStage:
             ffmpeg, "-y",
             "-f", "concat", "-safe", "0",
             "-i", str(concat_list),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
             "-an",
             str(temp_path)
         ]

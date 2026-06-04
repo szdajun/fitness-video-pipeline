@@ -79,7 +79,13 @@ class WatermarkStage:
         print(f"    水印: pos={position}, text='{text}', size={font_size}")
 
         out_path = ctx.output_dir / f"{Path(input_path).stem}_watermark.mp4"
-        tmpdir = Path(tempfile.mkdtemp(prefix="wm_"))
+        # 跨平台 tmpdir: 优先 _temp (CLAUDE.md 红线 #9), 否则系统默认
+        _tmp_base = Path("F:/wkspace/fitness-video-pipeline/_temp")
+        if _tmp_base.exists():
+            _tmp_base.mkdir(parents=True, exist_ok=True)
+            tmpdir = Path(tempfile.mkdtemp(prefix="wm_", dir=str(_tmp_base)))
+        else:
+            tmpdir = Path(tempfile.mkdtemp(prefix="wm_"))
 
         GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
         GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
@@ -97,6 +103,7 @@ class WatermarkStage:
 
         # 中文字体
         from PIL import Image, ImageDraw, ImageFont
+        from lib.seal import overlay_seal
         import numpy as np
         import os
         font_paths = [
@@ -180,6 +187,11 @@ class WatermarkStage:
                     cy += line_heights[i] + 4
                 frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
+            # 汉印水印（开头3秒+结尾2秒）
+            if frame_idx < fps * 3 or frame_idx > max_frames - fps * 2:
+                frame = overlay_seal(frame, "胭脂虎", pos="top-left",
+                                     size=110, margin=30, alpha=0.50)
+
             cv2.imwrite(f"{tmpdir_short}/f_{frame_idx:06d}.png", frame)
             frame_idx += 1
             if frame_idx % 30 == 0:
@@ -197,7 +209,7 @@ class WatermarkStage:
         cmd = [ffmpeg_bin, "-y", "-v", "info",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:

@@ -52,8 +52,18 @@ class KenBurnsStage:
                 print(f"    跳过: 无法读取视频尺寸: {fallback_src}")
                 return
         crop_w, crop_h = h2v_size
-        fps = video_info["fps"]
-        max_frames = video_info.get("process_frames", video_info["frames"])
+        fps = ctx.get("video_fps") or video_info.get("fps", 30) if video_info else 30
+        if video_info:
+            max_frames = video_info.get("process_frames", video_info["frames"])
+        else:
+            # video_info 缺失时, 打开 input 拿真实帧数, 避免依赖下游 cap 变量
+            cap_tmp = cv2.VideoCapture(input_path)
+            if cap_tmp.isOpened():
+                max_frames = int(cap_tmp.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap_tmp.release()
+            else:
+                print(f"    跳过: 无法打开视频读取帧数: {input_path}")
+                return
         cfg = ctx.config.get("ken_burns", {})
         mode = cfg.get("mode", "smooth")
         # 记录输入尺寸供 dual mode 使用
@@ -108,8 +118,14 @@ class KenBurnsStage:
                     with open(kp_file) as f:
                         cropped_keypoints = _json.load(f)
                     print(f"    从文件加载关键点: {len(cropped_keypoints)} 帧")
-            self._run_dual_ffmpeg(cap, str(tmp_path), crop_w, crop_h, target_w, target_h, max_frames, fps, cfg,
-                           cropped_keypoints, is_vertical)
+            ok = self._run_dual_ffmpeg(cap, str(tmp_path), crop_w, crop_h, target_w, target_h, max_frames, fps, cfg,
+                                       cropped_keypoints, is_vertical)
+            if not ok:
+                Path(tmp_path).unlink(missing_ok=True)
+                print("    FFmpeg 编码失败，跳过 ken_burns")
+                ctx.set("ken_burns_path", input_path)
+                cap.release()
+                return
             # 完成后移动到最终路径（shutil.move 跨驱动器会做 copy+delete）
             try:
                 shutil.move(str(tmp_path), str(out_path))
@@ -159,8 +175,15 @@ class KenBurnsStage:
             tmp_out_path = Path(tmp_out_path)
             tmp_out_short = to_short(str(tmp_out_path))
             fps_val = fps
-            self._run_auto_track_ffmpeg(cap, str(tmpdir_short), str(tmp_out_short),
-                                        crop_w, crop_h, max_frames, cfg, fps_val, cropped_keypoints)
+            ok = self._run_auto_track_ffmpeg(cap, str(tmpdir_short), str(tmp_out_short),
+                                              crop_w, crop_h, max_frames, cfg, fps_val, cropped_keypoints)
+            if not ok:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                Path(tmp_out_path).unlink(missing_ok=True)
+                print("    FFmpeg 编码失败，跳过 ken_burns")
+                ctx.set("ken_burns_path", input_path)
+                cap.release()
+                return
             shutil.move(str(tmp_out_path), str(out_path))
             shutil.rmtree(tmpdir, ignore_errors=True)
             ctx.set("ken_burns_ratio", "")
@@ -184,7 +207,14 @@ class KenBurnsStage:
             tmp_out_path = Path(tmp_out_path)
             tmp_out_short = to_short(str(tmp_out_path))
             fps_val = fps
-            self._run_smooth_ffmpeg(cap, str(tmpdir_short), str(tmp_out_short), crop_w, crop_h, max_frames, cfg, fps_val)
+            ok = self._run_smooth_ffmpeg(cap, str(tmpdir_short), str(tmp_out_short), crop_w, crop_h, max_frames, cfg, fps_val)
+            if not ok:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                Path(tmp_out_path).unlink(missing_ok=True)
+                print("    FFmpeg 编码失败，跳过 ken_burns")
+                ctx.set("ken_burns_path", input_path)
+                cap.release()
+                return
             shutil.move(str(tmp_out_path), str(out_path))
             shutil.rmtree(tmpdir, ignore_errors=True)
             ctx.set("ken_burns_ratio", "")
@@ -253,14 +283,16 @@ class KenBurnsStage:
             frame_idx += 1
 
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        cmd = [ffmpeg_bin, "-y", "-v", "info",
+        cmd = [ffmpeg_bin, "-y",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
-               "-pix_fmt", "yuv444p", "-an", tmp_out_short]
+               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+               "-pix_fmt", "yuv420p", "-an", tmp_out_short]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
-            raise RuntimeError(f"FFmpeg smooth error: {r.stderr[-300:]}")
+            print(f"    FFmpeg smooth error: {r.stderr[-200:]}")
+            return False
+        return True
 
     def _run_auto_track_ffmpeg(self, cap, tmpdir_short, tmp_out_short, crop_w, crop_h,
                                 max_frames, cfg, fps, cropped_keypoints):
@@ -336,14 +368,16 @@ class KenBurnsStage:
             frame_idx += 1
 
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        cmd = [ffmpeg_bin, "-y", "-v", "info",
+        cmd = [ffmpeg_bin, "-y",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
-               "-pix_fmt", "yuv444p", "-an", tmp_out_short]
+               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+               "-pix_fmt", "yuv420p", "-an", tmp_out_short]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
-            raise RuntimeError(f"FFmpeg auto_track error: {r.stderr[-300:]}")
+            print(f"    FFmpeg auto_track error: {r.stderr[-200:]}")
+            return False
+        return True
 
     def _run_dual(self, cap, writer, input_w, input_h, target_w, max_frames, fps, cfg,
                   cropped_keypoints, is_vertical=True):
@@ -512,12 +546,11 @@ class KenBurnsStage:
         print(f"    target: {target_w}x{target_h}, input: {input_w}x{input_h}, vertical_track={is_vertical}")
         print(f"    临时目录: {tmpdir.name}")
 
-        BATCH = 100
+        BATCH_SIZE = 100  # 仅用于进度打印，不再积攒帧到内存
 
         while frame_idx < max_frames:
-            batch_frames = []
-            batch_indices = []
-            for _ in range(BATCH):
+            # 流式: 一帧一处理一写盘, 避免 100 帧 × 1080p × 3byte ≈ 622MB 内存峰值
+            for _ in range(BATCH_SIZE):
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -591,22 +624,21 @@ class KenBurnsStage:
 
                 if frame_idx < 5:
                     print(f"    DEBUG frame {frame_idx}: scaled={scaled.shape}, cx={cx}, cy={cy}, target={target_w}x{target_h}, crop_right={crop_right}, cropped={cropped.shape}")
-                batch_frames.append(cropped)
-                batch_indices.append(frame_idx)
-                frame_idx += 1
 
-            # 批量写入 PNG
-            for fi, cropped in zip(batch_indices, batch_frames):
-                fname = f"{tmpdir_short}/f_{fi:06d}.png"
+                # 立即写盘, 不保留帧引用
+                fname = f"{tmpdir_short}/f_{frame_idx:06d}.png"
                 cv2.imwrite(fname, cropped)
+                frame_idx += 1
 
             # 每批后验证第一个PNG的尺寸（用 tmpdir 完整路径，不用 short path）
             if frame_idx >= 500 and frame_idx < 600:
-                test_png = str(tmpdir / f"f_{batch_indices[0]:06d}.png")
+                # 流式后无 batch 列表, 验证当前已写入的最近一帧
+                last_written = frame_idx - 1
+                test_png = str(tmpdir / f"f_{last_written:06d}.png")
                 import cv2 as _cv2
                 _test = _cv2.imread(test_png)
                 if _test is not None:
-                    print(f"    PNG {batch_indices[0]}: shape={_test.shape}")
+                    print(f"    PNG {last_written}: shape={_test.shape}")
 
             if frame_idx % 500 == 0:
                 pct = frame_idx / max_frames * 100
@@ -622,18 +654,20 @@ class KenBurnsStage:
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "18",
-            "-pix_fmt", "yuv444p",
+            "-pix_fmt", "yuv420p",
             "-an",
             output_short
         ]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 encoding="utf-8", errors="replace")
         if result.returncode != 0:
-            print(f"    FFmpeg 错误: {result.stderr[-300:]}")
-            raise RuntimeError("FFmpeg concat 失败")
+            print(f"    FFmpeg 错误: {result.stderr[-200:]}")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return False
 
         shutil.rmtree(tmpdir, ignore_errors=True)
         print(f"    编码完成: {frame_idx} 帧")
+        return True
 
     def _get_lead_center_x(self, cropped_keypoints, frame_idx, frame_w):
         """获取领操人水平中心（归一化 0~1），默认 0.5"""

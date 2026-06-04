@@ -6,7 +6,9 @@
 - 可选的 FaceParser 皮肤分割（只美颜皮肤区域，不影响背景）
 - 瘦脸、大眼、磨皮、提亮综合效果
 
-多进程并行：使用 spawn 上下文的 multiprocessing.Pool。
+单进程串行（InsightFace 模型本身已 GPU 加速，多进程 Pool 反而拖慢）。
+检测跳帧（detect_interval）已显著降低 GPU 负载。
+所有帧通过 rawvideo 管道直送 FFmpeg，避免 PNG 序列 I/O。
 
 配置:
     face_beautify2:
@@ -17,7 +19,8 @@
       face_whiten: 0.15             # 肤色提亮
       face_slim: 0.0                 # 瘦脸强度 (0=关闭)
       eye_enlarge: 0.0              # 大眼强度 (0=关闭)
-      workers: 4                    # 并行进程数（默认4）
+      detect_interval: 5            # 跳帧检测：每 N 帧跑一次 InsightFace
+      beauty_scale: 0.5             # 美颜降采样比例（0.5=半分辨率处理，1.0=全分辨率）
 """
 
 import os
@@ -39,6 +42,15 @@ except ImportError:
     FaceAnalysis = None
 
 
+# 确保 cuDNN DLL 在 PATH 中（nvidia-cudnn-cu12 pip 包安装到 site-packages 而非系统目录）
+import site as _site
+for _sp in _site.getsitepackages():
+    _cp = os.path.join(_sp, "nvidia", "cudnn", "bin")
+    if os.path.isdir(_cp):
+        os.environ.setdefault("PATH", "")
+        os.environ["PATH"] = _cp + os.pathsep + os.environ["PATH"]
+        break
+
 GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
 GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
 GetShortPathNameW.restype = ctypes.c_uint
@@ -52,7 +64,7 @@ def _to_short(path_str):
     return buf.value
 
 
-# ---- 多进程 worker（模块级别，可被 pickle） ----
+# ---- 单进程应用 InsightFace 美颜（无状态，纯函数） ----
 
 def _apply_insightface(frame, main_face, eye_brighten, face_whiten,
                        skin_smooth, face_slim, eye_enlarge, w, h):
@@ -172,70 +184,6 @@ def _apply_insightface(frame, main_face, eye_brighten, face_whiten,
     return frame
 
 
-def _face_beautify2_worker(args):
-    """并行 worker：处理一组帧的 InsightFace 美颜"""
-    (frame_indices, frames_data, keypoints_dict, lead_tid, lead_cx,
-     eye_brighten, face_whiten, skin_smooth, face_slim, eye_enlarge,
-     tmpdir_short, w, h, out_prefix) = args
-
-    from insightface.app import FaceAnalysis
-    app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-    app.prepare(ctx_id=0, det_size=(640, 640))
-
-    for i, fi in enumerate(frame_indices):
-        frame = frames_data[i]
-        curr_kps = None
-
-        frame_kps = keypoints_dict.get(str(fi))
-        if frame_kps:
-            for person_kps in frame_kps:
-                kps_arr = np.array(person_kps)
-                vis = kps_arr[:, 2] > 0.5
-                if vis.sum() < 6:
-                    continue
-                shoulders_cx = (kps_arr[5][0] + kps_arr[6][0]) / 2
-                hips_cx = (kps_arr[11][0] + kps_arr[12][0]) / 2
-                cx = (shoulders_cx + hips_cx) / 2
-                if abs(cx - lead_cx) < 0.15:
-                    curr_kps = person_kps
-                    break
-
-        main_face = None
-        if curr_kps is not None:
-            faces = app.get(frame)
-            if faces:
-                lead_arr = np.array(curr_kps)
-                lead_nose = (lead_arr[0][0], lead_arr[0][1]) if lead_arr[0][2] > 0.3 else None
-                best_dist = float('inf')
-                best_face = None
-                for face in faces:
-                    kps_face = face.kps
-                    if kps_face is None:
-                        continue
-                    face_cx_norm = kps_face[:, 0].mean()
-                    face_cx_pixel = int(face_cx_norm * w)
-                    dist = abs(face_cx_pixel / w - lead_cx)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_face = face
-                main_face = best_face if best_dist < 0.15 else None
-        else:
-            faces = app.get(frame)
-            if faces:
-                main_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-
-        if main_face is not None:
-            frame = _apply_insightface(
-                frame, main_face, eye_brighten, face_whiten,
-                skin_smooth, face_slim, eye_enlarge, w, h)
-
-        fname = "%s/%s_%06d.png" % (tmpdir_short, out_prefix, fi)
-        cv2.imwrite(fname, frame)
-
-    app = None
-    return frame_indices
-
-
 class FaceBeautify2Stage:
     def run(self, ctx):
         if ctx.get("face_beautify2_path") and path_exists(ctx.get("face_beautify2_path")):
@@ -245,13 +193,13 @@ class FaceBeautify2Stage:
         cfg = ctx.config.get("face_beautify2", {})
         if not cfg.get("enabled", False):
             ctx.set("face_beautify2_path",
-                    ctx.get("face_beautify_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+                    ctx.get("face_beautify_path") or ctx.get("mascot_path") or ctx.get("watermark_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
 
         if FaceAnalysis is None:
             print("    跳过: InsightFace 未安装")
             ctx.set("face_beautify2_path",
-                    ctx.get("face_beautify_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+                    ctx.get("face_beautify_path") or ctx.get("mascot_path") or ctx.get("watermark_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
 
         skin_smooth = cfg.get("skin_smooth", 0.4)
@@ -259,15 +207,22 @@ class FaceBeautify2Stage:
         face_whiten = cfg.get("face_whiten", 0.15)
         face_slim = cfg.get("face_slim", 0.0)
         eye_enlarge = cfg.get("eye_enlarge", 0.0)
-        num_workers = cfg.get("workers", 4)
+        # 注: 不再读 num_workers — InsightFace 单进程 + 跳帧检测已足够，Pool 反而拖慢
         detect_interval = cfg.get("detect_interval", 5)  # 跳帧检测：每 N 帧跑一次 InsightFace
+        beauty_scale = cfg.get("beauty_scale", 0.5)      # 美颜处理降采样比例（0.5=半分辨率，1.0=关）
+        # 人脸检测输入尺寸: 默认 640, 高清视频 (>=1920) 可提到 1280 提升小脸检测率
+        det_size_cfg = cfg.get("det_size", 640)
+        det_size = (int(det_size_cfg), int(det_size_cfg))
+        ctx_id = cfg.get("ctx_id", 0)  # GPU id
 
         if skin_smooth <= 0 and eye_brighten <= 0 and face_whiten <= 0 and face_slim <= 0 and eye_enlarge <= 0:
             ctx.set("face_beautify2_path",
-                    ctx.get("face_beautify_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+                    ctx.get("face_beautify_path") or ctx.get("mascot_path") or ctx.get("watermark_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
 
         input_path = (ctx.get("face_beautify_path") or
+                      ctx.get("mascot_path") or
+                      ctx.get("watermark_path") or
                       ctx.get("energybar_path") or
                       ctx.get("beatflash_path") or
                       ctx.get("ken_burns_path") or
@@ -333,16 +288,28 @@ class FaceBeautify2Stage:
 
         print(f"    InsightFace美颜: 磨皮={skin_smooth}, 眼部提亮={eye_brighten}, "
               f"肤色提亮={face_whiten}, 瘦脸={face_slim}, 大眼={eye_enlarge}, "
-              f"检测间隔={detect_interval}帧")
+              f"检测间隔={detect_interval}帧, 降采样={beauty_scale}")
 
-        # ---- 流式处理：逐帧处理，跳帧检测降低 CPU 负载 ----
-        print(f"    处理 {max_frames} 帧（检测间隔={detect_interval}，约节省{detect_interval-1}x时间）...")
+        # ---- 管道直送 FFmpeg（免去 PNG 中间文件 I/O） ----
+        print(f"    处理 {max_frames} 帧（检测间隔={detect_interval}，管道直送 FFmpeg）...")
+        temp_out = ctx.output_dir / f"{ctx.input_path.stem}_face_beautify2.mp4"
+        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        ffmpeg_proc = subprocess.Popen([
+            ffmpeg_bin, "-y",
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            "-s", f"{orig_w}x{orig_h}",
+            "-framerate", str(fps),
+            "-i", "-",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-pix_fmt", "yuv444p",
+            "-an",
+            str(temp_out)
+        ], stdin=subprocess.PIPE)
+
         cap = cv2.VideoCapture(input_path)
-        tmpdir = ctx.output_dir / f"_tmp_fb2_{Path(input_path).stem}_{int(time.time()*1000):08d}"
-        tmpdir.mkdir(exist_ok=True)
-        tmpdir_short = _to_short(str(tmpdir))
-        app = FaceAnalysis('buffalo_l', providers=['CPUExecutionProvider'])
-        app.prepare(ctx_id=0, det_size=(640, 640))
+        app = FaceAnalysis('buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        app.prepare(ctx_id=ctx_id, det_size=det_size)
         cached_face = None
         frame_idx = 0
 
@@ -397,12 +364,22 @@ class FaceBeautify2Stage:
                     main_face = None
 
             if main_face is not None:
-                frame = _apply_insightface(
-                    frame, main_face, eye_brighten, face_whiten,
-                    skin_smooth, face_slim, eye_enlarge, orig_w, orig_h)
+                if beauty_scale < 1.0:
+                    small_w = max(1, int(orig_w * beauty_scale))
+                    small_h = max(1, int(orig_h * beauty_scale))
+                    small_frame = cv2.resize(frame, (small_w, small_h),
+                                             interpolation=cv2.INTER_LINEAR)
+                    small_frame = _apply_insightface(
+                        small_frame, main_face, eye_brighten, face_whiten,
+                        skin_smooth, face_slim, eye_enlarge, small_w, small_h)
+                    frame = cv2.resize(small_frame, (orig_w, orig_h),
+                                       interpolation=cv2.INTER_LINEAR)
+                else:
+                    frame = _apply_insightface(
+                        frame, main_face, eye_brighten, face_whiten,
+                        skin_smooth, face_slim, eye_enlarge, orig_w, orig_h)
 
-            fname = f"{tmpdir_short}/f_{frame_idx:06d}.png"
-            cv2.imwrite(fname, frame)
+            ffmpeg_proc.stdin.write(frame.tobytes())
             frame_idx += 1
 
             if frame_idx % 500 == 0:
@@ -410,35 +387,16 @@ class FaceBeautify2Stage:
                 print(f"    进度: {frame_idx}/{max_frames} ({pct:.0f}%)", flush=True)
 
         cap.release()
+        ffmpeg_proc.stdin.close()
+        ffmpeg_proc.wait()
         app = None
         total = frame_idx
         print(f"    处理完成: {total} 帧")
 
-        # ---- FFmpeg 编码 ----
-        print(f"    调用 FFmpeg 编码...")
-        temp_out = ctx.output_dir / f"{ctx.input_path.stem}_face_beautify2.mp4"
-        output_short = _to_short(str(temp_out))
-        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        # 用 PNG 序列模式直接读取，避免 concat 文件编码问题
-        tmpdir_for_ffmpeg = _to_short(str(tmpdir)).replace("\\", "/")
-        input_pattern = f"{tmpdir_for_ffmpeg}/f_%06d.png"
-
-        cmd = [
-            ffmpeg_bin, "-y",
-            "-framerate", str(fps),
-            "-i", input_pattern,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
-            "-pix_fmt", "yuv444p", "-an", output_short
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace")
-        if result.returncode != 0:
-            print(f"    FFmpeg 错误: {result.stderr[-300:]}")
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        if ffmpeg_proc.returncode != 0:
+            print(f"    FFmpeg 错误: returncode={ffmpeg_proc.returncode}")
             ctx.set("face_beautify2_path", None)
             return
-
-        shutil.rmtree(tmpdir, ignore_errors=True)
 
         if cv2.VideoCapture(str(temp_out)).isOpened():
             ctx.set("face_beautify2_path", str(temp_out))
