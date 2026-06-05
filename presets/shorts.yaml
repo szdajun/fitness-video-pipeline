@@ -1,19 +1,19 @@
 # YouTube Shorts / 抖音 / 快手 竖屏版本 9:16
-# 设计原则: 视频本体 100% 占满, 元素缩到 12-18% 放视频区四角
-# 参考: 丽丽 16:9 + 託塔天王 9:16 (有字幕无 intro 黑底)
+# 设计: 视频本体居中 + 完整片头片尾 + PIP/mascot/danmaku/energy_bar 装饰
+# 用户原话: 视频本体占满全屏 + 完整装饰元素
 stages:
-  h2v_convert: true
+  h2v_convert: false       # 用户原话: 原视频就是宽幅, 不需要转 9:16
   stabilize: false
   beat_flash: true
   highlight: true
-  energy_bar: false        # 9:16 空间小, 关掉
-  intro_outro: false       # 9:16 短视频不需要片头片尾黑底
-  ken_burns: false         # 9:16 源已裁切, 运镜会放大抖动, 禁用
+  energy_bar: true
+  intro_outro: true        # 完整片头片尾 (胭脂虎健身團 + 帶操人 + 漢細柳營)
+  ken_burns: false
   body_warp: true
-  pip: false               # 9:16 视频本体已小, PIP 会更挤
-  mascot: true             # 保留小 mascot 装饰
-  danmaku: false           # 9:16 弹幕挡视野
-  intensity_burst: true    # 保留爆燃大字
+  pip: true                # 画中画右下
+  mascot: true             # 小老虎左下
+  danmaku: true            # 弹幕
+  intensity_burst: true
   skeleton_overlay: false
   person_count: false
   lead_box: false
@@ -22,27 +22,47 @@ stages:
   motion_heatmap: false
   sync_score: false
 
-output:
-  width: 1080
-  height: 1920
+# 不覆盖 output.width/height - 沿用 config.yaml 的 1920x1080 (16:9)
+# 因为 16:9 源 + 16:9 输出 = 视频占满全屏 (用户原话)
+# config.yaml 里 output.width: 1920, height: 1080 保持
 
 color_grade:
   brightness: 0
   clahe: true
 
-# Mascot 缩到 12% (默认 17%)
+# Mascot 默认尺寸
 mascot:
   enabled: true
-  size: 130               # 9:16 视频本体小, mascot 也缩
+  size: 180
   position: bottom-left
-  bounce_range: 12
+  bounce_range: 15
 
-# Watermark 缩到 16 字号
+# Watermark 默认
 watermark:
   watermark_text: "细柳营·胭脂虎"
   watermark_position: top-right
-  watermark_size: 16
-  watermark_alpha: 0.65
-  show_date: false        # 9:16 空间小, 不显示日期
+  watermark_size: 24
+  watermark_alpha: 0.7
+  show_date: true
 
-# Intro/outro 关闭, 但 watermark 在视频内显示日期作为"开场"
+# 完整 intro_outro
+intro_outro:
+  channel_name: "胭脂虎健身團"
+  cta_text: "关注不迷路"
+  intro_duration: 4.0
+  outro_duration: 5.0
+  audio_fade_out: 3.0
+
+# PIP 右下
+pip:
+  enabled: true
+  position: bottom-right
+  scale: 0.25
+  margin: 10
+  border: 6
+
+# 弹幕
+danmaku:
+  enabled: true
+  font_size: 28
+  interval: 60
