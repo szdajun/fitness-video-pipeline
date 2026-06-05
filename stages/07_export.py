@@ -451,9 +451,20 @@ class ExportStage:
                     continue
                 fmt_w, fmt_h = (1080, 1920) if fmt == "9x16" else (1920, 1080)
                 fmt_out = ctx.output_dir / f"{base_stem}_full_{fmt}.mp4"
-                # 9:16 → 16:9 用 letterbox (字幕完整), 16:9 → 9:16 同理
-                if (fmt == "16x9" and in_h > in_w) or (fmt == "9x16" and in_w > in_h):
-                    fmt_filter = f"scale={fmt_w}:{fmt_h}:force_original_aspect_ratio=decrease,pad={fmt_w}:{fmt_h}:(ow-iw)/2:(oh-ih)/2:black"
+                # 跨比例时裁切 (满屏, 字幕黑区被裁掉, 视频占满整个画布)
+                #   - 9:16 → 16:9: 裁掉上下 30% (intro/outro 黑底 30%+字幕),
+                #                  留中间 70% 视频内容, 横向拉伸到 16:9
+                #   - 16:9 → 9:16: 裁掉左右 30%, 留中间 70%, 纵向拉伸到 9:16
+                if fmt == "16x9" and in_h > in_w:
+                    # 9:16 → 16:9: 裁上下 30%, 横向拉伸
+                    crop_h = int(in_h * 0.70)  # 留中间 70%
+                    crop_y = (in_h - crop_h) // 2
+                    fmt_filter = f"crop={in_w}:{crop_h}:0:{crop_y},scale={fmt_w}:{fmt_h}:flags=lanczos"
+                elif fmt == "9x16" and in_w > in_h:
+                    # 16:9 → 9:16: 裁左右 30%, 纵向拉伸
+                    crop_w = int(in_w * 0.70)
+                    crop_x = (in_w - crop_w) // 2
+                    fmt_filter = f"crop={crop_w}:{in_h}:{crop_x}:0,scale={fmt_w}:{fmt_h}:flags=lanczos"
                 else:
                     fmt_filter = f"scale={fmt_w}:{fmt_h}:flags=lanczos"
                 enc_args = self._encoder_args(ctx.config.get("output", {}))
