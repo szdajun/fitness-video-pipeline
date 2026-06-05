@@ -14,6 +14,7 @@ stages:
   mascot: true             # 小老虎左下
   danmaku: true            # 弹幕
   intensity_burst: true
+  face_swap: true           # 美颜换脸 (枫林红/艳青/丽丽等 6 位教练有美颜照)
   skeleton_overlay: false
   person_count: false
   lead_box: false
@@ -64,6 +65,6 @@ pip:
 # 弹幕
 danmaku:
   enabled: true
-  font_size: 50            # 9:16 短视频弹幕增大, 看清 (1080p 1080x1920 上约 5% 屏高)
+  font_size: 36            # 降低字号 (之前 50 在 1080p 上偏大)
   interval: 60
   stroke_width: 4          # 描边加粗, 防止和视频颜色混

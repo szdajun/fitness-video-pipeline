@@ -81,6 +81,7 @@ FilmLookStage = _import_stage("33_film_look", "FilmLookStage")
 DanmakuStage = _import_stage("34_danmaku", "DanmakuStage")
 IntensityBurstStage = _import_stage("35_intensity_burst", "IntensityBurstStage")
 QinColdOpenStage = _import_stage("36_qin_cold_open", "QinColdOpenStage")
+FaceSwapStage = _import_stage("37_face_swap", "FaceSwapStage")
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -366,6 +367,8 @@ def run_single(args):
                      enabled=stages_cfg.get("bgm_beat", False))
     engine.add_stage("qin_cold_open", QinColdOpenStage(),
                      enabled=stages_cfg.get("qin_cold_open", False))
+    engine.add_stage("face_swap", FaceSwapStage(),
+                     enabled=stages_cfg.get("face_swap", False))
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
     engine.add_stage("face_enhance", FaceEnhanceStage(),
