@@ -19,9 +19,10 @@
 
 import cv2
 import numpy as np
+import subprocess, shutil, tempfile, ctypes, os
 from pathlib import Path
 
-from lib.utils import create_writer, path_exists
+from lib.utils import path_exists
 
 
 def detect_skin_ycrcb(frame):
@@ -129,7 +130,8 @@ class SkinSmoothStage:
         downscale = cfg.get("downscale", 0.5)
         skin_detect = cfg.get("skin_detect", True)
 
-        input_path = (ctx.get("beatflash_path") or
+        input_path = (ctx.get("color_path") or         # CLAHE+sharpen 优先
+                      ctx.get("beatflash_path") or
                       ctx.get("ken_burns_path") or
                       ctx.get("warped_path") or
                       str(ctx.input_path))  # 横屏 fallback
@@ -163,7 +165,22 @@ class SkinSmoothStage:
         temp_path = ctx.output_dir / f"{Path(input_path).stem}_smooth.mp4"
         fw = int(input_video.get(cv2.CAP_PROP_FRAME_WIDTH))
         fh = int(input_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        writer = create_writer(str(temp_path), fps, fw, fh)
+
+        # Use PNG sequence + FFmpeg (more reliable than OpenCV VideoWriter on this system)
+        GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+        GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+        GetShortPathNameW.restype = ctypes.c_uint
+        def _to_short(p):
+            buf_size = GetShortPathNameW(str(p), None, 0)
+            if buf_size == 0: return str(p)
+            buf = ctypes.create_unicode_buffer(buf_size)
+            GetShortPathNameW(str(p), buf, buf_size)
+            return buf.value
+
+        tmpdir = Path(tempfile.mkdtemp(prefix="ss_"))
+        tmpdir_short = _to_short(str(tmpdir))
+        _tmp_fd, _tmp_path = tempfile.mkstemp(suffix='.mp4')
+        os.close(_tmp_fd)
 
         frame_idx = 0
         while frame_idx < max_frames:
@@ -173,14 +190,38 @@ class SkinSmoothStage:
 
             processed = apply_skin_smooth(frame, strength, d, sigmaColor, sigmaSpace,
                                         downscale, skin_detect)
-            writer.write(processed)
+            cv2.imwrite(f"{tmpdir_short}/f_{frame_idx:06d}.png", processed)
 
             frame_idx += 1
             if frame_idx % 500 == 0:
                 print(f"    {frame_idx}/{max_frames}")
 
         input_video.release()
-        writer.release()
+
+        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        r = subprocess.run([
+            ffmpeg_bin, "-y",
+            "-framerate", str(fps),
+            "-i", f"{tmpdir_short}/f_%06d.png",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-an", str(_tmp_path),
+        ], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+        if r.returncode != 0:
+            print(f"    FFmpeg 编码失败: {r.stderr[-200:]}")
+            Path(_tmp_path).unlink(missing_ok=True)
+            ctx.set("skin_smooth_path", input_path)
+            ctx.set("color_path", input_path)
+            return
+
+        try:
+            shutil.move(str(_tmp_path), str(temp_path))
+        except Exception:
+            Path(_tmp_path).unlink(missing_ok=True)
+            ctx.set("skin_smooth_path", input_path)
+            ctx.set("color_path", input_path)
+            return
 
         ctx.set("skin_smooth_path", str(temp_path))
         ctx.set("color_path", str(temp_path))  # 下游 stage 通过 color_path 获取最新版本

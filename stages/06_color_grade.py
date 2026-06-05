@@ -45,12 +45,14 @@ class ColorGradeStage:
         adaptive_contrast = cfg.get("adaptive_contrast", 0)
         face_sharpen = cfg.get("face_sharpen", 0)
 
-        needs_grade = any(v != 0 and v != 1.0 and v is not False
-                          for k, v in cfg.items()
-                          if k in ("brightness", "contrast", "saturation", "warmth",
-                                   "clahe", "shadow", "auto_wb", "adaptive_contrast",
-                                   "face_sharpen",
-                                   "vignette_strength", "film_grain_strength"))
+        needs_grade = any(
+            (k == "clahe" and v) or     # bool 参数单独检查 (True!=1.0导致跳过)
+            (v != 0 and v != 1.0 and v is not False)
+            for k, v in cfg.items()
+            if k in ("brightness", "contrast", "saturation", "warmth",
+                     "clahe", "shadow", "auto_wb", "adaptive_contrast",
+                     "face_sharpen", "sharpen",  # sharpen 之前漏了
+                     "vignette_strength", "film_grain_strength"))
         if not needs_grade:
             lut_path = cfg.get("lut_path", "")
             lut_preset = cfg.get("lut_preset", "")
@@ -418,7 +420,7 @@ class ColorGradeStage:
             cube_rel = os.path.relpath(str(cube_path), os.getcwd()).replace("\\", "/")
             cmd += ["-vf", f"lut3d={cube_rel}"]
             print(f"    LUT FFmpeg 加速: lut3d={cube_rel}")
-        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "1",
+        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "18",
                 "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:

@@ -83,7 +83,7 @@ class BeatFlashStage:
         # 闪烁参数
         flash_duration = 6   # 闪烁持续帧数（延长让过渡更平滑）
         flash_alpha = 0.40  # 亮度提升系数
-        zoom_factor = 1.025  # 节拍时放大倍数（缩小一点，更平滑）
+        zoom_factor = 1.0    # 关闭节拍缩放 (1.025→1.0, 避免镜头推拉抖动)
         zoom_smoothing = 0.75  # 缩放平滑系数（越大越平滑）
         beat_set = set(beat_frames)  # 快速查找
 
