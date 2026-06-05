@@ -1,7 +1,7 @@
 # 健身短视频处理流水线 — 低码率源专用配置
 # 用法: python main.py input.mp4 -c config.yaml
 
-process_isolate: true   # 引擎自动子进程隔离（根治 GPU OOM）
+process_isolate: false  # 子进程隔离导致 GPU access violation, 暂时关闭
 
 stages:
   pre_deblock: false

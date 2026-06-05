@@ -40,10 +40,41 @@ class PipelineEngine:
             stage = ProcessStage(stage)
         self.stages.append((name, stage, enabled))
 
-    def _scan_existing_outputs(self, ctx: PipelineContext):
-        """扫描 output_dir 中已存在的中间文件，建立 ctx.data 映射"""
+    def _scan_existing_outputs(self, ctx: PipelineContext, disabled_stages: set = None):
+        """扫描 output_dir 中已存在的中间文件，建立 ctx.data 映射
+
+        Args:
+            disabled_stages: 已禁用的 stage 名称集合，跳过这些 stage 的缓存文件
+                             (避免 h2v_convert:false 时复用旧的裁切视频)
+        """
+        if disabled_stages is None:
+            disabled_stages = set()
         video_stem = ctx.input_path.stem
         from lib.utils import path_exists as _pe
+
+        # ctx key → 所属 stage 名 (用于判断是否被禁用)
+        _key_to_stage = {
+            "keypoints": "pose_detect", "pre_deblock_path": "pre_deblock",
+            "stabilized_path": "stabilize", "h2v_path": "h2v_convert",
+            "warped_path": "body_warp", "face_path": "face_warp",
+            "color_path": "color_grade", "ken_burns_path": "ken_burns",
+            "skin_smooth_path": "skin_smooth", "denoise_path": "denoise",
+            "audio_path": "audio", "beatflash_path": "beat_flash",
+            "highlight_path": "highlight", "energybar_path": "energy_bar",
+            "intro_path": "intro_outro", "outro_path": "intro_outro",
+            "watermark_path": "watermark", "mascot_path": "mascot",
+            "blush_path": "blush", "face_beautify_path": "face_beautify",
+            "face_beautify2_path": "face_beautify2", "rife_path": "rife",
+            "speedramp_path": "speed_ramp", "danmaku_path": "danmaku",
+            "burst_path": "intensity_burst", "pip_path": "pip",
+            "bgm_path": "bgm_beat", "coldopen_path": "qin_cold_open",
+            "skin_tone_filter_path": "skin_tone_filter",
+            "face_enhance_path": "face_enhance",
+            "skeleton_path": "skeleton_overlay", "count_path": "person_count",
+            "leadbox_path": "lead_box", "ghost_path": "lead_ghost",
+            "faceblur_path": "face_blur", "heatmap_path": "motion_heatmap",
+            "sync_path": "sync_score",
+        }
 
         # 每个 ctx key 对应一个或多个文件名变体（兼容新旧命名规则）
         existing_patterns = {
@@ -120,6 +151,10 @@ class PipelineEngine:
         for key, fnames in existing_patterns.items():
             if key in ctx.data:
                 continue
+            # 跳过已被禁用的 stage 的缓存（避免 h2v_convert:false 时复用旧裁切视频）
+            stage_name = _key_to_stage.get(key)
+            if stage_name and stage_name in disabled_stages:
+                continue
             for fname in fnames:
                 fpath = ctx.output_dir / fname
                 if _pe(str(fpath)):
@@ -148,14 +183,15 @@ class PipelineEngine:
                 cap.release()
                 ctx.set("h2v_size", (w, h))
 
-        # cropped_keypoints JSON 文件（h2v_convert 跳过时需要）
-        ckp_file = ctx.output_dir / f"{video_stem}_cropped_keypoints.json"
-        if ckp_file.exists():
-            try:
-                with open(ckp_file) as f:
-                    ctx.data["cropped_keypoints"] = json.load(f)
-            except Exception:
-                pass
+        # cropped_keypoints JSON 文件（仅 h2v_convert 启用时加载）
+        if "h2v_convert" not in disabled_stages:
+            ckp_file = ctx.output_dir / f"{video_stem}_cropped_keypoints.json"
+            if ckp_file.exists():
+                try:
+                    with open(ckp_file) as f:
+                        ctx.data["cropped_keypoints"] = json.load(f)
+                except Exception:
+                    pass
 
         if found > 0:
             print(f"  增量: 发现 {found} 个已有文件，将跳过")
@@ -179,9 +215,12 @@ class PipelineEngine:
             # 初始化新 manifest
             ctx._manifest = manifest_lib.init_manifest(ctx)
             # 降级：仍做旧的文件扫描作为补充
-            scan_found = self._scan_existing_outputs(ctx)
-            if scan_found > 0:
-                print(f"  增量: 发现 {scan_found} 个已有文件（Manifest 不兼容）")
+        # 只扫描已启用的 stage，避免禁用 stage 复用旧缓存
+        # （如 h2v_convert: false 时不应复用旧 h2v 裁切视频）
+        disabled_stages = {name for name, _, enabled in self.stages if not enabled}
+        scan_found = self._scan_existing_outputs(ctx, disabled_stages)
+        if scan_found > 0:
+            print(f"  增量: 发现 {scan_found} 个已有文件（Manifest 不兼容）")
         ctx._manifest = getattr(ctx, "_manifest", None)
 
         print("=" * 50)

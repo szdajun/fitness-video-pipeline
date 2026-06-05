@@ -9,7 +9,7 @@ stages:
   energy_bar: true
   intro_outro: true        # 完整片头片尾 (胭脂虎健身團 + 帶操人 + 漢細柳營)
   ken_burns: false
-  body_warp: true
+  body_warp: false         # 用户原话: 暂时禁用, 避免 h2v_size=None 崩
   pip: true                # 画中画右下
   mascot: true             # 小老虎左下
   danmaku: true            # 弹幕
@@ -64,5 +64,6 @@ pip:
 # 弹幕
 danmaku:
   enabled: true
-  font_size: 28
+  font_size: 50            # 9:16 短视频弹幕增大, 看清 (1080p 1080x1920 上约 5% 屏高)
   interval: 60
+  stroke_width: 4          # 描边加粗, 防止和视频颜色混
