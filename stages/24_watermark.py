@@ -187,10 +187,10 @@ class WatermarkStage:
                     cy += line_heights[i] + 4
                 frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
-            # 汉印水印（开头3秒+结尾2秒）
-            if frame_idx < fps * 3 or frame_idx > max_frames - fps * 2:
+            # 汉印水印（全程显示，左上角）
+            if True:
                 frame = overlay_seal(frame, "胭脂虎", pos="top-left",
-                                     size=110, margin=30, alpha=0.50)
+                                     size=130, margin=30, alpha=0.70)
 
             cv2.imwrite(f"{tmpdir_short}/f_{frame_idx:06d}.png", frame)
             frame_idx += 1
