@@ -11,7 +11,7 @@ stages:
   body_warp: false
   ken_burns: false          # 关：艳青6手臂抖动排查
   face_warp: false
-  color_grade: false
+  color_grade: true          # 开: CLAHE + sharpen 去雾, 配合 skin_smooth
   skin_tone_filter: false
   denoise: false            # 暂关-可能发白
   audio: false
@@ -66,8 +66,8 @@ output:
 
 color_grade:
   brightness: 0
-  clahe: true
-  sharpen: 0.3
+  clahe: true               # 自适应直方图均衡 → 提升对比度去雾
+  sharpen: 0.6               # 锐化提清晰度 (0.3→0.6, 配合 skin_smooth)
 
 ken_burns:
   mode: smooth
