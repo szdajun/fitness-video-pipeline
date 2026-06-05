@@ -1,0 +1,45 @@
+# 抖音 (Douyin) 适配预设
+# 输出: 9:16 1080x1920 竖版短视频
+# 特点: 完整片头片尾 + 高清 + 强装饰元素
+# 用法: python main.py process input.mp4 --preset douyin
+stages:
+  h2v_convert: false
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  intro_outro: true
+  ken_burns: false
+  body_warp: false
+  pip: true                # 抖音观众喜欢看画中画对比
+  mascot: true
+  danmaku: true            # 抖音弹幕氛围
+  intensity_burst: true
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+
+# 抖音输出 9:16
+output:
+  width: 1080
+  height: 1920
+
+# 抖音封面 9:16 风格
+douyin_cover:
+  title: "健身燃脂跟练"
+  subtitle: "细柳营健身"
+
+# 弹幕: 抖音用户喜欢密集弹幕
+danmaku:
+  enabled: true
+  font_size: 48            # 大字看清
+  interval: 45             # 较密集
+  stroke_width: 4
+
+# 抖音 9:16 视频不需要 16:9 副本
+formats: []

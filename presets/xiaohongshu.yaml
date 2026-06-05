@@ -1,0 +1,44 @@
+# 小红书 (Xiaohongshu / RedNote) 适配预设
+# 输出: 3:4 比例 1080x1440 竖版 (小红书标准)
+# 特点: 精致装饰 + 短标题 (小红书用户喜欢 9-12 词短标题)
+# 用法: python main.py process input.mp4 --preset xiaohongshu
+stages:
+  h2v_convert: false
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: false         # 3:4 空间小, 关掉
+  intro_outro: true         # 完整片头片尾
+  ken_burns: false
+  body_warp: false
+  pip: true
+  mascot: true
+  danmaku: true
+  intensity_burst: true
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+
+# 小红书 3:4 比例 (1080x1440)
+output:
+  width: 1080
+  height: 1440
+
+# 小红书封面: 短标题 + 9-12 词标题
+xiaohongshu_cover:
+  title_max_chars: 18        # 标题最多 18 字 (含 emoji)
+
+# 弹幕中等
+danmaku:
+  enabled: true
+  font_size: 44            # 中等
+  interval: 60
+  stroke_width: 4
+
+# 不需要 9x16 / 16x9 副本
+formats: []

@@ -1,0 +1,41 @@
+# YouTube Shorts 适配预设
+# 输出: 9:16 1080x1920 竖版 (≤60秒) + 完整 16:9 横版长视频
+# 特点: 抖音版无音频淡出 + YT 短标题 (< 100 字符)
+# 用法: python main.py process input.mp4 --preset youtube_shorts
+stages:
+  h2v_convert: false
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  intro_outro: true
+  ken_burns: false
+  body_warp: false
+  pip: true
+  mascot: true
+  danmaku: true
+  intensity_burst: true
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+
+# YouTube 输出 16:9 (短标题里放 9:16 + 16:9 视频预览)
+# Shorts 单独生成 30 秒精华
+output:
+  width: 1920
+  height: 1080
+
+# YouTube 弹幕要中英双语
+danmaku:
+  enabled: true
+  font_size: 46
+  interval: 60
+  stroke_width: 4
+
+# 一次跑输出: 9:16 (主) + 16:9 横版 (YouTube 主页)
+formats: ['9x16']
