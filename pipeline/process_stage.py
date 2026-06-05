@@ -1,5 +1,5 @@
 """进程隔离 Stage 包装器 — 每个 stage 独立进程运行，OS 回收 GPU"""
-import importlib, logging, multiprocessing, pickle, sys, traceback
+import importlib, json, logging, multiprocessing, pickle, sys, traceback
 
 
 def _reload_disk_caches(ctx):
