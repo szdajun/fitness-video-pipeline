@@ -1,13 +1,19 @@
 # YouTube Shorts / 抖音 / 快手 竖屏版本 9:16
+# 设计原则: 视频本体 100% 占满, 元素缩到 12-18% 放视频区四角
+# 参考: 丽丽 16:9 + 託塔天王 9:16 (有字幕无 intro 黑底)
 stages:
   h2v_convert: true
-  stabilize: false          # 低分辨率手持拍摄stabilization会放大抖动，禁用
+  stabilize: false
   beat_flash: true
   highlight: true
-  energy_bar: true
-  intro_outro: true        # 片头片尾（片头=最高能量片段，片尾=关注引导）
-  ken_burns: false          # 竖版裁切后放大倍数大，运镜会放大抖动，禁用
+  energy_bar: false        # 9:16 空间小, 关掉
+  intro_outro: false       # 9:16 短视频不需要片头片尾黑底
+  ken_burns: false         # 9:16 源已裁切, 运镜会放大抖动, 禁用
   body_warp: true
+  pip: false               # 9:16 视频本体已小, PIP 会更挤
+  mascot: true             # 保留小 mascot 装饰
+  danmaku: false           # 9:16 弹幕挡视野
+  intensity_burst: true    # 保留爆燃大字
   skeleton_overlay: false
   person_count: false
   lead_box: false
@@ -24,21 +30,19 @@ color_grade:
   brightness: 0
   clahe: true
 
-energy_bar:
-  width: 16
-  margin_right: 20
-  margin_bottom: 120
-  height: 400
-  smoothing: 0.85
-  min_fill_ratio: 0.15
+# Mascot 缩到 12% (默认 17%)
+mascot:
+  enabled: true
+  size: 130               # 9:16 视频本体小, mascot 也缩
+  position: bottom-left
+  bounce_range: 12
 
-ken_burns:
-  mode: smooth
-  zoom_range: [1.0, 1.03]
+# Watermark 缩到 16 字号
+watermark:
+  watermark_text: "细柳营·胭脂虎"
+  watermark_position: top-right
+  watermark_size: 16
+  watermark_alpha: 0.65
+  show_date: false        # 9:16 空间小, 不显示日期
 
-intro_outro:
-  channel_name: "胭脂虎健身团"
-  cta_text: "关注不迷路"
-  intro_duration: 4.0
-  outro_duration: 5.0
-  audio_fade_out: 3.0
+# Intro/outro 关闭, 但 watermark 在视频内显示日期作为"开场"
