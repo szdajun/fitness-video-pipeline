@@ -345,6 +345,8 @@ def run_single(args):
                      enabled=stages_cfg.get("watermark", False))
     engine.add_stage("mascot", MascotStage(),
                      enabled=stages_cfg.get("mascot", False))
+    engine.add_stage("face_swap", FaceSwapStage(),
+                     enabled=stages_cfg.get("face_swap", False))
     engine.add_stage("blush", BlushStage(),
                      enabled=stages_cfg.get("blush", False))
     engine.add_stage("face_beautify", FaceBeautifyStage(),
@@ -367,8 +369,6 @@ def run_single(args):
                      enabled=stages_cfg.get("bgm_beat", False))
     engine.add_stage("qin_cold_open", QinColdOpenStage(),
                      enabled=stages_cfg.get("qin_cold_open", False))
-    engine.add_stage("face_swap", FaceSwapStage(),
-                     enabled=stages_cfg.get("face_swap", False))
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
     engine.add_stage("face_enhance", FaceEnhanceStage(),
