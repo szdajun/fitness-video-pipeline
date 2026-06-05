@@ -124,6 +124,11 @@ class SkinSmoothStage:
             return
 
         strength = cfg.get("strength", 0.3)
+        # 换脸已处理面部 → 磨皮只需轻微处理身体皮肤, 自动降压避免全帧发雾
+        face_swap_enabled = ctx.config.get("stages", {}).get("face_swap", False)
+        if face_swap_enabled and strength > 0.1:
+            print(f"    换脸已启用, 磨皮自动降压: {strength} → 0.05 (面部已有美颜照)")
+            strength = 0.05
         d = cfg.get("d", 9)
         sigmaColor = cfg.get("sigmaColor", 20)
         sigmaSpace = cfg.get("sigmaSpace", 20)

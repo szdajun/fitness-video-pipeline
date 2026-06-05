@@ -214,6 +214,7 @@ def _build_all_known_keys() -> set:
     # color_grade — keys added mid-session (not yet in DEFAULT_CONFIG)
     known.update({
         "shadow", "auto_wb", "adaptive_contrast",
+        "auto_clahe",  # 光线充足时自动跳过 CLAHE
         "temporal_smooth", "highlight_protect", "highlight_threshold",
         "highlight_blur", "white_protect", "white_value_threshold",
         "white_sat_threshold", "white_protect_blur",

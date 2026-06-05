@@ -63,10 +63,25 @@ class ColorGradeStage:
             ctx.set("color_path", input_path)
             return
 
+        # ==== auto CLAHE: 光线充足的视频跳过, 避免过度增强 ====
+        auto_clahe = cfg.get("auto_clahe", False)
+        if auto_clahe and use_clahe:
+            cap_test = cv2.VideoCapture(input_path)
+            if cap_test.isOpened():
+                ret, frm = cap_test.read()
+                cap_test.release()
+                if ret:
+                    lab = cv2.cvtColor(frm, cv2.COLOR_BGR2LAB)
+                    avg_l = float(np.mean(lab[:, :, 0]))
+                    if avg_l > 128:  # LAB L 通道 > 128 = 画面偏亮
+                        print(f"    auto CLAHE: 画面亮度 {avg_l:.0f} > 128, 跳过 CLAHE (光线充足)")
+                        use_clahe = False
+
         print(f"    参数: bright={brightness}, contrast={contrast:.2f}, "
               f"sat={saturation:.2f}, warm={warmth}, clahe={use_clahe}, "
               f"shadow={shadow}, auto_wb={auto_wb}, ad_contrast={adaptive_contrast}"
               f"{f', face_sharpen={face_sharpen}' if face_sharpen else ''}")
+        cfg["clahe"] = use_clahe  # 回写: 下游逻辑用 cfg.get("clahe")
 
         # ==== LUT 预加载 + FFmpeg 加速检测 ====
         lut_path = cfg.get("lut_path", "")

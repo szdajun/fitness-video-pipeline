@@ -67,6 +67,7 @@ output:
 color_grade:
   brightness: 0
   clahe: true               # 自适应直方图均衡 → 提升对比度去雾
+  auto_clahe: true           # 光线充足时自动跳过 CLAHE (避免过度增强)
   sharpen: 0.6               # 锐化提清晰度 (0.3→0.6, 配合 skin_smooth)
 
 ken_burns:
