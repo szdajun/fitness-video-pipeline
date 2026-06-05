@@ -1,17 +1,19 @@
 # 健身短视频处理流水线 — 低码率源专用配置
 # 用法: python main.py input.mp4 -c config.yaml
 
+process_isolate: true   # 引擎自动子进程隔离（根治 GPU OOM）
+
 stages:
   pre_deblock: false
   pose_detect: true
   stabilize: false          # 排查
   h2v_convert: false
   body_warp: false
-  ken_burns: true           # 开
+  ken_burns: false          # 关：艳青6手臂抖动排查
   face_warp: false
   color_grade: false
   skin_tone_filter: false
-  denoise: true             # 开（测试）
+  denoise: false            # 暂关-可能发白
   audio: false
   skeleton_overlay: false
   person_count: false
@@ -20,8 +22,8 @@ stages:
   face_blur: false
   motion_heatmap: false
   sync_score: false
-  beat_flash: true
-  highlight: true
+  beat_flash: true          # 进程隔离不卡父进程
+  highlight: true          # 进程隔离
   energy_bar: true
   skin_smooth: true         # 开
   intro_outro: true
@@ -33,11 +35,12 @@ stages:
   bgm_beat: false           # 关闭: 原视频自带伴奏节拍，不混入外部BGM
   pip: true                 # 画中画
   speed_ramp: false         # 关：此源节拍太密
-  film_look: true           # 电影滤镜
+  film_look: false          # 暂关-排查发白
   danmaku: true            # 弹幕特效
   intensity_burst: true     # 爆燃大字
   qin_cold_open: false      # 秦腔开场（未调通，暂关）
   export: true
+  face_swap: true          # 美颜换脸
 
 pose_backend: yolo
 pose_model: yolov8m-pose
@@ -55,6 +58,11 @@ output:
   realesrgan_tile: 256
   realesrgan_gpu: true
   realesrgan_max_frames: 0   # 关闭AI超分，低码率源只会放大噪点
+  # 多平台分发: 一次跑输出多个格式 (主输出后追加, 不替换)
+  #   - '9x16': 抖音/小红书 Shorts 竖版 1080x1920
+  #   - '16x9': YouTube/B站 横版 1920x1080
+  # 留空 = 只输出主格式 (width x height)
+  formats: ['16x9']
 
 color_grade:
   brightness: 0
@@ -157,6 +165,8 @@ qin_cold_open:
 seo:
   enabled: true
   channel: "细柳营健身"
+  traditional: true   # 标题/描述自动转繁体中文（港台/东南亚受众）
+  seo_keywords: "户外燃脂操｜零基础不伤膝｜跟练打卡"
   intensity: "中等强度"
   audience: "所有水平 / 新手友好"
   tags:
@@ -169,3 +179,5 @@ seo:
     - "女性健身"
     - "新手友好"
     - "细柳营胭脂虎"
+
+# 美颜换脸参数（阶段启用/禁用见下方 stages.face_swap）

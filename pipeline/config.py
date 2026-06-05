@@ -142,6 +142,7 @@ def _build_all_known_keys() -> set:
     # output section sub-keys
     known.update({
         "width", "height", "crf", "preset", "cut_ranges", "sharpen", "deblock",
+        "formats",  # 多平台分发: ['9x16', '16x9'] 一次跑多格式输出
         "encoder", "resize_filter", "upscale_mode", "realesrgan_model",
         "realesrgan_scale", "realesrgan_tile", "realesrgan_gpu",
         "realesrgan_max_frames", "audio_bitrate", "video_fade_out",

@@ -432,6 +432,50 @@ class ExportStage:
         size_mb = output_path.stat().st_size / 1024 / 1024
         print(f"    输出: {output_path} ({size_mb:.1f} MB)")
 
+        # ---- 多平台分发: 额外输出其他格式 (可选) ----
+        # 配置: output.formats: ['9x16', '16x9']
+        # 一次跑同时输出抖音 9:16 + YouTube 16x9
+        # 主输出保持原格式 (width x height), 额外格式为副本
+        extra_formats = ctx.config.get("output", {}).get("formats", [])
+        if extra_formats and not is_preview:
+            # 提取干净 stem: 去掉 _full_9x16 / _full_16x9 / _full / _final 等后缀
+            base_stem = output_path.stem
+            for suffix in ("_full_9x16", "_full_16x9", "_final_9x16", "_final_16x9",
+                           "_full", "_final"):
+                if base_stem.endswith(suffix):
+                    base_stem = base_stem[:-len(suffix)]
+                    break
+            print(f"    多格式分发: {extra_formats}")
+            for fmt in extra_formats:
+                if fmt not in ("9x16", "16x9"):
+                    continue
+                fmt_w, fmt_h = (1080, 1920) if fmt == "9x16" else (1920, 1080)
+                fmt_out = ctx.output_dir / f"{base_stem}_full_{fmt}.mp4"
+                # 9:16 → 16:9 用 letterbox (字幕完整), 16:9 → 9:16 同理
+                if (fmt == "16x9" and in_h > in_w) or (fmt == "9x16" and in_w > in_h):
+                    fmt_filter = f"scale={fmt_w}:{fmt_h}:force_original_aspect_ratio=decrease,pad={fmt_w}:{fmt_h}:(ow-iw)/2:(oh-ih)/2:black"
+                else:
+                    fmt_filter = f"scale={fmt_w}:{fmt_h}:flags=lanczos"
+                enc_args = self._encoder_args(ctx.config.get("output", {}))
+                audio_args = ["-c:a", "aac", "-b:a", "96k"] if audio_path else ["-c:a", "aac", "-b:a", "96k"]
+                cmd_fmt = [
+                    ffmpeg, "-y",
+                    "-i", str(output_path),
+                    "-vf", fmt_filter,
+                    *enc_args,
+                    "-pix_fmt", "yuv420p",
+                    *audio_args,
+                    str(fmt_out),
+                ]
+                r_fmt = subprocess.run(cmd_fmt, capture_output=True, text=True,
+                                       encoding="utf-8", errors="replace")
+                if r_fmt.returncode == 0 and fmt_out.exists():
+                    sz = fmt_out.stat().st_size / 1024 / 1024
+                    print(f"    [{fmt}] {fmt_out.name} ({sz:.1f} MB)")
+                    ctx.set(f"final_{fmt}_path", str(fmt_out))
+                else:
+                    print(f"    [{fmt}] FFmpeg 失败: {r_fmt.stderr[-200:]}")
+
         # 清理中间文件
         if not is_preview:
             self._cleanup_intermediates(ctx.output_dir, output_path)
