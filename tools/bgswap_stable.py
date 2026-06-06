@@ -161,19 +161,20 @@ def main():
         "-crf", "20", "-pix_fmt", "yuv420p", "-an", tmp_vid
     ], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    warmup = 3  # SAM2 前几帧遮罩不稳, 复用第 warmup 帧的 mask
+    start_fade = 10  # 开头不换背景 (SAM2预热保头)
     for fi in range(total):
         frame = frames[fi].copy()
-        mask_i = max(fi, warmup) if fi < warmup else fi
+        mask_i = fi
         mask = masks[min(mask_i, len(masks) - 1)]
         H = matrices[min(fi, len(matrices) - 1)]
 
-        bg_moved = cv2.warpPerspective(bg_orig, H, (w, h),
+        if fi >= start_fade:
+            bg_moved = cv2.warpPerspective(bg_orig, H, (w, h),
                                        borderMode=cv2.BORDER_REPLICATE)
 
-        if mask.sum() > 100:
-            mask_soft = cv2.GaussianBlur(mask, (11, 11), 5)[:, :, np.newaxis]
-            frame = (frame * mask_soft + bg_moved * (1 - mask_soft)).astype(np.uint8)
+            if mask.sum() > 100:
+                mask_soft = cv2.GaussianBlur(mask, (11, 11), 5)[:, :, np.newaxis]
+                frame = (frame * mask_soft + bg_moved * (1 - mask_soft)).astype(np.uint8)
 
         # 换脸
         faces = detector.get(frame)
