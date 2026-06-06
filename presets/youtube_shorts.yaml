@@ -24,12 +24,6 @@ stages:
   sync_score: false
   bgm_beat: false
 
-# YouTube 输出 16:9 (短标题里放 9:16 + 16:9 视频预览)
-# Shorts 单独生成 30 秒精华
-output:
-  width: 1920
-  height: 1080
-
 # YouTube 弹幕要中英双语
 danmaku:
   enabled: true
@@ -37,5 +31,8 @@ danmaku:
   interval: 60
   stroke_width: 4
 
-# 一次跑输出: 9:16 (主) + 16:9 横版 (YouTube 主页)
-formats: ['9x16']
+output:
+  width: 1920
+  height: 1080
+  # YouTube Shorts 9:16 副本
+  formats: ['9x16']
