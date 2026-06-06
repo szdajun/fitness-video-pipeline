@@ -335,4 +335,73 @@ python main.py process "source_videos/xxx.mp4" --preset youtube --full-video
 
 ---
 
+## 十、上传与发布流程
+
+### 10.1 平台上传方式
+
+| 平台 | 上传方式 | 工具 | 状态 |
+|------|---------|------|------|
+| **YouTube** | API 自动上传 | `youtube_upload` Python 库 | ✅ 完整 |
+| **抖音** | 网页自动上传 | Playwright / Chrome DevTools MCP | ⚠️ 需浏览器工具 |
+| **小红书** | 网页自动上传 | Playwright / Chrome DevTools MCP | ⚠️ 需浏览器工具 |
+
+### 10.2 YouTube 完整上传流程
+
+```bash
+# 1. 生成视频
+python main.py process "xxx.mp4" --preset youtube --full-video
+
+# 2. 查看 SEO 元数据
+cat output/日期/xxx_seo.json
+
+# 3. 一键上传（从 SEO 文件读标题/描述/标签）
+python publish.py upload output/日期/xxx_final_16x9.mp4 --seo output/日期/xxx_seo.json
+
+# 4. 或加入发布队列定时发布
+python publish.py add output/日期/xxx_final_16x9.mp4 --coach 枫林红 --type long
+python publish.py run
+```
+
+### 10.3 抖音/小红书上传（浏览器自动化）
+
+抖音和小红书无公开 API，需通过网页版创作者中心上传。项目已集成 Playwright + Chrome DevTools MCP 工具。
+
+**流程概要**:
+1. Pipeline 生成视频 + 封面 + SEO 元数据
+2. 通过 Playwright 打开抖音/小红书创作者中心
+3. 自动填表：标题、描述、标签、封面图
+4. 上传视频文件
+5. 提交发布
+
+**需要的 MCP 工具**: `mcp__playwright__*` 或 `mcp__chrome-devtools__*`
+
+**关键文件**:
+| 文件 | 职责 |
+|------|------|
+| `publish.py` | CLI 入口，发布调度 |
+| `lib/publisher.py` | 发布队列引擎，JSON 持久化 |
+| `lib/upload_utils.py` | YouTube API 上传 + SEO 构建 |
+| `auto_publish.py` | 全自动: Pipeline → 封面 → 上传 |
+
+### 10.4 发布队列
+
+`lib/publisher.py` 基于 JSON 文件 (`publish_queue.json`) 的持久化队列:
+
+```
+长视频: 周一/周四 16:00 (观众高峰前 2-3h 发布)
+Shorts: 每天 07:00 + 12:30 (通勤 + 午休高峰)
+周末:   10:00 + 19:00
+```
+
+### 10.5 各平台发布注意事项
+
+| 平台 | 标题限制 | 标签限制 | 封面要求 | 其他 |
+|------|---------|---------|---------|------|
+| YouTube | ≤100 字符 | 不限 | 16:9 1280×720 | 可定时发布 |
+| YouTube Shorts | ≤100 字符 | #Shorts 必加 | 9:16 | ≤60 秒 |
+| 抖音 | ≤55 字符 | 建议 5-8 个 | 3:4 或 9:16 | 手机端发布 |
+| 小红书 | ≤20 字符 | 建议 3-5 个 | 3:4 最佳 | 标题短小精悍 |
+
+---
+
 > **维护提醒**: 每次修改 Pipeline 逻辑后，请同步更新本文档。特别关注"红线"部分——那是反复踩坑总结的教训，不要再犯。
