@@ -104,34 +104,38 @@ def main():
     state = predictor.init_state(video_path=tmp_dir, offload_video_to_cpu=True)
     predictor.reset_state(state)
 
-    # 首帧三点提示：脸(+)、身体(+)、地面(-); 无人脸时用中心点
+    # 三点锚定: 头(+)、胯(+)、脚(-) 覆盖全身
     f0_faces = detector.get(frames[0])
     skip_swap = False
     if f0_faces:
         b = max(f0_faces, key=lambda x: x.det_score).bbox.astype(int)
-        cx, cy = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
-        body_h = b[3] - b[1]
+        cx = (b[0] + b[2]) // 2
+        cy = (b[1] + b[3]) // 2  # 脸中心
         print(f"  检测到人脸: score={max(f0_faces,key=lambda x:x.det_score).det_score:.2f}")
     else:
-        # 搜索前 5 帧
         for si in range(1, min(5, len(frames))):
             ff = detector.get(frames[si])
             if ff:
                 b = max(ff, key=lambda x: x.det_score).bbox.astype(int)
-                cx, cy = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
-                body_h = b[3] - b[1]
+                cx = (b[0] + b[2]) // 2
+                cy = (b[1] + b[3]) // 2
                 skip_swap = False
                 print(f"  检测到人脸(帧{si}): score={max(ff,key=lambda x:x.det_score).det_score:.2f}")
                 break
         else:
-            print("  未检测到人脸, 用画面中心 + 跳过换脸")
-            cx, cy, body_h = w // 2, h // 3, h // 6
+            print("  未检测到人脸, 用画面中轴 + 跳过换脸")
+            cx, cy = w // 2, h // 4
             skip_swap = True
+    # 三点覆盖全身: 头(h*0.15) + 胯(h*0.55) + 脚底(h-5,负标签=地面)
+    head_y = max(10, int(h * 0.15))
+    hip_y = int(h * 0.55)
+    foot_y = h - 5
     predictor.add_new_points_or_box(
         inference_state=state, frame_idx=0, obj_id=0,
-        points=np.array([[cx, cy],
-                         [cx, min(cy + body_h * 4, h - 10)],
-                         [cx, h - 5]], dtype=np.float32),
+        points=np.array([[cx, head_y],      # 头顶区域(+)
+                         [cx, hip_y],       # 胯部(+)
+                         [cx, foot_y]],     # 脚底(-, 地面)
+        dtype=np.float32),
         labels=np.array([1, 1, 0], dtype=np.int32))
 
     masks = []
