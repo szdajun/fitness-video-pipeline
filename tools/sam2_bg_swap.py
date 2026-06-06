@@ -26,15 +26,14 @@ def process(target_path, bg_path, face_path, output_path, max_frames=0):
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w, h = int(cap.get(3)), int(cap.get(4))
 
-    # 内存保护: 1080p 每帧 ~6MB, 限制帧数避免 OOM
-    frame_mem_mb = (w * h * 3) / 1024 / 1024
-    max_by_mem = int(4000 / frame_mem_mb)  # 留 4GB 给帧数据
-    if max_frames > 0:
-        limit = min(max_frames, max_by_mem, total)
+    # 全帧加载 (短视频 < 1000 帧; 长视频限制 300 帧)
+    if total <= 1000:
+        limit = total
+        step = 1
     else:
-        limit = min(max_by_mem, total, 150)  # 默认最多 150 帧 (~900MB)
-    step = max(1, total // limit) if total > limit else 1
-    print(f"  限制 {limit} 帧 (共 {total}, 步长 {step}, 约 {limit*frame_mem_mb:.0f}MB)")
+        limit = min(300, int(8000 / frame_mem_mb))
+        step = max(1, total // limit)
+    print(f"  全帧加载 {limit}/{total} 帧 (步长 {step}, 约 {limit*frame_mem_mb:.0f}MB)")
 
     # 抽取帧到临时目录 (SAM2 需要目录输入)
     tmpdir = tempfile.mkdtemp(prefix="sam2_frames_")

@@ -79,8 +79,9 @@ def main():
     fps, total = cap.get(cv2.CAP_PROP_FPS), int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w, h = int(cap.get(3)), int(cap.get(4))
     frame_mem_mb = (w * h * 3) / 1024 / 1024
-    limit = min(150, int(4000 / frame_mem_mb), total)
-    step = max(1, total // limit)
+    # 限制 300 帧 (JPEG 临时目录时 SAM2 全量加载, 防 OOM)
+    limit = min(300, total)
+    step = max(1, total // limit) if total > limit else 1
     frames = []
     frame_indices = []
     for fi in range(0, total, step):
@@ -92,7 +93,7 @@ def main():
         if len(frames) >= limit: break
     cap.release()
     total = len(frames)
-    print(f"  限制 {total} 帧 (步长 {step}, 约 {total*frame_mem_mb:.0f}MB)")
+    print(f"  全帧加载 {total} 帧 (步长 {step}, 约 {total*frame_mem_mb:.0f}MB)")
 
     # ── 1. SAM2 前景分割 ──
     print("SAM2 抠像...")
