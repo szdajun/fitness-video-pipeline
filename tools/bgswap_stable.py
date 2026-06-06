@@ -161,7 +161,6 @@ def main():
         "-crf", "20", "-pix_fmt", "yuv420p", "-an", tmp_vid
     ], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    start_fade = 10  # 开头不换背景 (SAM2预热保头)
     for fi in range(total):
         frame = frames[fi].copy()
         mask_i = fi
@@ -173,9 +172,10 @@ def main():
                                            borderMode=cv2.BORDER_REPLICATE)
             mask_soft = cv2.GaussianBlur(mask, (11, 11), 5)[:, :, np.newaxis]
             bgswapped = (frame * mask_soft + bg_moved * (1 - mask_soft)).astype(np.uint8)
-            if fi < start_fade:
-                # 渐变过渡: 原图 → 背景替换
-                t = fi / (start_fade - 1) if start_fade > 1 else 1.0
+            # 渐变过渡: 原图 → 背景替换 (5帧渐入)
+            fade_len = 5
+            if fi < fade_len:
+                t = fi / (fade_len - 1) if fade_len > 1 else 1.0
                 frame = (frame.astype(float) * (1 - t) + bgswapped.astype(float) * t).astype(np.uint8)
             else:
                 frame = bgswapped
