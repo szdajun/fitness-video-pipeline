@@ -390,12 +390,20 @@ def run_single(args):
 
 
 def _run_bgswap(ctx, args):
-    """SAM2 背景替换 + 换脸 (通过 ComfyUI Python 子进程)"""
+    """SAM2 背景替换 + 换脸 (通过 ComfyUI Python 子进程)
+
+    重要: bgswap 用原始源视频, 不是 export 裁切后的 final_path.
+    final_path 已被教练裁切 (16:9), 人物上下都被切掉了.
+    """
     import subprocess as sp
 
-    final_path = ctx.get("final_path")
-    if not final_path or not Path(final_path).exists():
-        print("[bgswap] 跳过: 无主输出视频")
+    # 优先用处理过的主体视频 (换脸+装饰), 找不到用源视频
+    bgswap_src = (ctx.get("mascot_path") or     # 换脸后
+                  ctx.get("energybar_path") or   # 能量条后
+                  ctx.get("beatflash_path") or   # 节拍后
+                  str(ctx.input_path))           # 源视频回退
+    if not Path(bgswap_src).exists():
+        print(f"[bgswap] 跳过: 无可用视频")
         return
 
     # 背景图
@@ -445,7 +453,7 @@ def _run_bgswap(ctx, args):
     print(f"  输出: {output}")
 
     r = sp.run([comfy_py, script,
-                "--target", str(final_path),
+                "--target", str(bgswap_src),
                 "--bg", str(bg_image),
                 "--face", str(face_path),
                 "--output", str(output)],
