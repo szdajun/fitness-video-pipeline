@@ -8,7 +8,7 @@ stages:
   beat_flash: true
   highlight: true
   energy_bar: false         # 3:4 空间小, 关掉
-  intro_outro: true         # 完整片头片尾
+  intro_outro: false        # 3:4 裁切后会裁掉片头片尾文字, 关掉
   ken_burns: false
   body_warp: false
   pip: true

@@ -8,7 +8,7 @@ stages:
   beat_flash: true
   highlight: true
   energy_bar: true
-  intro_outro: true
+  intro_outro: false       # 9:16 裁切后会裁掉片头片尾文字, 关掉
   ken_burns: false
   body_warp: false
   pip: true                # 抖音观众喜欢看画中画对比
