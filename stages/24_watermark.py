@@ -206,16 +206,18 @@ class WatermarkStage:
 
         print(f"    写入完成: {frame_idx} 帧，调用 FFmpeg 编码...")
         ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        cmd = [ffmpeg_bin, "-y", "-v", "info",
+        cmd = [ffmpeg_bin, "-y", "-v", "error",
                "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+               "-pix_fmt", "yuv420p", "-an", str(tmp_path_tmp)]
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         if r.returncode != 0:
-            print(f"    FFmpeg 错误: {r.stderr[:500]}")
+            print(f"    FFmpeg stderr: {r.stderr}")
             shutil.rmtree(tmpdir, ignore_errors=True)
-            raise RuntimeError(f"FFmpeg 编码失败")
+            # 不抛异常, 回退: 用原视频作 watermark 源
+            ctx.set("watermark_path", input_path)
+            return
 
         shutil.rmtree(tmpdir, ignore_errors=True)
 

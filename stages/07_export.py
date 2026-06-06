@@ -172,13 +172,8 @@ class ExportStage:
             in_w = int(cap_d.get(3))
             in_h = int(cap_d.get(4))
             cap_d.release()
-            # 如果 config 的宽高与输入视频方向不一致，以输入为准
-            if in_w > 0 and in_h > 0:
-                if out_w and out_h:
-                    # 方向不匹配时用输入尺寸
-                    if (in_h > in_w and out_h < out_w) or (in_h < in_w and out_h > out_w):
-                        out_w, out_h = in_w, in_h
-                        print(f"    自动调整为 {out_w}x{out_h}（保持原方向）")
+            # 用户通过 --preset 显式指定了输出尺寸, 以 config 为准
+        # 不再自动调整 (之前 auto-adjust 会错误地把 9:16 改回 16:9)
         preset = output_cfg.get("preset", "fast")  # 默认fast，不用medium
         audio_bitrate = output_cfg.get("audio_bitrate", "96k")  # 默认96k，不用128k
         video_fade_out = output_cfg.get("video_fade_out", 2.0)  # 视频淡出秒数
@@ -486,6 +481,47 @@ class ExportStage:
                     ctx.set(f"final_{fmt}_path", str(fmt_out))
                 else:
                     print(f"    [{fmt}] FFmpeg 失败: {r_fmt.stderr[-200:]}")
+
+        # ---- Shorts 短视频 + 抖音竖版 ----
+        # YouTube Shorts: 30s 精华 + 英文标题 + 诗词 + 双语CTA
+        # 抖音: 竖版完整版 + 封面
+        if not is_preview:
+            shorts_src = (ctx.get("burst_path") or
+                          ctx.get("mascot_path") or
+                          str(processed_path))
+            kp_file = ctx.output_dir / f"{video_path.stem}_keypoints.json"
+            if not kp_file.exists():
+                kp_file = ctx.output_dir / f"{video_path.stem}_cropped_keypoints.json"
+            use_tc = ctx.config.get("seo", {}).get("traditional", False)
+            # YouTube Shorts (30s, 英文+诗词)
+            try:
+                from _make_shorts import make_shorts
+                if kp_file.exists() and path_exists(shorts_src):
+                    result = make_shorts(str(shorts_src), str(ctx.output_dir),
+                                        str(kp_file), duration=30,
+                                        audio_src=str(ctx.input_path),
+                                        traditional=use_tc)
+                    if result:
+                        ctx.set("shorts_path", result)
+                        print(f"    Shorts: {Path(result).name}")
+            except Exception as e:
+                print(f"    Shorts 失败: {e}")
+            # 抖音竖版 (带片头片尾)
+            try:
+                from _make_shorts import make_douyin_vertical
+                intro_p = ctx.output_dir / f"{video_path.stem}_intro.mp4"
+                outro_p = ctx.output_dir / f"{video_path.stem}_outro.mp4"
+                if kp_file.exists() and path_exists(shorts_src):
+                    result = make_douyin_vertical(
+                        str(shorts_src), str(ctx.output_dir),
+                        str(kp_file), audio_src=str(ctx.input_path),
+                        intro_path=str(intro_p) if intro_p.exists() else None,
+                        outro_path=str(outro_p) if outro_p.exists() else None)
+                    if result:
+                        ctx.set("douyin_vertical_path", result)
+                        print(f"    抖音竖版: {Path(result).name}")
+            except Exception as e:
+                print(f"    抖音竖版失败: {e}")
 
         # 清理中间文件
         if not is_preview:
