@@ -429,13 +429,22 @@ def _run_bgswap(ctx, args):
         print(f"[bgswap] 跳过: ComfyUI Python 不存在 {comfy_py}")
         return
 
-    print(f"[bgswap] SAM2 背景替换 + 换脸")
+    # 优先运镜匹配版 (bgswap_stable), 回退普通版 (sam2_bg_swap)
+    stable_script = "tools/bgswap_stable.py"
+    if Path(stable_script).exists():
+        script = stable_script
+        mode = "运镜匹配"
+    else:
+        script = "tools/sam2_bg_swap.py"
+        mode = "SAM2"
+
+    print(f"[bgswap] {mode} 背景替换 + 换脸")
     print(f"  视频: {final_path}")
     print(f"  背景: {bg_image}")
     print(f"  教练: {coach} ← {face_file}")
     print(f"  输出: {output}")
 
-    r = sp.run([comfy_py, "tools/sam2_bg_swap.py",
+    r = sp.run([comfy_py, script,
                 "--target", str(final_path),
                 "--bg", str(bg_image),
                 "--face", str(face_path),
