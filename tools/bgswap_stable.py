@@ -161,9 +161,11 @@ def main():
         "-crf", "20", "-pix_fmt", "yuv420p", "-an", tmp_vid
     ], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
+    warmup = 3  # SAM2 前几帧遮罩不稳, 复用第 warmup 帧的 mask
     for fi in range(total):
         frame = frames[fi].copy()
-        mask = masks[min(fi, len(masks) - 1)]
+        mask_i = max(fi, warmup) if fi < warmup else fi
+        mask = masks[min(mask_i, len(masks) - 1)]
         H = matrices[min(fi, len(matrices) - 1)]
 
         bg_moved = cv2.warpPerspective(bg_orig, H, (w, h),
