@@ -187,8 +187,8 @@ class WatermarkStage:
                     cy += line_heights[i] + 4
                 frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
-            # 汉印水印（全程显示，左上角）
-            if True:
+            # 汉印水印 (可通过 watermark.show_seal: false 关闭)
+            if cfg.get("show_seal", True):
                 frame = overlay_seal(frame, "胭脂虎", pos="top-left",
                                      size=130, margin=30, alpha=0.70)
 

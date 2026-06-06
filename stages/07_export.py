@@ -221,8 +221,9 @@ class ExportStage:
                 in_aspect = in_w / in_h if in_h > 0 else 1.0
                 out_aspect = out_w / out_h if out_h > 0 else 1.0
                 if in_w > 0 and in_h > 0 and abs(in_aspect - out_aspect) > 0.1:
-                    # 读教练水平位置 (energy_bar 等 stage 已追踪)
+                    # 教练水平位置 (默认居中, 钳制避免追踪错误导致裁偏)
                     lead_cx = ctx.get("lead_cx", 0.5)
+                    lead_cx = max(0.25, min(0.75, float(lead_cx)))  # 安全范围
                     if out_h > out_w:  # 横→竖: 9:16 窗口, 以教练 x 为中心
                         crop_w = int(in_h * out_w / out_h)  # 9:16 比例裁切宽度
                         crop_w = crop_w if crop_w % 2 == 0 else crop_w - 1

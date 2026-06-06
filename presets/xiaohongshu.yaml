@@ -11,8 +11,8 @@ stages:
   intro_outro: false        # 3:4 裁切后会裁掉片头片尾文字, 关掉
   ken_burns: false
   body_warp: false
-  pip: true
-  mascot: true
+  pip: false                # 3:4 空间小, 关掉
+  mascot: false             # 3:4 空间小, 关掉
   danmaku: true
   intensity_burst: true
   skeleton_overlay: false
@@ -40,5 +40,8 @@ danmaku:
   interval: 60
   stroke_width: 4
 
-# 不需要 9x16 / 16x9 副本
+# 水印去汉印
+watermark:
+  show_seal: false
+
 formats: []
