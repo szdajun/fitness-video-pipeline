@@ -79,8 +79,8 @@ def main():
     fps, total = cap.get(cv2.CAP_PROP_FPS), int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w, h = int(cap.get(3)), int(cap.get(4))
     frame_mem_mb = (w * h * 3) / 1024 / 1024
-    # 限制 300 帧 (JPEG 临时目录时 SAM2 全量加载, 防 OOM)
-    limit = min(300, total)
+    # 限制 400 帧 (SAM2+合成兼顾内存)
+    limit = min(400, total)
     step = max(1, total // limit) if total > limit else 1
     frames = []
     frame_indices = []
@@ -93,7 +93,9 @@ def main():
         if len(frames) >= limit: break
     cap.release()
     total = len(frames)
-    print(f"  全帧加载 {total} 帧 (步长 {step}, 约 {total*frame_mem_mb:.0f}MB)")
+    # 步长采样时等比降低帧率, 保持自然速度
+    out_fps = fps / step if step > 1 else fps
+    print(f"  全帧加载 {total} 帧 (步长 {step}, 输出 {out_fps:.1f}fps, 约 {total*frame_mem_mb:.0f}MB)")
 
     # ── 1. SAM2 前景分割 ──
     print("SAM2 抠像...")
@@ -154,7 +156,7 @@ def main():
     tmp_vid = args.output.replace(".mp4", "_tmp.mp4")
     proc = subprocess.Popen([
         FFMPEG, "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
-        "-s", f"{w}x{h}", "-pix_fmt", "bgr24", "-r", str(fps),
+        "-s", f"{w}x{h}", "-pix_fmt", "bgr24", "-r", str(out_fps),
         "-i", "pipe:0", "-c:v", "libx264", "-preset", "fast",
         "-crf", "20", "-pix_fmt", "yuv420p", "-an", tmp_vid
     ], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
