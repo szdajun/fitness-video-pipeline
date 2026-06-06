@@ -168,13 +168,17 @@ def main():
         mask = masks[min(mask_i, len(masks) - 1)]
         H = matrices[min(fi, len(matrices) - 1)]
 
-        if fi >= start_fade:
+        if mask.sum() > 100:
             bg_moved = cv2.warpPerspective(bg_orig, H, (w, h),
-                                       borderMode=cv2.BORDER_REPLICATE)
-
-            if mask.sum() > 100:
-                mask_soft = cv2.GaussianBlur(mask, (11, 11), 5)[:, :, np.newaxis]
-                frame = (frame * mask_soft + bg_moved * (1 - mask_soft)).astype(np.uint8)
+                                           borderMode=cv2.BORDER_REPLICATE)
+            mask_soft = cv2.GaussianBlur(mask, (11, 11), 5)[:, :, np.newaxis]
+            bgswapped = (frame * mask_soft + bg_moved * (1 - mask_soft)).astype(np.uint8)
+            if fi < start_fade:
+                # 渐变过渡: 原图 → 背景替换
+                t = fi / (start_fade - 1) if start_fade > 1 else 1.0
+                frame = (frame.astype(float) * (1 - t) + bgswapped.astype(float) * t).astype(np.uint8)
+            else:
+                frame = bgswapped
 
         # 换脸
         faces = detector.get(frame)
