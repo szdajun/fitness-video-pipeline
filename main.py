@@ -156,6 +156,14 @@ def build_single_parser():
     p.add_argument("--video-fade-out", type=float, default=2.0,
                    help="片尾视频淡出秒数 (默认2.0)")
 
+    # 背景替换 (SAM2 + ComfyUI Python)
+    p.add_argument("--bg-swap", action="store_true",
+                   help="Pipeline 完成后自动 SAM2 背景替换+换脸")
+    p.add_argument("--bg-image", type=str, default=None,
+                   help="背景图路径 (默认 assets/bg/gym_studio.jpg)")
+    p.add_argument("--bg-coach", type=str, default=None,
+                   help="教练名 (换脸用, 默认从文件名检测)")
+
     return p
 
 
@@ -375,6 +383,69 @@ def run_single(args):
                      enabled=stages_cfg.get("face_enhance", False))
 
     engine.run(ctx)
+
+    # ---- 背景替换 (SAM2) ----
+    if getattr(args, "bg_swap", False):
+        _run_bgswap(ctx, args)
+
+
+def _run_bgswap(ctx, args):
+    """SAM2 背景替换 + 换脸 (通过 ComfyUI Python 子进程)"""
+    import subprocess as sp
+
+    final_path = ctx.get("final_path")
+    if not final_path or not Path(final_path).exists():
+        print("[bgswap] 跳过: 无主输出视频")
+        return
+
+    # 背景图
+    bg_image = args.bg_image or "assets/bg/gym_studio.jpg"
+    if not Path(bg_image).exists():
+        print(f"[bgswap] 跳过: 背景图不存在 {bg_image}")
+        print(f"  请放置背景图到 assets/bg/ 目录")
+        return
+
+    # 教练美颜照
+    coach = args.bg_coach
+    if not coach:
+        from lib.coach_profiles import detect_coach_from_filename
+        coach = detect_coach_from_filename(str(ctx.input_path))
+    FACE_MAP = {
+        "艳青": "yanqing_face_gfpgan.png", "丽丽": "lili_gfpgan.png",
+        "建玲": "jianling_face.jpg", "小红豆": "xhd_gfpgan.png",
+        "枫林红": "flh_gfpgan.png", "郭海军": "haijun_face.jpg",
+    }
+    face_file = FACE_MAP.get(coach)
+    if not face_file:
+        print(f"[bgswap] 跳过: 教练 '{coach}' 无美颜照 (可用: {list(FACE_MAP.keys())})")
+        return
+    face_path = Path("tools") / face_file
+
+    output = ctx.output_dir / f"{ctx.input_path.stem}_bgswap.mp4"
+
+    # ComfyUI Python (SAM2 需要 Python 3.11+)
+    comfy_py = "F:/wkspace/ComfyUI/venv/Scripts/python.exe"
+    if not Path(comfy_py).exists():
+        print(f"[bgswap] 跳过: ComfyUI Python 不存在 {comfy_py}")
+        return
+
+    print(f"[bgswap] SAM2 背景替换 + 换脸")
+    print(f"  视频: {final_path}")
+    print(f"  背景: {bg_image}")
+    print(f"  教练: {coach} ← {face_file}")
+    print(f"  输出: {output}")
+
+    r = sp.run([comfy_py, "tools/sam2_bg_swap.py",
+                "--target", str(final_path),
+                "--bg", str(bg_image),
+                "--face", str(face_path),
+                "--output", str(output)],
+               capture_output=True, text=True, timeout=1200,
+               encoding="utf-8", errors="replace")
+    if r.returncode == 0 and output.exists():
+        print(f"[bgswap] 完成: {output.name} ({output.stat().st_size/1024/1024:.1f} MB)")
+    else:
+        print(f"[bgswap] 失败: {r.stderr[-300:] if r.stderr else '无错误输出'}")
 
 
 def _quick_person_count(video_path: Path) -> int:
