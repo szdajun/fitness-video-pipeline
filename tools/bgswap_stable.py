@@ -197,10 +197,12 @@ def main():
     proc.stdin.close()
     proc.wait()
 
-    # 混音
-    subprocess.run([FFMPEG, "-y", "-i", tmp_vid, "-i", args.target,
+    # 混音 + 裁掉开头 1s (SAM2 预热期)
+    subprocess.run([FFMPEG, "-y", "-ss", "1", "-i", tmp_vid,
+                    "-ss", "1", "-i", args.target,
                     "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
-                    "-map", "0:v:0", "-map", "1:a:0", "-shortest", args.output],
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-shortest", args.output],
                    check=True, capture_output=True, timeout=120)
     os.remove(tmp_vid)
     del predictor, detector, swapper
