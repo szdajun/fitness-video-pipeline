@@ -216,7 +216,13 @@ class ExportStage:
                         resize_filter = "lanczos"  # 放大用 lanczos
                 scale_flag = {"lanczos": "lanczos", "cubic": "bicubic",
                               "area": "area", "bilinear": "bilinear"}.get(resize_filter, "lanczos")
-                scale_filter = f"scale={out_w}:{out_h}:flags={scale_flag}"
+                # 横跨比例时 letterbox 保持原比例 (避免拉伸变形)
+                in_aspect = in_w / in_h if in_h > 0 else 1.0
+                out_aspect = out_w / out_h if out_h > 0 else 1.0
+                if in_w > 0 and in_h > 0 and abs(in_aspect - out_aspect) > 0.1:
+                    scale_filter = f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black"
+                else:
+                    scale_filter = f"scale={out_w}:{out_h}:flags={scale_flag}"
             else:
                 scale_filter = ""
             if sharpen > 0:

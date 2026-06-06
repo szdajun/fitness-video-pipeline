@@ -436,11 +436,14 @@ class ColorGradeStage:
             cmd += ["-vf", f"lut3d={cube_rel}"]
             print(f"    LUT FFmpeg 加速: lut3d={cube_rel}")
         cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+                "-pix_fmt", "yuv420p", "-an", str(tmp_path_tmp)]
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         if r.returncode != 0:
-            print(f"    FFmpeg 错误: {r.stderr[:500]}")
-            raise RuntimeError(f"FFmpeg 编码失败: {r.stderr[:500]}")
+            print(f"    FFmpeg 错误: {r.stderr}")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            # 不抛异常, 回退: 原视频直接作为 color 输出
+            ctx.set("color_path", input_path)
+            return
         print(f"    编码完成")
 
         try:
