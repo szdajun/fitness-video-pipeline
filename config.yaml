@@ -182,3 +182,114 @@ seo:
     - "细柳营胭脂虎"
 
 # 美颜换脸参数（阶段启用/禁用见下方 stages.face_swap）
+
+# ==========================================================================
+#  paths — 所有目录配置 (避免硬编码)
+# ==========================================================================
+paths:
+  # 源视频目录: 新视频放这里, make_video.py 菜单从此扫描
+  source_dir: "F:/wkspace/fitness-video-pipeline/source_videos"
+
+  # 输出根目录: 处理结果按日期分子目录写入 (output/YYYY-MM-DD/)
+  output_root: "F:/wkspace/fitness-video-pipeline/output"
+
+  # 临时目录: 中间产物, 每次启动自动清空
+  temp_dir: "F:/wkspace/fitness-video-pipeline/_temp"
+  temp_track_3x4: "F:/wkspace/fitness-video-pipeline/_temp_track3x4"
+  temp_track_9x16: "F:/wkspace/fitness-video-pipeline/_temp_track9x16"
+
+  # 教练换脸照片目录 (find_coach_face 在此查找)
+  coach_faces_dir: "F:/wkspace/fitness-video-pipeline/tools"
+
+  # 静态资产
+  bgm_file: "F:/wkspace/fitness-video-pipeline/assets/bgm.mp3"
+  qin_audio_file: "F:/wkspace/fitness-video-pipeline/assets/qin_cold_open.mp3"
+
+  # 最少磁盘空间 (GB), 低于此值拒绝启动
+  min_disk_gb: 25
+
+# ==========================================================================
+#  llm — 开源/免费大模型 (用于自动生成文案/弹幕/标签/标题)
+# ==========================================================================
+# 优先级: 第一个 enabled=true 的 provider 被使用; 失败回退到 fallback
+# 推荐免费方案 (2026):
+#   1. NVIDIA NIM   - https://build.nvidia.com (免费 1000 次/月)
+#   2. Groq         - https://console.groq.com (免费, 速度极快, Llama 3.3 70B)
+#   3. DeepSeek     - https://platform.deepseek.com (¥1=10M tokens)
+#   4. Gemini       - https://aistudio.google.com (免费 1500 次/天, gemini-2.0-flash)
+#   5. SiliconFlow  - https://siliconflow.cn (国内, 免费 Qwen2.5/DeepSeek)
+llm:
+  enabled: false   # 默认关闭, 配好 api_key 后改 true
+
+  # 主 provider (按顺序首个 enabled 被使用)
+  providers:
+    - name: nvidia
+      enabled: false
+      base_url: "https://integrate.api.nvidia.com/v1"
+      api_key: "${NVIDIA_API_KEY}"   # 环境变量, 不要写明文
+      model: "meta/llama-3.3-70b-instruct"
+      timeout: 30
+
+    - name: groq
+      enabled: false
+      base_url: "https://api.groq.com/openai/v1"
+      api_key: "${GROQ_API_KEY}"
+      model: "llama-3.3-70b-versatile"
+      timeout: 30
+
+    - name: deepseek
+      enabled: false
+      base_url: "https://api.deepseek.com/v1"
+      api_key: "${DEEPSEEK_API_KEY}"
+      model: "deepseek-chat"
+      timeout: 30
+
+    - name: gemini
+      enabled: false
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+      api_key: "${GEMINI_API_KEY}"
+      model: "gemini-2.0-flash"
+      timeout: 30
+
+    - name: siliconflow
+      enabled: false
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key: "${SILICONFLOW_API_KEY}"
+      model: "Qwen/Qwen2.5-72B-Instruct"
+      timeout: 30
+
+  # 全局参数
+  temperature: 0.7
+  max_tokens: 1024
+  retry: 2
+
+  # 用途开关 (哪些场景可以调 LLM)
+  uses:
+    titles_descriptions: true    # 标题/描述/标签生成 (替代静态模板)
+    danmaku_lines: true          # 弹幕文案多样化
+    coach_judgment: false        # 教练判词 (默认用 yaml 静态, 开启则 LLM 现编)
+    hashtags: true               # YouTube/抖音 hashtag
+
+# ==========================================================================
+#  coaches — 教练注册中心 (新增教练在 lib/coach_profiles.py 加详细画像)
+# ==========================================================================
+# 此处用于配置文件名识别 + 换脸照片别名映射
+# 加新教练只需:
+#   1. tools/ 下放照片 (命名: {coach}.png / {coach}_face.jpg / {coach}_gfpgan.png)
+#   2. (可选) 在 face_alias 加拼音映射 (旧文件名兼容用)
+#   3. (可选) 在 lib/coach_profiles.py 的 COACH_PROFILES 加完整画像
+coaches:
+  # 拼音/英文别名 — 让 face_swap 能找到旧命名的照片
+  # 新教练若用中文文件名 (如 张杰.png), 这里不必加
+  face_alias:
+    艳青: yanqing
+    丽丽: lili
+    建玲: jianling
+    小红豆: xhd
+    枫林红: flh
+    郭海军: haijun
+
+  # 默认行为
+  defaults:
+    auto_detect_from_filename: true  # 从源视频文件名识别教练
+    skip_face_swap_if_no_photo: true # 找不到照片就 skip, 不报错

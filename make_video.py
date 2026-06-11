@@ -50,12 +50,34 @@ from make_video_lib import (
     build_full_video, verify_video,
 )
 
-SOURCE_DIR = PROJECT_ROOT / "source_videos"
-TEMP_DIR = PROJECT_ROOT / "_temp"
-TRACK3X4_DIR = PROJECT_ROOT / "_temp_track3x4"
-TRACK9X16_DIR = PROJECT_ROOT / "_temp_track9x16"
-OUTPUT_ROOT = PROJECT_ROOT / "output"
-MIN_DISK_GB = 30
+# 配置驱动: 所有路径/阈值从 config.yaml 的 paths 块读
+# 找不到 config 用回硬编码缺省 (兼容首次部署)
+def _load_paths_cfg():
+    cfg_path = PROJECT_ROOT / "config.yaml"
+    if not cfg_path.exists():
+        return {}
+    try:
+        import yaml
+        with open(cfg_path, encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get("paths", {})
+    except Exception as e:
+        print(f"!! 读 config.yaml 失败, 用缺省路径: {e}")
+        return {}
+
+_PATHS = _load_paths_cfg()
+
+def _path(key, default):
+    """读 paths.<key>, 没配置就用 default (相对项目根)."""
+    v = _PATHS.get(key)
+    return Path(v) if v else (PROJECT_ROOT / default)
+
+SOURCE_DIR = _path("source_dir", "source_videos")
+OUTPUT_ROOT = _path("output_root", "output")
+TEMP_DIR = _path("temp_dir", "_temp")
+TRACK3X4_DIR = _path("temp_track_3x4", "_temp_track3x4")
+TRACK9X16_DIR = _path("temp_track_9x16", "_temp_track9x16")
+COACH_FACES_DIR = _path("coach_faces_dir", "tools")
+MIN_DISK_GB = int(_PATHS.get("min_disk_gb", 25))
 
 # ============================================================================
 #  配置菜单
