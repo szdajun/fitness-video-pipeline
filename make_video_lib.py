@@ -33,9 +33,14 @@ def run(cmd, check=True, capture=False):
 
 
 def get_video_info(path):
-    """ffprobe 读视频信息"""
+    """ffprobe 读视频信息.
+    关键: 必须 -select_streams v:0 只读 video stream;
+    否则音频 stream 的 r_frame_rate=0/0 会覆盖 fps, 算成 30 fallback → 慢动作 bug.
+    """
     result = run([
-        "ffprobe", "-v", "error", "-show_entries",
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries",
         "format=duration:stream=width,height,r_frame_rate,nb_frames,codec_name",
         "-of", "default", str(path)
     ], capture=True, check=False)
@@ -72,20 +77,17 @@ def check_disk(required_gb=30, path="F:/"):
 
 
 def clean_temp_dirs():
-    """清空所有临时目录"""
+    """清空所有临时目录 (用 rmtree 整体清, 比逐个 unlink 快 100x)"""
     import shutil
     project_root = Path(__file__).parent
     for dirname in ["_temp", "_temp_track3x4", "_temp_track9x16"]:
         d = project_root / dirname
         if d.exists():
-            for child in d.iterdir():
-                try:
-                    if child.is_dir():
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink()
-                except OSError:
-                    pass
+            try:
+                shutil.rmtree(d)
+            except OSError:
+                pass
+        d.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================

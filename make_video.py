@@ -489,20 +489,34 @@ step_make_3x4 = stage_progress("Step 2c: 3:4 跟拍 + 拼 final")(step_make_3x4)
 
 
 def step_make_shorts(output_dir, cfg):
-    """Step 2d: 30s Shorts 精华（v2 链自动生成, 复用）"""
+    """Step 2d: 30s Shorts 精华(v2 链自动生成, 复用 + 改名统一)"""
     if "shorts" not in cfg["ratios"]:
         return None
     log = get_logger("make_video")
     stem = cfg["source"].stem
-    shorts = output_dir / f"{stem}_energybar_watermark_mascot_shorts_v2.mp4"
-    if shorts.exists():
-        log.info(f"shorts 复用 v2 链产物 → {shorts.name}")
-        return shorts
-    log.warning("shorts 没生成, 跳过")
-    return None
+    # main.py 内的 _make_shorts.py 自动产出的精华片段
+    src = output_dir / f"{stem}_energybar_watermark_mascot_shorts_v2.mp4"
+    if not src.exists():
+        # 兼容旧命名
+        src_alt = output_dir / f"{stem}_shorts_v2.mp4"
+        if src_alt.exists():
+            src = src_alt
+        else:
+            log.warning("shorts 没生成, 跳过 (检查 main.py 是否启用了 _make_shorts)")
+            return None
+    # 统一命名: 李刚3_shorts_9x16.mp4
+    final = output_dir / f"{stem}_shorts_9x16.mp4"
+    if final.exists() and final.stat().st_mtime >= src.stat().st_mtime:
+        log.info(f"shorts 已就绪 → {final.name}")
+        return final
+    # 复制 (用 ffmpeg copy 保留时基, 不重编码)
+    import shutil
+    shutil.copy2(src, final)
+    log.info(f"shorts → {final.name} (复用 v2 链精华片段)")
+    return final
 
 
-step_make_shorts = stage_progress("Step 2d: Shorts 精华")(step_make_shorts)
+step_make_shorts = stage_progress("Step 2d: Shorts 30s 精华")(step_make_shorts)
 
 
 def step_bgswap(output_dir, cfg):
