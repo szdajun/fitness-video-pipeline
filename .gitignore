@@ -71,3 +71,10 @@ output/*.wav
 # OS
 .DS_Store
 Thumbs.db
+# observability: 日志和临时输出
+logs/
+_make_video.log
+_make_video.err
+
+# LLM/敏感: API keys 文件 (建议放 .env 然后用环境变量)
+.env

@@ -50,6 +50,9 @@ from make_video_lib import (
     build_full_video, verify_video,
 )
 
+# 进度条 + 结构化日志 (logs/YYYY-MM-DD.log)
+from lib.observability import setup_logging, get_logger, ProgressTracker, stage_progress
+
 # 配置驱动: 所有路径/阈值从 config.yaml 的 paths 块读
 # 找不到 config 用回硬编码缺省 (兼容首次部署)
 def _load_paths_cfg():
@@ -340,11 +343,8 @@ def write_preset(coach):
 
 def step_run_pipeline(cfg):
     """Step 1: 跑 v2 完整 pipeline (复用 main.py)"""
-    print()
-    print("=" * 60)
-    print("Step 1: 跑 v2 pipeline")
-    print("=" * 60)
-
+    log = get_logger("make_video")
+    log.info(f"main.py 调用: source={cfg['source'].name} coach={cfg.get('coach')}")
     preset_path = write_preset(cfg["coach"])
 
     env = os.environ.copy()
@@ -357,6 +357,7 @@ def step_run_pipeline(cfg):
         "-c", str(preset_path),
         "--full-video",
     ]
+    log.debug(f"cmd: {' '.join(str(c) for c in cmd)}")
     result = subprocess.run(cmd, env=env)
     if result.returncode != 0:
         raise RuntimeError(f"v2 pipeline 失败 rc={result.returncode}")
@@ -374,25 +375,24 @@ def step_run_pipeline(cfg):
             raise RuntimeError("找不到 pipeline 输出目录")
         output_dir = candidates[-1]
 
-    print(f"\n[STEP1] 输出目录: {output_dir}")
+    log.info(f"输出目录: {output_dir}")
     return output_dir
+
+
+step_run_pipeline = stage_progress("Step 1: 跑 v2 pipeline")(step_run_pipeline)
 
 
 def step_make_16x9(output_dir, cfg):
     """Step 2a: 拼 16:9 final"""
     if "16x9" not in cfg["ratios"]:
         return None
-    print()
-    print("=" * 60)
-    print("Step 2a: 拼 16:9 final (含音轨+修 time_base)")
-    print("=" * 60)
-
+    log = get_logger("make_video")
     stem = cfg["source"].stem
     intro = output_dir / f"{stem}_intro.mp4"
     body = output_dir / f"{stem}_energybar_watermark_mascot_danmaku.mp4"
     outro = output_dir / f"{stem}_outro.mp4"
     if not all(p.exists() for p in [intro, body, outro]):
-        print(f"  [SKIP] 缺 intro/body/outro")
+        log.warning("缺 intro/body/outro, 跳过 16:9 final")
         return None
 
     # 构造完整音轨 (38.4s)
@@ -406,27 +406,27 @@ def step_make_16x9(output_dir, cfg):
 
     final = output_dir / f"{stem}_full_16x9_final.mp4"
     build_full_video(intro, body, outro, audio_aac, final, 1920, 1080, 30)
+    log.info(f"16:9 final → {final.name}")
     return final
+
+
+step_make_16x9 = stage_progress("Step 2a: 拼 16:9 final (含音轨+修 time_base)")(step_make_16x9)
 
 
 def step_make_9x16(output_dir, cfg):
     """Step 2b: 9:16 跟拍 + 拼"""
     if "9x16" not in cfg["ratios"]:
         return None
-    print()
-    print("=" * 60)
-    print("Step 2b: 9:16 跟拍 + 拼 final")
-    print("=" * 60)
-
+    log = get_logger("make_video")
     stem = cfg["source"].stem
     body_full = output_dir / f"{stem}_energybar_watermark_mascot_danmaku.mp4"
     kp = output_dir / f"{stem}_keypoints.json"
     if not (body_full.exists() and kp.exists()):
-        print(f"  [SKIP] 缺 body 或 keypoints")
+        log.warning("缺 body 或 keypoints, 跳过 9:16")
         return None
 
     # OpenCV 跟拍
-    print(f"  [TRACK] 9:16 跟拍...")
+    log.info("9:16 跟拍...")
     n = track_crop(body_full, kp, TRACK9X16_DIR, 1080, 1920, 9/16)
 
     # 拼主体
@@ -445,26 +445,26 @@ def step_make_9x16(output_dir, cfg):
 
     final = output_dir / f"{stem}_douyin_full_9x16.mp4"
     build_full_video(intro, body_916, outro, audio_aac, final, 1080, 1920, 30)
+    log.info(f"9:16 final → {final.name}")
     return final
+
+
+step_make_9x16 = stage_progress("Step 2b: 9:16 跟拍 + 拼 final")(step_make_9x16)
 
 
 def step_make_3x4(output_dir, cfg):
     """Step 2c: 3:4 跟拍 + 拼"""
     if "3x4" not in cfg["ratios"]:
         return None
-    print()
-    print("=" * 60)
-    print("Step 2c: 3:4 跟拍 + 拼 final")
-    print("=" * 60)
-
+    log = get_logger("make_video")
     stem = cfg["source"].stem
     body_full = output_dir / f"{stem}_energybar_watermark_mascot_danmaku.mp4"
     kp = output_dir / f"{stem}_keypoints.json"
     if not (body_full.exists() and kp.exists()):
-        print(f"  [SKIP] 缺 body 或 keypoints")
+        log.warning("缺 body 或 keypoints, 跳过 3:4")
         return None
 
-    print(f"  [TRACK] 3:4 跟拍...")
+    log.info("3:4 跟拍...")
     track_crop(body_full, kp, TRACK3X4_DIR, 1080, 1440, 3/4)
 
     audio_aac = output_dir / "_full_audio.m4a"
@@ -481,23 +481,28 @@ def step_make_3x4(output_dir, cfg):
 
     final = output_dir / f"{stem}_xhs_3x4_full.mp4"
     build_full_video(intro, body_34, outro, audio_aac, final, 1080, 1440, 30)
+    log.info(f"3:4 final → {final.name}")
     return final
+
+
+step_make_3x4 = stage_progress("Step 2c: 3:4 跟拍 + 拼 final")(step_make_3x4)
 
 
 def step_make_shorts(output_dir, cfg):
     """Step 2d: 30s Shorts 精华（v2 链自动生成, 复用）"""
     if "shorts" not in cfg["ratios"]:
         return None
-    print()
-    print("=" * 60)
-    print("Step 2d: Shorts 精华 (v2 链已自动生成)")
-    print("=" * 60)
+    log = get_logger("make_video")
     stem = cfg["source"].stem
     shorts = output_dir / f"{stem}_energybar_watermark_mascot_shorts_v2.mp4"
     if shorts.exists():
+        log.info(f"shorts 复用 v2 链产物 → {shorts.name}")
         return shorts
-    print(f"  [SKIP] shorts 没生成, 跳过")
+    log.warning("shorts 没生成, 跳过")
     return None
+
+
+step_make_shorts = stage_progress("Step 2d: Shorts 精华")(step_make_shorts)
 
 
 def step_bgswap(output_dir, cfg):
@@ -552,21 +557,31 @@ def main():
     parser.add_argument("--bg-image", help="背景图路径 (用于 --bg-swap)")
     parser.add_argument("--ratios", default="",
                         help="输出比例 逗号分隔 (如 16x9,9x16,3x4,shorts)")
+    parser.add_argument("--log-level", default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="日志级别 (logs/YYYY-MM-DD.log)")
     args = parser.parse_args()
 
-    # 启动
-    print("\n🎬 make_video.py v1.0\n")
+    # 启动: 先配日志, 后续所有事件落盘 logs/YYYY-MM-DD.log
+    log_file = setup_logging(args.log_level)
+    log = get_logger("make_video")
+    log.info(f"启动 make_video.py | argv={sys.argv[1:]}")
+    print(f"\n🎬 make_video.py v1.0  (日志: {log_file})\n")
 
     if not check_disk(MIN_DISK_GB):
+        log.error(f"磁盘不足 < {MIN_DISK_GB}GB, 退出")
         sys.exit(1)
     clean_temp_dirs()
+    log.debug(f"已清: {TEMP_DIR}, {TRACK3X4_DIR}, {TRACK9X16_DIR}")
 
     # 配置
     cfg = show_config_menu(args)
     if cfg.get("bg_swap") and args.bg_image:
         cfg["bg_image"] = args.bg_image
+    log.info(f"配置: source={cfg['source'].name} coach={cfg.get('coach')} ratios={cfg['ratios']} bg_swap={cfg.get('bg_swap')}")
 
     # 步骤
+    t_total = time.time()
     output_dir = step_run_pipeline(cfg)
     result_16x9 = step_make_16x9(output_dir, cfg)
     result_9x16 = step_make_9x16(output_dir, cfg)
@@ -583,14 +598,18 @@ def main():
     step_verify(output_dir, results)
 
     # 总结
+    total_dt = time.time() - t_total
+    log.info(f"全部完成 ({total_dt:.1f}s 总耗时)")
     print()
     print("=" * 60)
-    print("✅ 全部完成!")
+    print(f"✅ 全部完成!  总耗时: {total_dt:.1f}s ({total_dt/60:.1f}min)")
     print("=" * 60)
     for k, v in results.items():
         if v:
+            log.info(f"输出 {k}: {v}")
             print(f"   {k}: {v}")
     print("=" * 60)
+    print(f"📄 完整日志: {log_file}")
 
 
 if __name__ == "__main__":
