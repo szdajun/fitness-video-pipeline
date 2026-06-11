@@ -205,14 +205,20 @@ def extract_full_audio(source_video, output_aac, intro_dur=4.0, outro_dur=2.5, f
     print(f"  [AUDIO] {output_aac}")
 
 
-def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, timescale=30):
-    """把 PNG 序列 + 完整音轨拼成主体视频"""
+def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, timescale=None):
+    """把 PNG 序列 + 完整音轨拼成主体视频.
+    fps: 关键参数, 必须等于源视频的 fps (否则慢动作/快进).
+    timescale: 容器时基, 默认 = round(fps) 整数; 60fps 源用 60, 30fps 用 30.
+    """
+    if timescale is None:
+        timescale = int(round(fps))
     png_dir = Path(png_dir)
     audio_aac = Path(audio_aac)
     output_mp4 = Path(output_mp4)
+    print(f"  [BUILD] fps={fps:.2f} timescale={timescale}")
     run([
         "ffmpeg", "-y",
-        "-framerate", "30",
+        "-framerate", str(fps),
         "-i", str(png_dir / "f_%06d.png"),
         "-i", str(audio_aac),
         "-filter_complex", f"[0:v]scale={out_w}:{out_h}:flags=lanczos[v]",
@@ -226,8 +232,14 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, timescale
 
 
 def build_full_video(intro_path, body_path, outro_path, audio_aac, output_mp4,
-                     out_w, out_h, timescale=30):
-    """拼 intro+body+outro+音轨 的完整 final"""
+                     out_w, out_h, fps=30, timescale=None):
+    """拼 intro+body+outro+音轨 的完整 final.
+    fps: 必须等于源视频 fps (否则慢动作/快进).
+    intro/outro 会被 fps filter 重采样到目标 fps, 确保 timeline 对齐.
+    """
+    if timescale is None:
+        timescale = int(round(fps))
+    print(f"  [BUILD] fps={fps:.2f} timescale={timescale}")
     run([
         "ffmpeg", "-y",
         "-i", str(intro_path),
@@ -235,9 +247,10 @@ def build_full_video(intro_path, body_path, outro_path, audio_aac, output_mp4,
         "-i", str(outro_path),
         "-i", str(audio_aac),
         "-filter_complex",
-        f"[0:v]scale={out_w}:{out_h}:flags=lanczos[v0];"
-        f"[1:v]scale={out_w}:{out_h}:flags=lanczos[v1];"
-        f"[2:v]scale={out_w}:{out_h}:flags=lanczos[v2];"
+        # 关键: 每段都先 fps={fps} 强制重采样, 否则不同 fps 段拼接会乱
+        f"[0:v]fps={fps},scale={out_w}:{out_h}:flags=lanczos,setsar=1[v0];"
+        f"[1:v]fps={fps},scale={out_w}:{out_h}:flags=lanczos,setsar=1[v1];"
+        f"[2:v]fps={fps},scale={out_w}:{out_h}:flags=lanczos,setsar=1[v2];"
         f"[v0][v1][v2]concat=n=3:v=1:a=0[outv]",
         "-map", "[outv]", "-map", "3:a:0",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",

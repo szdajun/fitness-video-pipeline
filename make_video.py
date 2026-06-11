@@ -405,7 +405,7 @@ def step_make_16x9(output_dir, cfg):
     )
 
     final = output_dir / f"{stem}_full_16x9_final.mp4"
-    build_full_video(intro, body, outro, audio_aac, final, 1920, 1080, 30)
+    build_full_video(intro, body, outro, audio_aac, final, 1920, 1080, fps=cfg["info"]["fps"])
     log.info(f"16:9 final → {final.name}")
     return final
 
@@ -435,7 +435,7 @@ def step_make_9x16(output_dir, cfg):
         extract_full_audio(cfg["source"], audio_aac)
 
     body_916 = output_dir / f"{stem}_tracked_9x16.mp4"
-    build_final_from_png(TRACK9X16_DIR, audio_aac, body_916, 1080, 1920, 30)
+    build_final_from_png(TRACK9X16_DIR, audio_aac, body_916, 1080, 1920, fps=cfg["info"]["fps"])
 
     # 拼 intro+body+outro
     intro = output_dir / f"{stem}_intro.mp4"
@@ -444,7 +444,7 @@ def step_make_9x16(output_dir, cfg):
         return body_916
 
     final = output_dir / f"{stem}_douyin_full_9x16.mp4"
-    build_full_video(intro, body_916, outro, audio_aac, final, 1080, 1920, 30)
+    build_full_video(intro, body_916, outro, audio_aac, final, 1080, 1920, fps=cfg["info"]["fps"])
     log.info(f"9:16 final → {final.name}")
     return final
 
@@ -472,7 +472,7 @@ def step_make_3x4(output_dir, cfg):
         extract_full_audio(cfg["source"], audio_aac)
 
     body_34 = output_dir / f"{stem}_tracked_3x4.mp4"
-    build_final_from_png(TRACK3X4_DIR, audio_aac, body_34, 1080, 1440, 30)
+    build_final_from_png(TRACK3X4_DIR, audio_aac, body_34, 1080, 1440, fps=cfg["info"]["fps"])
 
     intro = output_dir / f"{stem}_intro.mp4"
     outro = output_dir / f"{stem}_outro.mp4"
@@ -480,7 +480,7 @@ def step_make_3x4(output_dir, cfg):
         return body_34
 
     final = output_dir / f"{stem}_xhs_3x4_full.mp4"
-    build_full_video(intro, body_34, outro, audio_aac, final, 1080, 1440, 30)
+    build_full_video(intro, body_34, outro, audio_aac, final, 1080, 1440, fps=cfg["info"]["fps"])
     log.info(f"3:4 final → {final.name}")
     return final
 
