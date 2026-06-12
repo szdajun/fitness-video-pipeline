@@ -435,29 +435,54 @@ class ExportStage:
                                    encoding="utf-8", errors="replace")
             if result.returncode != 0:
                 stderr = result.stderr[-300:]
-                # NVENC 失败 (驱动/GPU 状态问题) → 自动 fallback CPU 编码
-                is_nvenc = "h264_nvenc" in " ".join(cmd)
-                if is_nvenc and "nvenc" not in str(cmd).replace("h264_nvenc", ""):
-                    print(f"    [WARN] NVENC 失败, 自动 fallback CPU 编码: {stderr[-100:]}")
-                    cpu_cmd = [c for c in cmd if c not in ("h264_nvenc", "p6", "-preset")]
-                    # 在 -c:v 之前插入 libx264 + preset
-                    for i, c in enumerate(cpu_cmd):
-                        if c == "-c:v" and i + 1 < len(cpu_cmd) and cpu_cmd[i+1] == "h264_nvenc":
-                            cpu_cmd[i+1] = "libx264"
-                            cpu_cmd.insert(i+2, "-preset")
-                            cpu_cmd.insert(i+3, "fast")
+                # NVENC 失败 → 自动重写为 CPU libx264 命令 (整体重写, 不瞎过滤老 cmd 残值)
+                is_nvenc = "h264_nvenc" in cmd
+                if is_nvenc:
+                    print(f"    [WARN] NVENC 失败, 重写为 CPU libx264: {stderr[-120:]}")
+                    # 从 cmd 抽出输入文件, 重新组装 CPU 命令
+                    inputs = [c for c in cmd if c.endswith(".mp4") or c.endswith(".aac") or c.endswith(".m4a")]
+                    inputs = [c for c in inputs if c != str(output_path)]
+                    # 找 vf filter (从原 cmd)
+                    vf = None
+                    for i, c in enumerate(cmd):
+                        if c == "-vf" and i + 1 < len(cmd):
+                            vf = cmd[i+1]
                             break
-                    # 移除 nvenc 专属参数
-                    cpu_cmd = [c for c in cpu_cmd if c not in ("-cq", "-rc", "-b:v", "0")]
+                        if c == "-filter_complex" and i + 1 < len(cmd):
+                            vf = cmd[i+1]
+                            break
+                    if not vf:
+                        vf = "null"
+                    # 抽 audio 输入
+                    audio_input = [c for c in inputs if c != str(processed_path)]
+                    if not audio_input:
+                        audio_input = [str(processed_path)]
+                    # 重写 cmd: 强制 libx264, 移除 nvenc 专属参数 (-cq/-b:v 0 等)
+                    cpu_cmd = [
+                        "ffmpeg", "-y",
+                        "-i", str(processed_path),
+                    ]
+                    for ai in audio_input:
+                        if ai != str(processed_path):
+                            cpu_cmd += ["-i", ai]
+                    cpu_cmd += [
+                        "-vf", vf,
+                        "-c:v", "libx264", "-preset", "fast", "-crf", str(crf),
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", audio_bitrate,
+                        "-movflags", "+faststart",
+                    ]
+                    if is_preview:
+                        cpu_cmd += ["-t", str(ctx.config.get("preview_seconds", 3))]
+                    cpu_cmd.append(str(output_path))
                     print(f"    [FALLBACK] 跑 CPU libx264...")
                     result2 = subprocess.run(cpu_cmd, capture_output=True, text=True,
                                              encoding="utf-8", errors="replace")
                     if result2.returncode != 0:
                         print(f"    FFmpeg 失败 (CPU fallback 也失败): {result2.stderr[-200:]}")
-                        # 不能再 fallback 了, 复制 raw 兜底 (但明确警告)
                         shutil.copy2(processed_path, output_path)
                     else:
-                        print(f"    [FALLBACK OK] CPU 编码成功")
+                        print(f"    [FALLBACK OK] CPU 编码成功 ({output_path.stat().st_size/1024/1024:.1f}MB)")
                 else:
                     print(f"    FFmpeg 失败: {stderr}")
                     shutil.copy2(processed_path, output_path)
