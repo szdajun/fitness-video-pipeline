@@ -332,9 +332,9 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, t
         "-filter_complex", f"[0:v]{fit},setsar=1[v]",
         "-map", "[v]", "-map", "1:a:0",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-c:a", "copy",
-        # 关键修复: 不再用 -shortest (截掉音频), 用 apad 让音轨垫静音到视频时长
-        # 视频时长 = n_png/fps, 算后让音频对齐 (避免末段无音 = 慢动作假象)
+        # 关键: -af apad 需要重编码音频, 不能 -c:a copy
+        # apad 让音轨垫静音到视频时长, 避免末段无音 (用户感觉"慢动作")
+        "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
         "-af", f"apad=whole_dur={video_dur:.3f}",
         "-video_track_timescale", str(timescale),
         str(output_mp4),
