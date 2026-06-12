@@ -336,6 +336,9 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, t
         # apad 让音轨垫静音到视频时长, 避免末段无音 (用户感觉"慢动作")
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
         "-af", f"apad=whole_dur={video_dur:.3f}",
+        # 关键: -t 强制截断到视频时长, 防止音频长于视频把容器拉成 38.4s
+        # (末 4s 有音无画 = 慢动作假象)
+        "-t", f"{video_dur:.3f}",
         "-video_track_timescale", str(timescale),
         str(output_mp4),
     ], check=True)
