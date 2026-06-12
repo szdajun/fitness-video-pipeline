@@ -58,43 +58,35 @@ class WatermarkStage:
 
         cfg = ctx.config.get("watermark", {})
         # 字段名兼容: 早期 presets 用 text/position/size/color/alpha, 后来改名 watermark_xxx.
-        # 关键: 用 'in' 判断字段是否存在, 不能用 'or' 链, 否则默认值 (truthy) 会覆盖真实值
-        if "watermark_text" in cfg:
-            text = cfg["watermark_text"]
-        else:
-            text = cfg.get("text", "")
-        if "watermark_position" in cfg:
-            position = cfg["watermark_position"]
-        elif "position" in cfg:
-            position = cfg["position"]
-        else:
-            position = "bottom-right"
-        if "watermark_size" in cfg:
-            font_size = cfg["watermark_size"]
-        elif "size" in cfg:
-            font_size = cfg["size"]
-        else:
+        # DEFAULT_CONFIG 有 watermark_text='' 等占位值, 所以"in"判断会误命中默认占位.
+        # 用 'truthy' 判断: 默认占位 ('') 是 falsy, 用户实际设的值是 truthy
+        # 但数字 (size 0 不算有效, alpha 0 不算, 我们用 'or' 链: 显式 watermark_xxx OR text/position)
+        def pick(prefixed, plain, default):
+            """优先 watermark_xxx, 再 plain, 再 default. 跳过空字符串/None."""
+            v = cfg.get(prefixed, None)
+            if v not in (None, ""):
+                return v
+            v = cfg.get(plain, None)
+            if v not in (None, ""):
+                return v
+            return default
+
+        text = pick("watermark_text", "text", "")
+        position = pick("watermark_position", "position", "bottom-right")
+        font_size = pick("watermark_size", "size", 24)
+        # size 可能是 0, 当 fallback 处理
+        if not font_size:
             font_size = 24
         margin = cfg.get("watermark_margin", 20)
         show_date = cfg.get("show_date", True)
 
         # 颜色配置
-        if "watermark_color" in cfg:
-            color_cfg = cfg["watermark_color"]
-        elif "color" in cfg:
-            color_cfg = cfg["color"]
-        else:
-            color_cfg = (255, 255, 255)
+        color_cfg = pick("watermark_color", "color", (255, 255, 255))
         if isinstance(color_cfg, str):
             color = (255, 255, 255)
         else:
             color = tuple(max(0, min(255, int(c))) for c in color_cfg)
-        if "watermark_alpha" in cfg:
-            alpha = cfg["watermark_alpha"]
-        elif "alpha" in cfg:
-            alpha = cfg["alpha"]
-        else:
-            alpha = 0.7
+        alpha = pick("watermark_alpha", "alpha", 0.7)
 
         if not text and not show_date:
             print("    跳过: 无水印文字")
