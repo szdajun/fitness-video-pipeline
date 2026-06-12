@@ -119,7 +119,7 @@ def clean_temp_dirs():
 # ============================================================
 
 def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
-               smooth_window: int = 60, max_step_ratio: float = 0.002,
+               smooth_window: int = 60, max_step_ratio: float = 0.0008,
                dead_zone_ratio: float = 0.12):
     """OpenCV 跟拍裁切 (稳版, 修左右扫动)
 
@@ -206,10 +206,9 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
         smoothed.append(statistics.mean(cx_med[lo:hi]))
 
     # 4) 起点: 用全段 cx 中位数 (保留真实构图, 教练真在哪画面就在哪)
-    # 钳制到 [0.35, 0.65] 范围, 既保留真位置 (李刚3=0.30 钳到 0.35) 又不让极端值
-    # cx=0.30 起点是 0.35 (距真位置 0.30 仅 5% in_w ≈ 128 px), max_step=0.002 1s 跟 6% in_w,
-    # 2s 内追到真位置, 之后稳定.
-    start_cx = max(0.35, min(0.65, statistics.median(smoothed)))
+    # 钳制到 [0.28, 0.65] 范围, 保留李刚3 真实 0.30 位置 (不被钳死),
+    # 但避免极端中位数让画面偏太远
+    start_cx = max(0.28, min(0.65, statistics.median(smoothed)))
 
     # 5) 限速跟随 (彻底放弃死区钳制):
     # 之前死区 [0.5-0.12, 0.5+0.12] 钳制会强制把画面拉向 0.5, 但教练真在 cx=0.30 → 画面偏左
