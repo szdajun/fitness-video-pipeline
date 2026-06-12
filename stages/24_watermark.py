@@ -57,19 +57,27 @@ class WatermarkStage:
         cap_check.release()
 
         cfg = ctx.config.get("watermark", {})
-        text = cfg.get("watermark_text", "")
-        position = cfg.get("watermark_position", "bottom-right")
+        # 字段名兼容: 早期 presets 用 text/position/size/color/alpha, 后来改名 watermark_xxx.
+        # 这里两个都读, 优先带 watermark_ 前缀的.
+        text = cfg.get("watermark_text", "") or cfg.get("text", "")
+        position = cfg.get("watermark_position", "bottom-right") or cfg.get("position", "bottom-right")
         font_size = cfg.get("watermark_size", 24)
+        if "size" in cfg and "watermark_size" not in cfg:
+            font_size = cfg.get("size", 24)
         margin = cfg.get("watermark_margin", 20)
         show_date = cfg.get("show_date", True)
 
         # 颜色配置
-        color_cfg = cfg.get("watermark_color", (255, 255, 255))
+        color_cfg = cfg.get("watermark_color", None)
+        if color_cfg is None:
+            color_cfg = cfg.get("color", (255, 255, 255))
         if isinstance(color_cfg, str):
             color = (255, 255, 255)
         else:
             color = tuple(max(0, min(255, int(c))) for c in color_cfg)
         alpha = cfg.get("watermark_alpha", 0.7)
+        if "alpha" in cfg and "watermark_alpha" not in cfg:
+            alpha = cfg.get("alpha", 0.7)
 
         if not text and not show_date:
             print("    跳过: 无水印文字")
