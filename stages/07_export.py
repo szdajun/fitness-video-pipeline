@@ -460,7 +460,9 @@ class ExportStage:
                 # 不再瞎改 cmd 残留参数. _encoder_args 默认 libx264, 不会走 NVENC.
                 # 这里任何 ffmpeg 失败是命令本身的问题 (filter / input / map), 不应静默兜底.
                 stderr = result.stderr[-300:]
-                print(f"    [FFMPEG FAIL] {stderr}")
+                # 完整打印 cmd 方便诊断
+                print(f"    [FFMPEG FAIL] cmd: {' '.join(str(c) for c in cmd)}")
+                print(f"    [FFMPEG FAIL] stderr: {stderr}")
                 raise RuntimeError(f"07_export 失败: {stderr}")
         else:
             print("    FFmpeg 未安装，直接复制")
