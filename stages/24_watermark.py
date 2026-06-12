@@ -58,26 +58,43 @@ class WatermarkStage:
 
         cfg = ctx.config.get("watermark", {})
         # 字段名兼容: 早期 presets 用 text/position/size/color/alpha, 后来改名 watermark_xxx.
-        # 这里两个都读, 优先带 watermark_ 前缀的.
-        text = cfg.get("watermark_text", "") or cfg.get("text", "")
-        position = cfg.get("watermark_position", "bottom-right") or cfg.get("position", "bottom-right")
-        font_size = cfg.get("watermark_size", 24)
-        if "size" in cfg and "watermark_size" not in cfg:
-            font_size = cfg.get("size", 24)
+        # 关键: 用 'in' 判断字段是否存在, 不能用 'or' 链, 否则默认值 (truthy) 会覆盖真实值
+        if "watermark_text" in cfg:
+            text = cfg["watermark_text"]
+        else:
+            text = cfg.get("text", "")
+        if "watermark_position" in cfg:
+            position = cfg["watermark_position"]
+        elif "position" in cfg:
+            position = cfg["position"]
+        else:
+            position = "bottom-right"
+        if "watermark_size" in cfg:
+            font_size = cfg["watermark_size"]
+        elif "size" in cfg:
+            font_size = cfg["size"]
+        else:
+            font_size = 24
         margin = cfg.get("watermark_margin", 20)
         show_date = cfg.get("show_date", True)
 
         # 颜色配置
-        color_cfg = cfg.get("watermark_color", None)
-        if color_cfg is None:
-            color_cfg = cfg.get("color", (255, 255, 255))
+        if "watermark_color" in cfg:
+            color_cfg = cfg["watermark_color"]
+        elif "color" in cfg:
+            color_cfg = cfg["color"]
+        else:
+            color_cfg = (255, 255, 255)
         if isinstance(color_cfg, str):
             color = (255, 255, 255)
         else:
             color = tuple(max(0, min(255, int(c))) for c in color_cfg)
-        alpha = cfg.get("watermark_alpha", 0.7)
-        if "alpha" in cfg and "watermark_alpha" not in cfg:
-            alpha = cfg.get("alpha", 0.7)
+        if "watermark_alpha" in cfg:
+            alpha = cfg["watermark_alpha"]
+        elif "alpha" in cfg:
+            alpha = cfg["alpha"]
+        else:
+            alpha = 0.7
 
         if not text and not show_date:
             print("    跳过: 无水印文字")
