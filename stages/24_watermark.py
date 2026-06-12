@@ -60,15 +60,26 @@ class WatermarkStage:
         # DEFAULT_CONFIG 占位值: 这些值代表"没设"
         # 早期 presets 用 text/position/size/color/alpha, 后来改名 watermark_xxx.
         # 用户设的真值应该覆盖默认占位.
-        _PLACEHOLDERS = {"", "bottom-right", 24, 0.7, (255, 255, 255)}
+        _PLACEHOLDERS = {"", "bottom-right", 24, 0.7}
+
+        def _is_placeholder(v):
+            """判断值是不是 DEFAULT_CONFIG 占位 (空/默认)"""
+            if v is None or v == "":
+                return True
+            if isinstance(v, (list, tuple)) and len(v) == 3 and tuple(v) == (255, 255, 255):
+                return True
+            # 数字和字符串可以直接 in, list/tuple 不能直接 in 集合
+            if isinstance(v, (str, int, float)) and v in _PLACEHOLDERS:
+                return True
+            return False
 
         def pick(prefixed, plain, default):
             """优先 watermark_xxx, 再 plain, 跳过占位值, 最后 default."""
             v = cfg.get(prefixed, None)
-            if v is not None and v not in _PLACEHOLDERS:
+            if not _is_placeholder(v):
                 return v
             v = cfg.get(plain, None)
-            if v is not None and v not in _PLACEHOLDERS:
+            if not _is_placeholder(v):
                 return v
             return default
 
