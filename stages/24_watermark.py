@@ -57,26 +57,24 @@ class WatermarkStage:
         cap_check.release()
 
         cfg = ctx.config.get("watermark", {})
-        # 字段名兼容: 早期 presets 用 text/position/size/color/alpha, 后来改名 watermark_xxx.
-        # DEFAULT_CONFIG 有 watermark_text='' 等占位值, 所以"in"判断会误命中默认占位.
-        # 用 'truthy' 判断: 默认占位 ('') 是 falsy, 用户实际设的值是 truthy
-        # 但数字 (size 0 不算有效, alpha 0 不算, 我们用 'or' 链: 显式 watermark_xxx OR text/position)
+        # DEFAULT_CONFIG 占位值: 这些值代表"没设"
+        # 早期 presets 用 text/position/size/color/alpha, 后来改名 watermark_xxx.
+        # 用户设的真值应该覆盖默认占位.
+        _PLACEHOLDERS = {"", "bottom-right", 24, 0.7, (255, 255, 255)}
+
         def pick(prefixed, plain, default):
-            """优先 watermark_xxx, 再 plain, 再 default. 跳过空字符串/None."""
+            """优先 watermark_xxx, 再 plain, 跳过占位值, 最后 default."""
             v = cfg.get(prefixed, None)
-            if v not in (None, ""):
+            if v is not None and v not in _PLACEHOLDERS:
                 return v
             v = cfg.get(plain, None)
-            if v not in (None, ""):
+            if v is not None and v not in _PLACEHOLDERS:
                 return v
             return default
 
         text = pick("watermark_text", "text", "")
         position = pick("watermark_position", "position", "bottom-right")
-        font_size = pick("watermark_size", "size", 24)
-        # size 可能是 0, 当 fallback 处理
-        if not font_size:
-            font_size = 24
+        font_size = pick("watermark_size", "size", 24) or 24
         margin = cfg.get("watermark_margin", 20)
         show_date = cfg.get("show_date", True)
 
