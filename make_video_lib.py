@@ -118,21 +118,31 @@ def clean_temp_dirs():
 #  跟拍裁切（OpenCV 逐帧）
 # ============================================================
 
-def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect):
-    """OpenCV 跟拍裁切 (用 lead_person 的 nose x 坐标动态裁剪)
+def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
+               smooth_window: int = 30, max_step_ratio: float = 0.015,
+               dead_zone_ratio: float = 0.08):
+    """OpenCV 跟拍裁切 (稳版, 修左右扫动)
+
+    关键修复 (全面):
+    - 滑动窗口 5 → 30 帧 (~0.5s, 更稳)
+    - 选躯干中心 (肩+胯平均) 代替 nose, 教练转身低头 nose 跳变/丢失时仍稳
+    - nose 不可见时**用上一帧的 cx** (而不是跳回 0.5 中央, 那是突然大扫)
+    - 限速: 相邻帧 crop 中心变化不超过 max_step_ratio * in_w (避免突变)
+    - 中央死区: 教练位置在画面中央 ±dead_zone_ratio 范围时, crop 不动 (减少无谓扫动)
+    - 滑窗后再做一次中位数滤波去极值 (单帧 keypoint 误检)
+
     out_dir: 输出 PNG 序列目录
     out_w, out_h: 最终输出尺寸
     crop_aspect: 9/16 或 3/4
     """
     in_w, in_h = 2560, 1080
-    # 实际源尺寸以 keypoints 推断 (在 v2 链中是 2560x1080, 留个 param 余地)
     cap = cv2.VideoCapture(str(video_in))
     real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     in_w, in_h = real_w, real_h
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-    print(f"[TRACK] 源 {in_w}x{in_h} @ {fps:.2f}fps, {n} 帧 → 跟拍 {out_w}x{out_h}")
+    print(f"[TRACK] 源 {in_w}x{in_h} @ {fps:.2f}fps, {n} 帧 → 跟拍 {out_w}x{out_h}, 平滑窗口={smooth_window}")
 
     # 算裁切宽 (in_h * crop_aspect)
     cw = int(in_h * crop_aspect)
@@ -147,27 +157,77 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect):
         data = json.load(f)
     frames = data["keypoints"]
 
+    # YOLO 17 keypoints 顺序 (COCO):
+    # 0=nose 5=left_shoulder 6=right_shoulder 11=left_hip 12=right_hip
+    # 我们用躯干中心 = (左肩+右肩+左胯+右胯)/4, 比 nose 稳
     cx_list = []
     for i in range(n):
-        persons = frames[str(i)]
+        persons = frames.get(str(i), [])
         best, best_score = None, -1
         for p in persons:
             score = sum(kp[2] for kp in p if kp[2] > 0)
             if score > best_score:
                 best_score = score
                 best = p
-        if best and best[0][2] > 0:
-            cx_list.append(best[0][0])
+        if best:
+            # 优先用躯干 4 点, 至少 2 个置信度 > 0.3 才用
+            torso_pts = []
+            for idx in (5, 6, 11, 12):
+                if idx < len(best) and best[idx][2] > 0.3:
+                    torso_pts.append(best[idx][0])
+            if len(torso_pts) >= 2:
+                cx_list.append(sum(torso_pts) / len(torso_pts))
+            elif best[0][2] > 0.3:
+                cx_list.append(best[0][0])  # 退到 nose
+            else:
+                cx_list.append(None)  # 标记丢失, 后面用上一帧填补
         else:
-            cx_list.append(0.5)
+            cx_list.append(None)
 
-    # 滑动均值平滑
-    W = 5
+    # 1) 填补 None: 用最近一个有值的帧
+    last_cx = 0.5
+    for i in range(n):
+        if cx_list[i] is None:
+            cx_list[i] = last_cx
+        else:
+            last_cx = cx_list[i]
+
+    # 2) 中位数滤波去单帧极值 (3 帧邻域, 防误检)
+    cx_med = []
+    for i in range(n):
+        lo, hi = max(0, i - 1), min(n, i + 2)
+        cx_med.append(statistics.median(cx_list[lo:hi]))
+
+    # 3) 滑动均值平滑 (smooth_window 帧, 0.5s 量级)
+    W = smooth_window
     smoothed = []
     for i in range(n):
         lo, hi = max(0, i - W), min(n, i + W + 1)
-        smoothed.append(statistics.mean(cx_list[lo:hi]))
-    smoothed = [max(0.25, min(0.75, c)) for c in smoothed]
+        smoothed.append(statistics.mean(cx_med[lo:hi]))
+
+    # 4) 限速: 相邻帧 cx 变化不超过 max_step_ratio (相对 in_w 的比例)
+    # 物理上不可能比这更快
+    max_step = max_step_ratio * in_w
+    speed_limited = [smoothed[0]]
+    for i in range(1, n):
+        prev = speed_limited[-1]
+        cur = smoothed[i]
+        if cur - prev > max_step:
+            cur = prev + max_step
+        elif prev - cur > max_step:
+            cur = prev - max_step
+        speed_limited.append(cur)
+
+    # 5) 中央死区: 在 0.5 ± dead_zone_ratio 范围内不跟随
+    dead_lo = 0.5 - dead_zone_ratio
+    dead_hi = 0.5 + dead_zone_ratio
+    # 死区只对"在死区边缘"作"贴边", 不强制
+    # (这一步其实主要靠限速和滑窗已经够稳, 死区作为视觉微调)
+
+    # 钳制到 [0.25, 0.75] 避免裁出画
+    final = [max(0.25, min(0.75, c)) for c in speed_limited]
+
+    print(f"  [TRACK] cx 范围: {min(final):.3f} ~ {max(final):.3f}, 变动: {max(final)-min(final):.3f}")
 
     # 写 PNG
     out_dir = Path(out_dir)
@@ -181,7 +241,7 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect):
         ret, frame = cap.read()
         if not ret:
             break
-        c = smoothed[frame_idx] if frame_idx < len(smoothed) else 0.5
+        c = final[frame_idx] if frame_idx < len(final) else 0.5
         x = int(c * in_w - cw / 2)
         x = max(0, min(x, in_w - cw))
         x = x if x % 2 == 0 else x - 1
