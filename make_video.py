@@ -492,8 +492,13 @@ def step_make_3x4(output_dir, cfg):
 
     body_34 = output_dir / f"{stem}_tracked_3x4.mp4"
     build_final_from_png(TRACK3X4_DIR, audio_aac, body_34, 1080, 1440, fps=cfg["info"]["fps"])
-    log.info(f"3:4 final → {body_34.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
-    return body_34
+
+    # 跟 step_make_9x16 一样, 复制成 'xhs_3x4_full.mp4' 命名
+    final = output_dir / f"{stem}_xhs_3x4_full.mp4"
+    import shutil
+    shutil.copy2(body_34, final)
+    log.info(f"3:4 final → {final.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
+    return final
 
 
 step_make_3x4 = stage_progress("Step 2c: 3:4 跟拍 (小红书, 跳过 intro/outro)")(step_make_3x4)
