@@ -311,13 +311,17 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, t
     fps: 必须等于源视频 fps (否则慢动作/快进).
     timescale: 容器时基, 默认 = round(fps).
     用 scale+pad 居中 letterbox, 防止源 aspect != 目标 aspect 时被强拉变形.
+    音频自动 apad 到视频帧数时长, 避免末段无音.
     """
     if timescale is None:
         timescale = int(round(fps))
     png_dir = Path(png_dir)
     audio_aac = Path(audio_aac)
     output_mp4 = Path(output_mp4)
-    print(f"  [BUILD] fps={fps:.2f} timescale={timescale} target={out_w}x{out_h}")
+    # 数 PNG 帧数, 算视频时长
+    n_png = len(list(png_dir.glob("f_*.png")))
+    video_dur = n_png / fps
+    print(f"  [BUILD] fps={fps:.2f} timescale={timescale} target={out_w}x{out_h} n_png={n_png} dur={video_dur:.3f}s")
     fit = (f"scale=w={out_w}:h={out_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
            f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:{pad_color}")
     run([
@@ -329,9 +333,9 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, t
         "-map", "[v]", "-map", "1:a:0",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
         "-c:a", "copy",
-        # 关键修复: 不再用 -shortest (截掉音频), 改用 aevalsrc 在视频末段补静音
-        # 视频时长 = 帧数/fps, 算出后让音轨垫到同样长
-        "-af", f"apad=whole_dur={int(n)/fps:.3f}",
+        # 关键修复: 不再用 -shortest (截掉音频), 用 apad 让音轨垫静音到视频时长
+        # 视频时长 = n_png/fps, 算后让音频对齐 (避免末段无音 = 慢动作假象)
+        "-af", f"apad=whole_dur={video_dur:.3f}",
         "-video_track_timescale", str(timescale),
         str(output_mp4),
     ], check=True)
