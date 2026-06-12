@@ -20,31 +20,54 @@ class ExportStage:
 
     @classmethod
     def _probe_nvenc(cls) -> bool:
-        """检测 h264_nvenc 编码器是否可用"""
-        if cls._nvenc_available is not None:
-            return cls._nvenc_available
-        for ffmpeg in ["ffmpeg", "C:/Users/18091/ffmpeg/ffmpeg.exe"]:
-            r = subprocess.run(
-                [ffmpeg, "-hide_banner", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.1",
-                 "-c:v", "h264_nvenc", "-preset", "p1", "-b:v", "1M", "-an", "-f", "null", "-"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
-            if r.returncode == 0:
-                cls._nvenc_available = True
-                return True
-        cls._nvenc_available = False
-        return False
+        """检测 h264_nvenc 编码器是否可用.
+        必须在隔离的 ffmpeg 进程里真的编码几帧, 看 returncode 和 stderr.
+        之前只看 returncode == 0 是错的, 因为有些 GPU 状态会让 NVENC 短暂失败.
+        """
+        ffmpeg = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
+        if not ffmpeg.exists():
+            ffmpeg = Path(shutil.which("ffmpeg") or "ffmpeg")
+        # 真编码 5 帧到 null, 失败的话 stderr 含 'Error' / 'cannot'
+        r = subprocess.run(
+            [str(ffmpeg), "-y", "-hide_banner", "-f", "lavfi",
+             "-i", "color=c=black:s=256x256:d=0.1:r=10",
+             "-c:v", "h264_nvenc", "-preset", "p1", "-b:v", "1M",
+             "-frames:v", "5", "-an", "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
+        )
+        if r.returncode != 0:
+            return False
+        err = (r.stderr or "").lower()
+        if "cannot" in err or "failed" in err or "no nvenc" in err:
+            return False
+        return True
 
     def _encoder_args(self, output_cfg: dict) -> list:
-        """根据 GPU 可用性和配置返回编码器参数"""
-        encoder = output_cfg.get("encoder", "auto")
+        """根据 GPU 可用性和配置返回编码器参数.
 
-        if encoder == "nvenc" or (encoder == "auto" and self._probe_nvenc()):
-            return ["-c:v", "h264_nvenc", "-preset", "p6",
-                    "-rc", "vbr", "-cq", "18", "-b:v", "0",
-                    "-spatial-aq", "1", "-aq-strength", "8"]
-        elif encoder == "nvenc":
-            print("    提示: NVENC 不可用，回退 libx264")
-        # libx264 fallback
+        策略变更 (修根因):
+        - 默认 'auto' 走 CPU libx264, 稳, 不依赖 GPU
+        - 'nvenc' 显式开启时探测 GPU 失败则报错不降级 (避免静默改 cmd 残留)
+        - 'libx264' 显式指定 CPU
+        """
+        encoder = output_cfg.get("encoder", "auto")
+        if encoder == "libx264":
+            return self._libx264_args(output_cfg)
+        if encoder == "nvenc":
+            if self._probe_nvenc():
+                return self._nvenc_args(output_cfg)
+            raise RuntimeError("NVENC 不可用, 但配置 encoder=nvenc 强制 GPU")
+        # auto: 默认 CPU (稳)
+        if self._probe_nvenc() and output_cfg.get("prefer_gpu", False):
+            return self._nvenc_args(output_cfg)
+        return self._libx264_args(output_cfg)
+
+    def _nvenc_args(self, output_cfg: dict) -> list:
+        return ["-c:v", "h264_nvenc", "-preset", "p6",
+                "-rc", "vbr", "-cq", "18", "-b:v", "0",
+                "-spatial-aq", "1", "-aq-strength", "8"]
+
+    def _libx264_args(self, output_cfg: dict) -> list:
         preset = output_cfg.get("preset", "fast")
         crf = output_cfg.get("crf", 26)
         deblock = output_cfg.get("deblock", "")
@@ -434,45 +457,11 @@ class ExportStage:
             result = subprocess.run(cmd, capture_output=True, text=True,
                                    encoding="utf-8", errors="replace")
             if result.returncode != 0:
+                # 不再瞎改 cmd 残留参数. _encoder_args 默认 libx264, 不会走 NVENC.
+                # 这里任何 ffmpeg 失败是命令本身的问题 (filter / input / map), 不应静默兜底.
                 stderr = result.stderr[-300:]
-                # NVENC 失败 → 替换 encoder 部分, cmd 其它部分 (input / filter / map / output) 不动
-                is_nvenc = "h264_nvenc" in cmd
-                if is_nvenc:
-                    print(f"    [WARN] NVENC 失败, fallback CPU libx264: {stderr[-100:]}")
-                    # 找 _encoder_args 注入的 NVENC 段 (从 -c:v 起到 cmd 末尾, 但保留 -c:a 等)
-                    # NVENC 段特征: "-c:v h264_nvenc -preset p6 -cq 18 [可选其他]"
-                    new_cmd = []
-                    skip = 0
-                    for i, c in enumerate(cmd):
-                        if skip:
-                            skip -= 1
-                            continue
-                        if c == "-c:v" and i + 1 < len(cmd) and cmd[i+1] == "h264_nvenc":
-                            # 替换为 libx264 段
-                            new_cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", str(crf)]
-                            skip = 1  # 跳过 h264_nvenc
-                            # 继续跳 -preset pX -cq X (NVENC 专属)
-                            j = i + 2
-                            while j < len(cmd) and (cmd[j] in ("-preset", "-cq", "-b:v", "-rc")):
-                                # 跳 opt 和其值 (2 个)
-                                if j + 1 < len(cmd):
-                                    skip += 2
-                                    j += 2
-                                else:
-                                    break
-                            continue
-                        new_cmd.append(c)
-                    print(f"    [FALLBACK] 跑 CPU libx264...")
-                    result2 = subprocess.run(new_cmd, capture_output=True, text=True,
-                                             encoding="utf-8", errors="replace")
-                    if result2.returncode != 0:
-                        print(f"    FFmpeg 失败 (CPU fallback 也失败): {result2.stderr[-200:]}")
-                        shutil.copy2(processed_path, output_path)
-                    else:
-                        print(f"    [FALLBACK OK] CPU 编码成功 ({output_path.stat().st_size/1024/1024:.1f}MB)")
-                else:
-                    print(f"    FFmpeg 失败: {stderr}")
-                    shutil.copy2(processed_path, output_path)
+                print(f"    [FFMPEG FAIL] {stderr}")
+                raise RuntimeError(f"07_export 失败: {stderr}")
         else:
             print("    FFmpeg 未安装，直接复制")
             shutil.copy2(processed_path, output_path)
