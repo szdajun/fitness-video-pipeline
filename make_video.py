@@ -428,7 +428,12 @@ step_make_16x9 = stage_progress("Step 2a: 拼 16:9 final (含音轨+修 time_bas
 
 
 def step_make_9x16(output_dir, cfg):
-    """Step 2b: 9:16 跟拍 + 拼"""
+    """Step 2b: 9:16 跟拍 (抖音)
+
+    策略: 跳过 intro/outro 直接用跟拍后 body.
+    原因: intro/outro 是 16:9 横版, 拼到 9:16 会拉变形 + 跳帧.
+    抖音平台自带片头模板, 不需要我们硬塞.
+    """
     if "9x16" not in cfg["ratios"]:
         return None
     log = get_logger("make_video")
@@ -439,11 +444,9 @@ def step_make_9x16(output_dir, cfg):
         log.warning("缺 body 或 keypoints, 跳过 9:16")
         return None
 
-    # OpenCV 跟拍
     log.info("9:16 跟拍...")
     n = track_crop(body_full, kp, TRACK9X16_DIR, 1080, 1920, 9/16)
 
-    # 拼主体
     audio_aac = output_dir / "_full_audio.m4a"
     if not audio_aac.exists():
         extract_full_audio(cfg["source"], audio_aac)
@@ -451,16 +454,15 @@ def step_make_9x16(output_dir, cfg):
     body_916 = output_dir / f"{stem}_tracked_9x16.mp4"
     build_final_from_png(TRACK9X16_DIR, audio_aac, body_916, 1080, 1920, fps=cfg["info"]["fps"])
 
-    # 拼 intro+body+outro
-    intro = output_dir / f"{stem}_intro.mp4"
-    outro = output_dir / f"{stem}_outro.mp4"
-    if not (intro.exists() and outro.exists()):
-        return body_916
-
+    # 直接返回跟拍后 body 作 final (跳过 intro/outro 拼装)
     final = output_dir / f"{stem}_douyin_full_9x16.mp4"
-    build_full_video(intro, body_916, outro, audio_aac, final, 1080, 1920, fps=cfg["info"]["fps"])
-    log.info(f"9:16 final → {body_916.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
-    return body_916
+    if final.exists() or final.resolve() == body_916.resolve():
+        return body_916
+    # 复制一份带 'douyin' 名字, 跟 16:9 / 3:4 final 命名风格一致
+    import shutil
+    shutil.copy2(body_916, final)
+    log.info(f"9:16 final → {final.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
+    return final
 
 
 step_make_9x16 = stage_progress("Step 2b: 9:16 跟拍 (抖音, 跳过 intro/outro)")(step_make_9x16)
