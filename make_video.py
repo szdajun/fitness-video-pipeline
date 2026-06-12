@@ -445,15 +445,18 @@ def step_make_9x16(output_dir, cfg):
 
     final = output_dir / f"{stem}_douyin_full_9x16.mp4"
     build_full_video(intro, body_916, outro, audio_aac, final, 1080, 1920, fps=cfg["info"]["fps"])
-    log.info(f"9:16 final → {final.name}")
-    return final
+    log.info(f"9:16 final → {body_916.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
+    return body_916
 
 
-step_make_9x16 = stage_progress("Step 2b: 9:16 跟拍 + 拼 final")(step_make_9x16)
+step_make_9x16 = stage_progress("Step 2b: 9:16 跟拍 (抖音, 跳过 intro/outro)")(step_make_9x16)
 
 
 def step_make_3x4(output_dir, cfg):
-    """Step 2c: 3:4 跟拍 + 拼"""
+    """Step 2c: 3:4 跟拍 (小红书)
+
+    策略: 跟 9:16 一样, 跳过 intro/outro, 只用跟拍后 body.
+    """
     if "3x4" not in cfg["ratios"]:
         return None
     log = get_logger("make_video")
@@ -473,19 +476,11 @@ def step_make_3x4(output_dir, cfg):
 
     body_34 = output_dir / f"{stem}_tracked_3x4.mp4"
     build_final_from_png(TRACK3X4_DIR, audio_aac, body_34, 1080, 1440, fps=cfg["info"]["fps"])
-
-    intro = output_dir / f"{stem}_intro.mp4"
-    outro = output_dir / f"{stem}_outro.mp4"
-    if not (intro.exists() and outro.exists()):
-        return body_34
-
-    final = output_dir / f"{stem}_xhs_3x4_full.mp4"
-    build_full_video(intro, body_34, outro, audio_aac, final, 1080, 1440, fps=cfg["info"]["fps"])
-    log.info(f"3:4 final → {final.name}")
-    return final
+    log.info(f"3:4 final → {body_34.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
+    return body_34
 
 
-step_make_3x4 = stage_progress("Step 2c: 3:4 跟拍 + 拼 final")(step_make_3x4)
+step_make_3x4 = stage_progress("Step 2c: 3:4 跟拍 (小红书, 跳过 intro/outro)")(step_make_3x4)
 
 
 def step_make_shorts(output_dir, cfg):

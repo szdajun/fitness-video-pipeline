@@ -231,23 +231,26 @@ def extract_full_audio(source_video, output_aac, intro_dur=4.0, outro_dur=2.5, f
     print(f"  [AUDIO] {output_aac}")
 
 
-def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, timescale=None):
+def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, timescale=None, pad_color="black"):
     """把 PNG 序列 + 完整音轨拼成主体视频.
-    fps: 关键参数, 必须等于源视频的 fps (否则慢动作/快进).
-    timescale: 容器时基, 默认 = round(fps) 整数; 60fps 源用 60, 30fps 用 30.
+    fps: 必须等于源视频 fps (否则慢动作/快进).
+    timescale: 容器时基, 默认 = round(fps).
+    用 scale+pad 居中 letterbox, 防止源 aspect != 目标 aspect 时被强拉变形.
     """
     if timescale is None:
         timescale = int(round(fps))
     png_dir = Path(png_dir)
     audio_aac = Path(audio_aac)
     output_mp4 = Path(output_mp4)
-    print(f"  [BUILD] fps={fps:.2f} timescale={timescale}")
+    print(f"  [BUILD] fps={fps:.2f} timescale={timescale} target={out_w}x{out_h}")
+    fit = (f"scale=w={out_w}:h={out_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+           f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:{pad_color}")
     run([
         "ffmpeg", "-y",
         "-framerate", str(fps),
         "-i", str(png_dir / "f_%06d.png"),
         "-i", str(audio_aac),
-        "-filter_complex", f"[0:v]scale={out_w}:{out_h}:flags=lanczos[v]",
+        "-filter_complex", f"[0:v]{fit},setsar=1[v]",
         "-map", "[v]", "-map", "1:a:0",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
         "-c:a", "copy",
@@ -258,14 +261,21 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, t
 
 
 def build_full_video(intro_path, body_path, outro_path, audio_aac, output_mp4,
-                     out_w, out_h, fps=30, timescale=None):
+                     out_w, out_h, fps=30, timescale=None, pad_color="black"):
     """拼 intro+body+outro+音轨 的完整 final.
     fps: 必须等于源视频 fps (否则慢动作/快进).
-    intro/outro 会被 fps filter 重采样到目标 fps, 确保 timeline 对齐.
+
+    关键: 每段都先按目标 aspect scale + pad 居中 (letterbox, 不拉伸).
+    intro/outro 是 16:9 (2560x1080), body 跟拍后是 9:16 或 3:4.
+    如果用 scale=W:H:flags=lanczos 强拉, 16:9 intro 到 9:16 会被上下拉宽, 字体人物全变形.
+    修法: scale 按 fit-in 缩放, pad 黑边居中, 保留原 aspect.
     """
     if timescale is None:
         timescale = int(round(fps))
-    print(f"  [BUILD] fps={fps:.2f} timescale={timescale}")
+    print(f"  [BUILD] fps={fps:.2f} timescale={timescale} target={out_w}x{out_h}")
+    # scale+pad: 按目标 W:H 比例缩放 + 黑边居中 (letterbox)
+    fit = (f"scale=w={out_w}:h={out_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+           f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:{pad_color}")
     run([
         "ffmpeg", "-y",
         "-i", str(intro_path),
@@ -273,10 +283,9 @@ def build_full_video(intro_path, body_path, outro_path, audio_aac, output_mp4,
         "-i", str(outro_path),
         "-i", str(audio_aac),
         "-filter_complex",
-        # 关键: 每段都先 fps={fps} 强制重采样, 否则不同 fps 段拼接会乱
-        f"[0:v]fps={fps},scale={out_w}:{out_h}:flags=lanczos,setsar=1[v0];"
-        f"[1:v]fps={fps},scale={out_w}:{out_h}:flags=lanczos,setsar=1[v1];"
-        f"[2:v]fps={fps},scale={out_w}:{out_h}:flags=lanczos,setsar=1[v2];"
+        f"[0:v]fps={fps},{fit},setsar=1[v0];"
+        f"[1:v]fps={fps},{fit},setsar=1[v1];"
+        f"[2:v]fps={fps},{fit},setsar=1[v2];"
         f"[v0][v1][v2]concat=n=3:v=1:a=0[outv]",
         "-map", "[outv]", "-map", "3:a:0",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
