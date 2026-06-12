@@ -119,8 +119,8 @@ def clean_temp_dirs():
 # ============================================================
 
 def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
-               smooth_window: int = 30, max_step_ratio: float = 0.015,
-               dead_zone_ratio: float = 0.08):
+               smooth_window: int = 60, max_step_ratio: float = 0.005,
+               dead_zone_ratio: float = 0.12):
     """OpenCV 跟拍裁切 (稳版, 修左右扫动)
 
     关键修复 (全面):
@@ -205,27 +205,33 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
         lo, hi = max(0, i - W), min(n, i + W + 1)
         smoothed.append(statistics.mean(cx_med[lo:hi]))
 
-    # 4) 限速: 相邻帧 cx 变化不超过 max_step_ratio (相对 in_w 的比例)
-    # 物理上不可能比这更快
-    max_step = max_step_ratio * in_w
-    speed_limited = [smoothed[0]]
-    for i in range(1, n):
-        prev = speed_limited[-1]
-        cur = smoothed[i]
-        if cur - prev > max_step:
-            cur = prev + max_step
-        elif prev - cur > max_step:
-            cur = prev - max_step
-        speed_limited.append(cur)
-
-    # 5) 中央死区: 在 0.5 ± dead_zone_ratio 范围内不跟随
-    dead_lo = 0.5 - dead_zone_ratio
-    dead_hi = 0.5 + dead_zone_ratio
-    # 死区只对"在死区边缘"作"贴边", 不强制
-    # (这一步其实主要靠限速和滑窗已经够稳, 死区作为视觉微调)
+    # 4) 中央死区 (画面稳心) - 这是关键!
+    # 思路: 观众要看动作, 教练在中央 ±dead_zone 范围时, crop 锁 0.5 完全不动.
+    #      教练走出死区时, crop **慢慢**跟随 (inner_max_step, 比 max_step 慢很多),
+    #      直到教练在画面里重新到死区边缘, 然后 crop 锁死区边缘.
+    #      这样画面"基本不扫", 教练可以小幅移动不影响阅读.
+    final = []
+    cur_cx = 0.5
+    half_dead = dead_zone_ratio
+    # 死区外最大速度: 0.003 * in_w/帧 = 0.17%/帧. 30 帧=1s 最多走 5% in_w.
+    inner_max_step = max_step_ratio * in_w * 0.6
+    for i in range(n):
+        desired = smoothed[i]
+        delta = desired - cur_cx
+        # 死区外: 慢慢向 desired 走
+        if abs(delta) > inner_max_step:
+            cur_cx = cur_cx + inner_max_step * (1 if delta > 0 else -1)
+        else:
+            cur_cx = desired
+        # 钳制不让 crop 越过死区外缘 (在画面里始终有 dead_zone 的余量)
+        if cur_cx > 0.5 + half_dead:
+            cur_cx = 0.5 + half_dead
+        if cur_cx < 0.5 - half_dead:
+            cur_cx = 0.5 - half_dead
+        final.append(cur_cx)
 
     # 钳制到 [0.25, 0.75] 避免裁出画
-    final = [max(0.25, min(0.75, c)) for c in speed_limited]
+    final = [max(0.25, min(0.75, c)) for c in final]
 
     print(f"  [TRACK] cx 范围: {min(final):.3f} ~ {max(final):.3f}, 变动: {max(final)-min(final):.3f}")
 
