@@ -456,9 +456,8 @@ def step_make_9x16(output_dir, cfg):
 
     # 直接返回跟拍后 body 作 final (跳过 intro/outro 拼装)
     final = output_dir / f"{stem}_douyin_full_9x16.mp4"
-    if final.exists() or final.resolve() == body_916.resolve():
-        return body_916
-    # 复制一份带 'douyin' 名字, 跟 16:9 / 3:4 final 命名风格一致
+    # 始终覆盖: 跟拍 body 才是 source of truth, final 只是别名
+    # 否则旧 final 留着, 新 body 永远用不上
     import shutil
     shutil.copy2(body_916, final)
     log.info(f"9:16 final → {final.name} (跟拍+音轨, 跳过 intro/outro 避免 16:9 拉变形)")
