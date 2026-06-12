@@ -119,7 +119,7 @@ def clean_temp_dirs():
 # ============================================================
 
 def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
-               smooth_window: int = 60, max_step_ratio: float = 0.005,
+               smooth_window: int = 60, max_step_ratio: float = 0.001,
                dead_zone_ratio: float = 0.12):
     """OpenCV 跟拍裁切 (稳版, 修左右扫动)
 
