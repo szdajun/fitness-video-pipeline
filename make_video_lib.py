@@ -205,16 +205,16 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
         lo, hi = max(0, i - W), min(n, i + W + 1)
         smoothed.append(statistics.mean(cx_med[lo:hi]))
 
-    # 4) 中央死区 (画面稳心) - 这是关键!
-    # 思路: 观众要看动作, 教练在中央 ±dead_zone 范围时, crop 锁 0.5 完全不动.
+    # 4) 起点: 用全段 cx 中位数, 避免首帧 YOLO 误检把死区定到最左/最右
+    # 钳制到 [0.35, 0.65] 范围, 避免极端中位数让画面偏太远
+    start_cx = max(0.35, min(0.65, statistics.median(smoothed)))
+
+    # 5) 中央死区 (画面稳心) - 这是关键!
+    # 思路: 观众要看动作, 教练在中央 ±dead_zone 范围时, crop 锁 start_cx 完全不动.
     #      教练走出死区时, crop **慢慢**跟随 (inner_max_step, 比 max_step 慢很多),
     #      直到教练在画面里重新到死区边缘, 然后 crop 锁死区边缘.
     #      这样画面"基本不扫", 教练可以小幅移动不影响阅读.
     final = []
-    # 起点: 用全段 cx 中位数, 避免首帧 YOLO 误检把死区定到最左/最右
-    start_cx = statistics.median(speed_limited)
-    # 钳制到 [0.35, 0.65] 范围, 避免极端中位数让画面偏太远
-    start_cx = max(0.35, min(0.65, start_cx))
     cur_cx = start_cx
     half_dead = dead_zone_ratio
     # 死区外最大速度: 0.003 * in_w/帧 = 0.17%/帧. 30 帧=1s 最多走 5% in_w.
