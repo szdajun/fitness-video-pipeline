@@ -190,13 +190,27 @@ class ExportStage:
         deblock = output_cfg.get("deblock", "")   # x264 deblock 参数，如 "-1:-1"
 
         # 自动检测输入视频方向，保持原方向不强制缩放
-        cap_d = cv2.VideoCapture(processed_path)
-        if cap_d.isOpened():
-            in_w = int(cap_d.get(3))
-            in_h = int(cap_d.get(4))
-            cap_d.release()
-            # 用户通过 --preset 显式指定了输出尺寸, 以 config 为准
-        # 不再自动调整 (之前 auto-adjust 会错误地把 9:16 改回 16:9)
+        # 优先用 ffprobe (更可靠, 不受 cv2 缓存/格式影响), cv2 兜底
+        in_w, in_h = 0, 0
+        try:
+            probe = subprocess.run(
+                [ffprobe, "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height",
+                 "-of", "csv=p=0", str(processed_path)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+            )
+            if probe.stdout.strip():
+                w, h = probe.stdout.strip().split(",")
+                in_w, in_h = int(w), int(h)
+        except Exception as e:
+            print(f"    警告: ffprobe 探测失败: {e}, 尝试 cv2 兜底")
+        if in_w == 0 or in_h == 0:
+            cap_d = cv2.VideoCapture(processed_path)
+            if cap_d.isOpened():
+                in_w = int(cap_d.get(3))
+                in_h = int(cap_d.get(4))
+                cap_d.release()
+        print(f"    输入尺寸: {in_w}x{in_h}, 输出: {out_w}x{out_h}")
         preset = output_cfg.get("preset", "fast")  # 默认fast，不用medium
         audio_bitrate = output_cfg.get("audio_bitrate", "96k")  # 默认96k，不用128k
         video_fade_out = output_cfg.get("video_fade_out", 2.0)  # 视频淡出秒数
@@ -372,6 +386,16 @@ class ExportStage:
                 # 音频淡出滤镜（使用intro_outro配置中的audio_fade_out）
                 # 注意：combined视频时长可能比原音频长，从原片提取音频 + apad填充静音 + 淡出
                 vf_final = f"{scale_filter},deband=0.1:0.1:0.1:0.1:8"  # 强deband减轻色块
+                # 防御: scale_filter 为空时 vf_final 会以 ",deband=..." 开头 (ffmpeg 报 Invalid argument)
+                # 这种情况通常因为 in_w/in_h=0 探测失败, 强制兜底一个 scale
+                if not scale_filter and out_w and out_h:
+                    scale_flag = output_cfg.get("resize_filter", "lanczos")
+                    if scale_flag == "auto":
+                        scale_flag = "lanczos"
+                    vf_final = f"scale={out_w}:{out_h}:flags={scale_flag},deband=0.1:0.1:0.1:0.1:8"
+                    print(f"    [WARN] scale_filter 空, 兜底用 {vf_final}")
+                # 防御: 移除 vf 字符串里可能因 scale_filter="" 产生的开头 "," 或孤立 ",,"
+                vf_final = ",".join(s for s in vf_final.split(",") if s)
 
                 if has_intro or has_outro:
                     # 拼接后的视频是纯视频，从原片提取音频
