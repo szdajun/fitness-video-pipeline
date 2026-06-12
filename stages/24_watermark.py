@@ -134,16 +134,35 @@ class WatermarkStage:
         import os
         font_paths = [
             "C:/Windows/Fonts/msyh.ttc",   # 微软雅黑
+            "C:/Windows/Fonts/msyh.ttf",
             "C:/Windows/Fonts/simhei.ttf",  # 黑体
             "C:/Windows/Fonts/simsun.ttc",  # 宋体
+            "C:/Windows/Fonts/simfang.ttf", # 仿宋
+            "C:/Windows/Fonts/simkai.ttf",  # 楷体
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",  # Linux 文泉驿
+            "/System/Library/Fonts/PingFang.ttc",  # macOS
         ]
         pil_font = None
+        loaded_path = None
         for fp in font_paths:
             if os.path.exists(fp):
-                pil_font = ImageFont.truetype(fp, font_size)
-                break
+                try:
+                    pil_font = ImageFont.truetype(fp, font_size)
+                    # 验证字体真支持中文 (getbbox 不能返回 0)
+                    bbox = pil_font.getbbox("胭脂虎")
+                    if bbox[2] - bbox[0] > 0:
+                        loaded_path = fp
+                        break
+                    else:
+                        pil_font = None  # 加载了但不包含中文, 继续找
+                except Exception:
+                    continue
         if not pil_font:
-            pil_font = ImageFont.load_default()
+            raise RuntimeError(
+                f"24_watermark: 找不到支持中文的字体 (尝试了 {font_paths}).\n"
+                f"安装字体: 把 msyh.ttc 或 simhei.ttf 放到 C:/Windows/Fonts/."
+            )
+        print(f"    字体: {loaded_path} size={font_size}")
 
         cap = cv2.VideoCapture(input_path)
         frame_idx = 0
