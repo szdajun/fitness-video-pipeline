@@ -255,24 +255,27 @@ class ExportStage:
                               "area": "area", "bilinear": "bilinear"}.get(resize_filter, "lanczos")
                 # 横跨比例时以教练为中心裁切 (原设计: 突出教练, 不拉伸)
                 # 16:9→9:16: 裁出 9:16 窗口跟踪教练位置 → scale 填满
+                # 修复: 只有真正的 9:16 竖源(in_h > in_w) 才能走 '竖→横' 分支,
+                #       否则 21:9 之类的超宽源会算出负 crop_y 失败
                 in_aspect = in_w / in_h if in_h > 0 else 1.0
                 out_aspect = out_w / out_h if out_h > 0 else 1.0
-                if in_w > 0 and in_h > 0 and abs(in_aspect - out_aspect) > 0.1:
-                    # 教练水平位置 (默认居中, 钳制避免追踪错误导致裁偏)
-                    lead_cx = ctx.get("lead_cx", 0.5)
-                    lead_cx = max(0.25, min(0.75, float(lead_cx)))  # 安全范围
-                    if out_h > out_w:  # 横→竖: 9:16 窗口, 以教练 x 为中心
-                        crop_w = int(in_h * out_w / out_h)  # 9:16 比例裁切宽度
-                        crop_w = crop_w if crop_w % 2 == 0 else crop_w - 1
-                        crop_x = int(lead_cx * in_w - crop_w / 2)
-                        crop_x = max(0, min(crop_x, in_w - crop_w))
-                        scale_filter = f"crop={crop_w}:{in_h}:{crop_x}:0,scale={out_w}:{out_h}:flags={scale_flag}"
-                    else:  # 竖→横: 裁上下居中
-                        crop_h = int(in_w * out_h / out_w)
-                        crop_h = crop_h if crop_h % 2 == 0 else crop_h - 1
-                        crop_y = (in_h - crop_h) // 2
-                        scale_filter = f"crop={in_w}:{crop_h}:0:{crop_y},scale={out_w}:{out_h}:flags={scale_flag}"
+                is_vertical_source = in_w > 0 and in_h > 0 and in_h > in_w
+                is_horizontal_target = out_w > out_h
+                if is_vertical_source and is_horizontal_target:
+                    # 真正的竖源(in_h > in_w) → 横版: 裁上下居中
+                    crop_h = int(in_w * out_h / out_w)
+                    crop_h = crop_h if crop_h % 2 == 0 else crop_h - 1
+                    crop_y = max(0, (in_h - crop_h) // 2)  # 防止负 y
+                    scale_filter = f"crop={in_w}:{crop_h}:0:{crop_y},scale={out_w}:{out_h}:flags={scale_flag}"
+                elif out_h > out_w and in_w > 0 and in_h > 0:
+                    # 横源 → 9:16 竖版: 9:16 窗口, 以教练 x 为中心
+                    crop_w = int(in_h * out_w / out_h)
+                    crop_w = crop_w if crop_w % 2 == 0 else crop_w - 1
+                    crop_x = max(0, int(ctx.get("lead_cx", 0.5) * in_w - crop_w / 2))
+                    crop_x = min(crop_x, in_w - crop_w)
+                    scale_filter = f"crop={crop_w}:{in_h}:{crop_x}:0,scale={out_w}:{out_h}:flags={scale_flag}"
                 else:
+                    # 同方向或同比例, 直接 scale
                     scale_filter = f"scale={out_w}:{out_h}:flags={scale_flag}"
             else:
                 scale_filter = ""
