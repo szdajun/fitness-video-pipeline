@@ -36,15 +36,22 @@ def get_video_info(path):
     """ffprobe 读视频信息.
     关键: 必须 -select_streams v:0 只读 video stream;
     否则音频 stream 的 r_frame_rate=0/0 会覆盖 fps, 算成 30 fallback → 慢动作 bug.
+
+    fps 优先级: avg_frame_rate > nb_frames/duration > r_frame_rate > 30
+    - r_frame_rate 不可信: H.264 MP4 通常 90000/1 (time_scale), 跟实际 fps 无关
+    - avg_frame_rate 是 ffmpeg 按真实播放速度算的, 准
+    - 极端情况下 avg 是 0/0, 用 nb_frames/duration 兜底
     """
     result = run([
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
         "-show_entries",
-        "format=duration:stream=width,height,r_frame_rate,nb_frames,codec_name",
+        "format=duration:stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,codec_name",
         "-of", "default", str(path)
     ], capture=True, check=False)
     info = {"path": path, "duration": 0, "w": 0, "h": 0, "fps": 0, "frames": 0}
+    avg_fps = 0
+    raw_fps = 0
     for line in result.stdout.splitlines():
         if line.startswith("duration="):
             info["duration"] = float(line.split("=", 1)[1])
@@ -56,11 +63,28 @@ def get_video_info(path):
             fps_str = line.split("=", 1)[1]
             if "/" in fps_str:
                 num, den = fps_str.split("/")
-                info["fps"] = float(num) / float(den) if float(den) > 0 else 30
+                raw_fps = float(num) / float(den) if float(den) > 0 else 0
             else:
-                info["fps"] = float(fps_str)
+                raw_fps = float(fps_str)
+        elif line.startswith("avg_frame_rate="):
+            fps_str = line.split("=", 1)[1]
+            if "/" in fps_str:
+                num, den = fps_str.split("/")
+                avg_fps = float(num) / float(den) if float(den) > 0 else 0
+            else:
+                avg_fps = float(fps_str)
         elif line.startswith("nb_frames="):
             info["frames"] = int(line.split("=", 1)[1])
+
+    # 选最可信的 fps
+    if 0 < avg_fps < 1000:           # 99% 情况
+        info["fps"] = avg_fps
+    elif info["frames"] > 0 and info["duration"] > 0:
+        info["fps"] = info["frames"] / info["duration"]  # 兜底
+    elif 0 < raw_fps < 1000:
+        info["fps"] = raw_fps
+    else:
+        info["fps"] = 30  # 实在读不出来
     return info
 
 
