@@ -375,6 +375,20 @@ def step_run_pipeline(cfg):
             raise RuntimeError("找不到 pipeline 输出目录")
         output_dir = candidates[-1]
 
+    # 防御: 无论 main.py 跑得怎样, 独立保证 _full_audio.m4a 存在
+    # (07_export.py 失败时 main.py 不会生成 _full_audio, 而 step 2 必需)
+    audio_aac = output_dir / "_full_audio.m4a"
+    if not audio_aac.exists():
+        log.warning("main.py 没生成 _full_audio.m4a (可能 NVENC 失败), 独立从源视频抽音")
+        # 简单版: 直接 copy 源视频音轨 (intro 单独做淡入 即可, body 完整)
+        import shutil as _sh
+        raw = audio_aac.with_suffix(".raw.m4a")
+        run_ffmpeg_check_via = lambda c: None
+        extract_full_audio(cfg["source"], audio_aac,
+                           intro_dur=4.0, outro_dur=2.5,
+                           fade_in=0.5, fade_out_sec=2.5)
+        log.info(f"独立生成 _full_audio.m4a OK")
+
     log.info(f"输出目录: {output_dir}")
     return output_dir
 

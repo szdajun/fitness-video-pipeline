@@ -435,8 +435,32 @@ class ExportStage:
                                    encoding="utf-8", errors="replace")
             if result.returncode != 0:
                 stderr = result.stderr[-300:]
-                print(f"    FFmpeg 失败: {stderr}")
-                shutil.copy2(processed_path, output_path)
+                # NVENC 失败 (驱动/GPU 状态问题) → 自动 fallback CPU 编码
+                is_nvenc = "h264_nvenc" in " ".join(cmd)
+                if is_nvenc and "nvenc" not in str(cmd).replace("h264_nvenc", ""):
+                    print(f"    [WARN] NVENC 失败, 自动 fallback CPU 编码: {stderr[-100:]}")
+                    cpu_cmd = [c for c in cmd if c not in ("h264_nvenc", "p6", "-preset")]
+                    # 在 -c:v 之前插入 libx264 + preset
+                    for i, c in enumerate(cpu_cmd):
+                        if c == "-c:v" and i + 1 < len(cpu_cmd) and cpu_cmd[i+1] == "h264_nvenc":
+                            cpu_cmd[i+1] = "libx264"
+                            cpu_cmd.insert(i+2, "-preset")
+                            cpu_cmd.insert(i+3, "fast")
+                            break
+                    # 移除 nvenc 专属参数
+                    cpu_cmd = [c for c in cpu_cmd if c not in ("-cq", "-rc", "-b:v", "0")]
+                    print(f"    [FALLBACK] 跑 CPU libx264...")
+                    result2 = subprocess.run(cpu_cmd, capture_output=True, text=True,
+                                             encoding="utf-8", errors="replace")
+                    if result2.returncode != 0:
+                        print(f"    FFmpeg 失败 (CPU fallback 也失败): {result2.stderr[-200:]}")
+                        # 不能再 fallback 了, 复制 raw 兜底 (但明确警告)
+                        shutil.copy2(processed_path, output_path)
+                    else:
+                        print(f"    [FALLBACK OK] CPU 编码成功")
+                else:
+                    print(f"    FFmpeg 失败: {stderr}")
+                    shutil.copy2(processed_path, output_path)
         else:
             print("    FFmpeg 未安装，直接复制")
             shutil.copy2(processed_path, output_path)
