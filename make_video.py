@@ -577,10 +577,11 @@ def main():
     log.info(f"启动 make_video.py | argv={sys.argv[1:]}")
     print(f"\n🎬 make_video.py v1.0  (日志: {log_file})\n")
 
-    if not check_disk(MIN_DISK_GB):
-        log.error(f"磁盘不足 < {MIN_DISK_GB}GB, 退出")
-        sys.exit(1)
+    # 先清临时目录腾空间, 再检查磁盘 (否则 check_disk 会因为旧 track PNG 误判)
     clean_temp_dirs()
+    if not check_disk(MIN_DISK_GB):
+        log.error(f"磁盘不足 < {MIN_DISK_GB}GB (清完临时仍不够), 退出")
+        sys.exit(1)
     log.debug(f"已清: {TEMP_DIR}, {TRACK3X4_DIR}, {TRACK9X16_DIR}")
 
     # 配置
