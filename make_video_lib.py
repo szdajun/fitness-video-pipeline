@@ -206,8 +206,8 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
         smoothed.append(statistics.mean(cx_med[lo:hi]))
 
     # 4) 起点: 用全段 cx 中位数, 避免首帧 YOLO 误检把死区定到最左/最右
-    # 钳制到 [0.35, 0.65] 范围, 避免极端中位数让画面偏太远
-    start_cx = max(0.35, min(0.65, statistics.median(smoothed)))
+    # 钳制到 [0.30, 0.70] 范围, 避免极端中位数让画面偏太远, 但保留真位置
+    start_cx = max(0.30, min(0.70, statistics.median(smoothed)))
 
     # 5) 中央死区 (画面稳心) - 这是关键!
     # 思路: 观众要看动作, 教练在中央 ±dead_zone 范围时, crop 锁 start_cx 完全不动.
@@ -271,9 +271,12 @@ def track_crop(video_in, keypoints_json, out_dir, out_w, out_h, crop_aspect,
 # ============================================================
 
 def extract_full_audio(source_video, output_aac, intro_dur=4.0, outro_dur=2.5, fade_in=0.5, fade_out_sec=2.4):
-    """构造 38.4s 完整音轨 (intro 淡入 + 主体 + outro 淡出)
+    """构造音轨 (intro 淡入 + 主体 + outro 淡出)
     source_video: 源视频 (只有 80.3s 主体音轨)
     output_aac: 输出 m4a 路径
+
+    关键: 输出总时长 = intro_dur + body_dur + outro_dur, 不多不少.
+    之前留 0.5s buffer 会让 ffmpeg -shortest 截掉视频, 导致末段没音 → 用户感觉"慢动作".
     """
     output_aac = Path(output_aac)
     # 抽源音轨
@@ -284,6 +287,8 @@ def extract_full_audio(source_video, output_aac, intro_dur=4.0, outro_dur=2.5, f
 
     # 拼 3 段: intro 淡入 (0~4s) + 主体 (0~34.4s) + outro 淡出 (31.9~34.4s)
     body_dur = get_video_info(raw)["duration"]
+    # outro 段时长: fade_out_sec (短) 不等于 outro_dur; 用 fade_out_sec 截淡出, 不影响整体
+    total_dur = intro_dur + body_dur + fade_out_sec
     run([
         "ffmpeg", "-y", "-i", str(raw),
         "-filter_complex",
@@ -294,11 +299,11 @@ def extract_full_audio(source_video, output_aac, intro_dur=4.0, outro_dur=2.5, f
         f"[intro][body][outro]concat=n=3:v=0:a=1[outa]",
         "-map", "[outa]",
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-        "-t", f"{intro_dur + body_dur + 0.5:.2f}",
+        "-t", f"{total_dur:.2f}",
         str(output_aac),
     ], check=True)
     raw.unlink(missing_ok=True)
-    print(f"  [AUDIO] {output_aac}")
+    print(f"  [AUDIO] {output_aac} (总时长 {total_dur:.2f}s, 跟视频帧数对齐)")
 
 
 def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, timescale=None, pad_color="black"):
@@ -324,6 +329,9 @@ def build_final_from_png(png_dir, audio_aac, output_mp4, out_w, out_h, fps=30, t
         "-map", "[v]", "-map", "1:a:0",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
         "-c:a", "copy",
+        # 关键修复: 不再用 -shortest (截掉音频), 改用 aevalsrc 在视频末段补静音
+        # 视频时长 = 帧数/fps, 算出后让音轨垫到同样长
+        "-af", f"apad=whole_dur={int(n)/fps:.3f}",
         "-video_track_timescale", str(timescale),
         str(output_mp4),
     ], check=True)
