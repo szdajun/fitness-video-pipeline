@@ -97,6 +97,38 @@ class SmartCropStage:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         vi = ctx.get("video_info") or {}
+
+        # 4a. 2026-06-21 自动判断是否启用 smart_crop
+        #     根据视频特征判断, 节省算力 (短视频/单人场景不需要 smart_crop)
+        cfg = ctx.config.get("smart_crop", {})
+        user_choice = cfg.get("enabled")
+        if user_choice is False:
+            print(f"    [auto-disable] 用户显式禁用 smart_crop")
+            return
+
+        # 规则 1: 短视频 (< 10 秒) 不启用
+        duration_sec = total / fps if fps > 0 else 0
+        if duration_sec < 10:
+            print(f"    [auto-disable] 时长 {duration_sec:.1f}s < 10s, smart_crop 不必要")
+            return
+
+        # 规则 2: 1-2 人不启用 (单人/双人裁切居中即可, 不用跟踪)
+        # 扫前 30 帧看人数中位数
+        person_counts = []
+        for fi in range(min(30, total)):
+            pose = kp_dict.get(str(fi))
+            if not pose:
+                pose = kp_dict.get(fi)
+            if pose:
+                person_counts.append(len(pose))
+        if person_counts:
+            median_count = sorted(person_counts)[len(person_counts) // 2]
+            if median_count <= 2:
+                print(f"    [auto-disable] 前 30 帧人数中位数 {median_count} <= 2, smart_crop 不必要")
+                return
+
+        # 通过所有规则, 启用 (line 69 已过滤横版输出)
+        print(f"    [auto-enable] 多人({median_count}人)长视频({duration_sec:.0f}s)竖版输出")
         max_frames = vi.get("process_frames", total) or total
         max_frames = min(max_frames, total)
         if max_frames <= 0:
