@@ -12,11 +12,39 @@ import cv2
 from lib.utils import path_exists, to_short as _to_short
 from lib.ai_upscale import AIUpscaler
 from pathlib import Path
+import sys
+# _make_shorts 在项目根目录, 子模块 sys.path 不含根, 加上
+_PROJECT_ROOT = Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 
 
 class ExportStage:
     _nvenc_available = None  # lazy probe
+
+    @staticmethod
+    def has_audio_stream(video_path: str) -> bool:
+        """检测视频文件是否包含音频流.
+        2026-06-20 新增: 解决无音频视频 (如截取的测试片段) 导致 [1:a]afade 报错.
+        """
+        if not video_path or not Path(video_path).exists():
+            return False
+        ffprobe_bin = Path("C:/Users/18091/ffmpeg/ffprobe.exe")
+        if not ffprobe_bin.exists():
+            ffprobe_bin = Path(shutil.which("ffprobe") or "ffprobe")
+        try:
+            r = subprocess.run(
+                [str(ffprobe_bin), "-v", "error",
+                 "-select_streams", "a",
+                 "-show_entries", "stream=codec_type",
+                 "-of", "csv=p=0", str(video_path)],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=10
+            )
+            return "audio" in r.stdout
+        except Exception:
+            return False
 
     @classmethod
     def _probe_nvenc(cls) -> bool:
@@ -79,7 +107,9 @@ class ExportStage:
         # 按优先级找最终处理的视频
         # face_beautify2 优先于 face_beautify（InsightFace vs MediaPipe）
         # face_beautify 优先于 beatflash_path（美颜效果更强）
-        processed_path = (ctx.get("rife_path") or
+        # smart_crop 最优先: 输出已是裁好的 9:16 视频, 后面的装饰 stage 都基于它叠加
+        processed_path = (ctx.get("smart_crop_path") or
+                  ctx.get("rife_path") or
                   ctx.get("face_beautify2_path") or
                          ctx.get("face_beautify_path") or
                          ctx.get("bgm_path") or
@@ -154,8 +184,10 @@ class ExportStage:
                         "-c:v", "libx264", "-preset", "fast", "-crf", "1",
                         "-pix_fmt", "yuv444p",
                         str(combined_path.resolve())])
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace")
+            r = subprocess.run(
+            cmd,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=600)
             if r.returncode != 0:
                 print(f"    片头片尾拼接失败: {r.stderr[-200:]}")
                 has_intro = has_outro = False
@@ -228,12 +260,33 @@ class ExportStage:
         else:
             output_name = f"{video_path.stem}_final.mp4"
 
-        # 根据输出分辨率添加横竖版后缀
+        # 根据输出分辨率 + preset 名生成有意义的 final 名
+        # 2026-06-18 改: 命名加 preset 标识 + 比例 + 尺寸
+        # 例: 海军3_douyin_9x16_1080x1920.mp4 / 海军3_xiaohongshu_3x4_1080x1440.mp4
         if out_w and out_h:
-            if out_h > out_w:  # 竖版 9:16
-                output_name = output_name.replace(".mp4", "_9x16.mp4")
-            else:  # 横版 16:9
-                output_name = output_name.replace(".mp4", "_16x9.mp4")
+            preset_name = ctx.config.get("_preset_name", "")
+            if out_h > out_w:  # 竖版
+                ratio_w = 9 if abs(out_w/out_h - 9/16) < 0.01 else int(round(out_w / 64))
+                ratio_h = 16 if abs(out_w/out_h - 9/16) < 0.01 else int(round(out_h / 64))
+                # 更精确判断 3:4 vs 9:16
+                from math import gcd
+                g = gcd(out_w, out_h)
+                rw, rh = out_w // g, out_h // g
+                ratio_str = f"{rw}x{rh}"
+            else:  # 横版
+                ratio_str = "16x9"
+            # preset 名映射到人话
+            preset_label = {
+                "douyin": "douyin",
+                "xiaohongshu": "xiaohongshu",
+                "shorts": "shorts",
+                "youtube_shorts": "shorts",
+                "youtube": "youtube",
+            }.get(preset_name, preset_name)
+            if preset_label:
+                output_name = f"{video_path.stem}_{preset_label}_{ratio_str}_{out_w}x{out_h}.mp4"
+            else:
+                output_name = output_name.replace(".mp4", f"_{ratio_str}_{out_w}x{out_h}.mp4")
 
         output_path = ctx.output_dir / output_name
 
@@ -446,30 +499,51 @@ class ExportStage:
                         af = f"atrim=0:{total_sec},apad=whole_dur={total_sec}"
                         if audio_fade_d > 0:
                             af += f",afade=type=out:st={fade_st:.3f}:d={audio_fade_d}"
-                        filter_complex = f"[1:a]{af}[a]"
+                        # 2026-06-20 修复: 检测音频流是否存在, 无音频时跳过音频处理
+                        # (避免测试片段或无音视频报错 "Stream specifier ':a' matches no streams")
+                        if ExportStage.has_audio_stream(str(audio_src)):
+                            filter_complex = f"[1:a]{af}[a]"
+                        else:
+                            print(f"    [INFO] 源视频无音频流, 跳过音频滤镜")
+                            filter_complex = None
 
-                    cmd = [ffmpeg, "-y",
-                           "-i", str(processed_path),
-                           "-i", audio_src,
-                           "-filter_complex", filter_complex,
-                           "-map", "0:v", "-map", "[a]"]
+                    if filter_complex:
+                        cmd = [ffmpeg, "-y",
+                               "-i", str(processed_path),
+                               "-i", audio_src,
+                               "-filter_complex", filter_complex,
+                               "-map", "0:v", "-map", "[a]"]
+                    else:
+                        # 无音频, 直接复制
+                        cmd = [ffmpeg, "-y",
+                               "-i", str(processed_path),
+                               "-i", audio_src,
+                               "-map", "0:v", "-an"]
                 else:
                     # 无片头片尾：直接从原片提取音频 + 淡出
                     audio_src = str(audio_path) if (audio_path and Path(audio_path).exists()) else str(ctx.input_path)
                     fade_st = max(0, total_sec - audio_fade_d)
+                    has_audio = ExportStage.has_audio_stream(audio_src)
 
-                    if audio_fade_d > 0:
+                    if audio_fade_d > 0 and has_audio:
                         af = f"afade=type=out:st={fade_st:.3f}:d={audio_fade_d}"
                         cmd = [ffmpeg, "-y",
                                "-i", str(processed_path),
                                "-i", audio_src,
                                "-filter_complex", f"[1:a]{af}[a]",
                                "-map", "0:v", "-map", "[a]"]
-                    else:
+                    elif has_audio:
                         cmd = [ffmpeg, "-y",
                                "-i", str(processed_path),
                                "-i", audio_src,
                                "-map", "0:v", "-map", "1:a"]
+                    else:
+                        # 2026-06-20 修复: 无音频流, 直接复制视频不混音
+                        print(f"    [INFO] 源视频无音频流, 输出无音频")
+                        cmd = [ffmpeg, "-y",
+                               "-i", str(processed_path),
+                               "-c:v", "copy",
+                               "-an"]
 
                 cmd.extend(["-vf", vf_final])
                 cmd.extend(self._encoder_args(output_cfg))
@@ -481,8 +555,10 @@ class ExportStage:
 
             cmd.append(str(output_path))
 
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                   encoding="utf-8", errors="replace")
+            result = subprocess.run(
+            cmd,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=600)
             if result.returncode != 0:
                 # 不再瞎改 cmd 残留参数. _encoder_args 默认 libx264, 不会走 NVENC.
                 # 这里任何 ffmpeg 失败是命令本身的问题 (filter / input / map), 不应静默兜底.
@@ -515,6 +591,13 @@ class ExportStage:
                     base_stem = base_stem[:-len(suffix)]
                     break
             print(f"    多格式分发: {extra_formats}")
+            # 重要: 多格式分发的源视频应该是横源 (stabilized/color/warped/h2v)
+            # 不能是 final_9x16 (已被 smart_crop 裁成竖版, 再转 16:9 会双重裁切模糊)
+            fmt_source_path = (ctx.get("stabilized_path") or
+                               ctx.get("color_path") or
+                               ctx.get("warped_path") or
+                               ctx.get("h2v_path") or
+                               str(ctx.input_path))
             for fmt in extra_formats:
                 if fmt not in ("9x16", "16x9"):
                     continue
@@ -524,34 +607,61 @@ class ExportStage:
                 #   - 9:16 → 16:9: 裁掉上下 30% (intro/outro 黑底 30%+字幕),
                 #                  留中间 70% 视频内容, 横向拉伸到 16:9
                 #   - 16:9 → 9:16: 裁掉左右 30%, 留中间 70%, 纵向拉伸到 9:16
-                if fmt == "16x9" and in_h > in_w:
-                    # 9:16 → 16:9: 裁上下 30%, 横向拉伸
-                    crop_h = int(in_h * 0.70)  # 留中间 70%
-                    crop_y = (in_h - crop_h) // 2
-                    fmt_filter = f"crop={in_w}:{crop_h}:0:{crop_y},scale={fmt_w}:{fmt_h}:flags=lanczos"
-                elif fmt == "9x16" and in_w > in_h:
-                    # 16:9 → 9:16: 裁左右 30%, 纵向拉伸
-                    crop_w = int(in_w * 0.70)
-                    crop_x = (in_w - crop_w) // 2
-                    fmt_filter = f"crop={crop_w}:{in_h}:{crop_x}:0,scale={fmt_w}:{fmt_h}:flags=lanczos"
-                else:
+                # 用 fmt_source 的实际尺寸做参考, 不是 final_9x16
+                fmt_cap = cv2.VideoCapture(fmt_source_path)
+                if not fmt_cap.isOpened():
+                    fmt_cap.release()
                     fmt_filter = f"scale={fmt_w}:{fmt_h}:flags=lanczos"
+                else:
+                    fsw = int(fmt_cap.get(3))
+                    fsh = int(fmt_cap.get(4))
+                    fmt_cap.release()
+                    if fmt == "16x9" and fsh > fsw:
+                        # 9:16 → 16:9: 裁上下 30%, 横向拉伸
+                        crop_h = int(fsh * 0.70)
+                        crop_y = (fsh - crop_h) // 2
+                        fmt_filter = f"crop={fsw}:{crop_h}:0:{crop_y},scale={fmt_w}:{fmt_h}:flags=lanczos"
+                    elif fmt == "9x16" and fsw > fsh:
+                        # 16:9 → 9:16: 裁左右 30%, 纵向拉伸
+                        crop_w = int(fsw * 0.70)
+                        crop_x = (fsw - crop_w) // 2
+                        fmt_filter = f"crop={crop_w}:{fsh}:{crop_x}:0,scale={fmt_w}:{fmt_h}:flags=lanczos"
+                    else:
+                        fmt_filter = f"scale={fmt_w}:{fmt_h}:flags=lanczos"
                 enc_args = self._encoder_args(ctx.config.get("output", {}))
-                audio_args = ["-c:a", "aac", "-b:a", "96k"] if audio_path else ["-c:a", "aac", "-b:a", "96k"]
-                cmd_fmt = [
-                    ffmpeg, "-y",
-                    "-i", str(output_path),
-                    "-vf", fmt_filter,
-                    *enc_args,
-                    "-pix_fmt", "yuv420p",
-                    *audio_args,
-                    str(fmt_out),
-                ]
-                r_fmt = subprocess.run(cmd_fmt, capture_output=True, text=True,
-                                       encoding="utf-8", errors="replace")
+                # 音频: 优先用 audio stage 产物, 没有则从原视频提取 (与 main final 一致)
+                audio_src_for_fmt = str(audio_path) if (audio_path and Path(audio_path).exists()) else str(ctx.input_path)
+                if Path(audio_src_for_fmt).exists():
+                    cmd_fmt = [
+                        ffmpeg, "-y",
+                        "-i", fmt_source_path,
+                        "-i", audio_src_for_fmt,
+                        "-vf", fmt_filter,
+                        "-map", "0:v",
+                        "-map", "1:a",
+                        *enc_args,
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "96k",
+                        "-shortest",
+                        str(fmt_out),
+                    ]
+                else:
+                    cmd_fmt = [
+                        ffmpeg, "-y",
+                        "-i", fmt_source_path,
+                        "-vf", fmt_filter,
+                        *enc_args,
+                        "-pix_fmt", "yuv420p",
+                        "-an",
+                        str(fmt_out),
+                    ]
+                r_fmt = subprocess.run(
+            cmd_fmt,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=600)
                 if r_fmt.returncode == 0 and fmt_out.exists():
                     sz = fmt_out.stat().st_size / 1024 / 1024
-                    print(f"    [{fmt}] {fmt_out.name} ({sz:.1f} MB)")
+                    print(f"    [{fmt}] {fmt_out.name} ({sz:.1f} MB, 源={Path(fmt_source_path).name})")
                     ctx.set(f"final_{fmt}_path", str(fmt_out))
                 else:
                     print(f"    [{fmt}] FFmpeg 失败: {r_fmt.stderr[-200:]}")
@@ -569,12 +679,15 @@ class ExportStage:
             use_tc = ctx.config.get("seo", {}).get("traditional", False)
             # YouTube Shorts (30s, 英文+诗词)
             try:
-                from _make_shorts import make_shorts
+                import importlib as _imp_shorts
+                _ms_mod = _imp_shorts.import_module("_make_shorts")
+                make_shorts = _ms_mod.make_shorts
                 if kp_file.exists() and path_exists(shorts_src):
+                    # _make_shorts.py 签名: (src_path, output_dir, keypoints_file, duration=15, audio_src=None)
+                    # 不支持 traditional 参数
                     result = make_shorts(str(shorts_src), str(ctx.output_dir),
                                         str(kp_file), duration=30,
-                                        audio_src=str(ctx.input_path),
-                                        traditional=use_tc)
+                                        audio_src=str(ctx.input_path))
                     if result:
                         ctx.set("shorts_path", result)
                         print(f"    Shorts: {Path(result).name}")
@@ -582,7 +695,9 @@ class ExportStage:
                 print(f"    Shorts 失败: {e}")
             # 抖音竖版 (带片头片尾)
             try:
-                from _make_shorts import make_douyin_vertical
+                import importlib as _imp_shorts
+                _ms_mod = _imp_shorts.import_module("_make_shorts")
+                make_douyin_vertical = _ms_mod.make_douyin_vertical
                 intro_p = ctx.output_dir / f"{video_path.stem}_intro.mp4"
                 outro_p = ctx.output_dir / f"{video_path.stem}_outro.mp4"
                 if kp_file.exists() and path_exists(shorts_src):
@@ -598,6 +713,7 @@ class ExportStage:
                 print(f"    抖音竖版失败: {e}")
 
         # 清理中间文件
+        self._is_preview = is_preview  # 传 self 给 helper 函数
         if not is_preview:
             self._cleanup_intermediates(ctx.output_dir, output_path)
 
@@ -645,3 +761,31 @@ class ExportStage:
                     pass
         if removed > 0:
             print(f"    清理: 删除 {removed} 个中间文件")
+
+        # === 集成测试: 验证 Shorts 含诗词 (防 make_shorts 重写时漏掉) ===
+        is_preview = getattr(self, "_is_preview", False)
+        if not is_preview:
+            try:
+                import subprocess as _sp
+                tests_dir = Path(__file__).parent.parent / "tests"
+                for test_name, desc in [
+                    ("test_shorts_poem.py", "Shorts 诗词"),
+                    ("test_final_video.py", "final 视频元素"),
+                ]:
+                    test_script = tests_dir / test_name
+                    if not test_script.exists():
+                        continue
+                    r = _sp.run(
+                        ["python", str(test_script)],
+                        capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=120,
+                    )
+                    if r.returncode != 0:
+                        print(f"    [警告] {desc}测试失败! 检查对应 stage")
+                        out = (r.stdout or "") + (r.stderr or "")
+                        for line in out.strip().split("\n")[-5:]:
+                            print(f"      {line}")
+                    else:
+                        print(f"    [OK] {desc}测试通过")
+            except Exception as e:
+                print(f"    [跳过] 集成测试: {e}")

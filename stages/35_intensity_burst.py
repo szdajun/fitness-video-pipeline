@@ -19,7 +19,12 @@ class IntensityBurstStage:
         if not cfg.get("enabled", True):
             return
 
-        input_path = (ctx.get("danmaku_path") or
+        # 2026-06-20 修复: 把 smart_crop_path 提到 fallback 链最前
+        # 原顺序 (danmaku → energybar → highlight → beatflash → 原视频) 在 douyin preset 下
+        # 容易全 None → fallback 到原始横屏视频, 完全绕过 smart_crop 的 9:16 输出
+        # 现在即使 danmaku 没跑, 也能继续用 smart_crop 的裁切结果
+        input_path = (ctx.get("smart_crop_path") or
+                     ctx.get("danmaku_path") or
                      ctx.get("energybar_path") or
                      ctx.get("highlight_path") or
                      ctx.get("beatflash_path") or
@@ -162,16 +167,26 @@ class IntensityBurstStage:
         cap.release()
         print(f"    写入完成: {fi} 帧, FFmpeg 编码...")
 
+        _tmp_fd, _tmp_path = tempfile.mkstemp(suffix='.mp4')
+        os.close(_tmp_fd)
         r = subprocess.run([
             ffmpeg_bin, "-y", "-framerate", str(fps),
             "-i", str(tmpdir / "f_%06d.png"),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "1",
-            "-pix_fmt", "yuv420p", "-an", str(out_path),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-an", str(_tmp_path),
         ], capture_output=True, text=True, encoding="utf-8", errors="replace")
         shutil.rmtree(tmpdir, ignore_errors=True)
 
         if r.returncode != 0:
             print(f"    FFmpeg 失败: {r.stderr[-200:]}")
+            Path(_tmp_path).unlink(missing_ok=True)
+            ctx.set("burst_path", input_path)
+            return
+
+        try:
+            shutil.move(str(_tmp_path), str(out_path))
+        except Exception:
+            Path(_tmp_path).unlink(missing_ok=True)
             ctx.set("burst_path", input_path)
             return
 

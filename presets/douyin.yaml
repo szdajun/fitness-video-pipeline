@@ -13,8 +13,10 @@ stages:
   body_warp: false
   pip: false                # 画面小, 不叠画中画
   mascot: false             # 画面小, 不要吉祥物
+  watermark: false          # 抖音不要汉印
   danmaku: true             # 弹幕氛围
   intensity_burst: true
+  smart_crop: true          # 9:16 竖版: 逐帧跟踪领操人, 防止横移时被裁出
   skeleton_overlay: false
   person_count: false
   lead_box: false
@@ -27,6 +29,7 @@ stages:
 output:
   width: 1080
   height: 1920
+  formats: []  # douyin 不出 16:9, 只出主格式 9:16
 
 # 水印去汉印
 watermark:
@@ -37,5 +40,10 @@ danmaku:
   enabled: true
   font_size: 48
   interval: 45
+
+# 2026-06-20 (v9 修复): 关闭 lead_zoom_out (它会导致人物被纵向拉长)
+# 改用 cx 自由跟随 + 60 帧中值, 让裁切窗口跟着绿衣人真实位置走
+smart_crop:
+  select_lead_first_n_frames: 60
 
 formats: []

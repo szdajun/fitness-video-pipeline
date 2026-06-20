@@ -43,8 +43,8 @@ def build_tracks(keypoints, total_frames):
                     best_dist = dist
                     best_tid = tid
 
-            # 距离阈值 >0.2 认为是新人
-            if best_tid is not None and best_dist < 0.2:
+            # 距离阈值 >0.1 认为是新人 (2026-06-20 修复: 0.2 太宽, 容易把不同人混在一起)
+            if best_tid is not None and best_dist < 0.1:
                 tracks[best_tid]["cx_list"].append(cx)
                 tracks[best_tid]["body_size_list"].append(body_size)
                 tracks[best_tid]["count"] += 1
@@ -64,18 +64,34 @@ def build_tracks(keypoints, total_frames):
     return tracks
 
 
-def score_track(track):
-    """领操人综合评分: 帧数 × 平均体型大小^0.5"""
-    frame_count = track["count"]
-    avg_size = np.mean(track["body_size_list"]) if track["body_size_list"] else 0.0
-    return frame_count * (avg_size ** 0.5)
+def score_track(track, first_n_frames=None):
+    """领操人评分: 直接用 bbox 体型大小
+
+    first_n_frames: 只用前 N 帧的统计量做评分（避免拼接视频后半段选错人）
+                    None 表示用整段统计
+
+    2026-06-20 修复 (v5): 之前尝试加稳定性/中心性/帧数奖励,
+    但实际数据: tid=7 size=0.009 拿稳定性奖励后 score=0.046,
+                tid=3 size=0.032 但 score=0.021
+    奖励压倒了 size 主项, 选错人。
+    现在直接用 size, 不加任何奖励。
+    """
+    sizes = track["body_size_list"]
+    if first_n_frames is not None:
+        sizes = sizes[:first_n_frames]
+    if not sizes:
+        return 0.0
+    return float(np.mean(sizes))
 
 
-def select_lead_track(tracks):
-    """从 tracks 中选择领操人（评分最高）"""
+def select_lead_track(tracks, first_n_frames=None):
+    """从 tracks 中选择领操人（评分最高）
+
+    first_n_frames: 只看前 N 帧的统计量选人（用于拼接视频: 用前半段选人避免背面错选）
+    """
     if not tracks:
         return 0, {"cx_list": [0.5], "body_size_list": [1.0], "count": 0}
-    lead_tid = max(tracks, key=lambda tid: score_track(tracks[tid]))
+    lead_tid = max(tracks, key=lambda tid: score_track(tracks[tid], first_n_frames=first_n_frames))
     return lead_tid, tracks[lead_tid]
 
 
@@ -202,16 +218,17 @@ def _body_center_x(person_kps):
 
 
 def _body_size_score(person_kps):
-    """计算人体大小评分（肩宽×身高）"""
+    """计算人体大小评分（bbox 包围盒面积）
+
+    2026-06-20 修复: 原公式用 nose + ankle 算身高, 背身时 nose/ankle 检测不准。
+    改用所有可见关键点的 (x_max-x_min) × (y_max-y_min) 作为 bbox 面积。
+    领操人通常距离镜头最近, bbox 最大, 应该胜出。
+    """
     kps = np.array(person_kps)
-    vis = kps[:, 2] > 0.5
-    if vis.sum() < 8:
+    vis = kps[:, 2] > 0.3
+    if vis.sum() < 5:
         return 0.0
-    left_shoulder = kps[11]
-    right_shoulder = kps[12]
-    nose = kps[0]
-    left_ankle = kps[27]
-    right_ankle = kps[28]
-    shoulder_w = abs(right_shoulder[0] - left_shoulder[0])
-    body_h = abs((left_ankle[1] + right_ankle[1]) / 2 - nose[1])
-    return shoulder_w * body_h
+    xs = kps[vis, 0]
+    ys = kps[vis, 1]
+    bbox_area = (xs.max() - xs.min()) * (ys.max() - ys.min())
+    return float(bbox_area)

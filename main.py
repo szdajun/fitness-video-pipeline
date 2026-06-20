@@ -82,6 +82,7 @@ DanmakuStage = _import_stage("34_danmaku", "DanmakuStage")
 IntensityBurstStage = _import_stage("35_intensity_burst", "IntensityBurstStage")
 QinColdOpenStage = _import_stage("36_qin_cold_open", "QinColdOpenStage")
 FaceSwapStage = _import_stage("37_face_swap", "FaceSwapStage")
+SmartCropStage = _import_stage("38_smart_crop", "SmartCropStage")  # 2026-06-20 修复 douyin preset 静态裁切 bug
 ExportStage = _import_stage("07_export", "ExportStage")
 
 DEFAULT_INPUT_DIR = "C:/Users/18091/Desktop/短视频素材"
@@ -113,6 +114,7 @@ def build_single_parser():
     p.add_argument("--skeleton-overlay", action="store_true", help="叠加骨架显示")
     p.add_argument("--no-pose-gpu", action="store_true", help="禁用 pose GPU 加速（用 CPU）")
     p.add_argument("--full-video", action="store_true", help="生成完整视频（跳过精华片段选取）")
+    p.add_argument("--strict", action="store_true", help="严格模式: 任何 stage 失败立即停止 (默认优雅降级)")
     p.add_argument("--audio", action="store_true", help="启用音频处理（响度标准化+背景音乐）")
     p.add_argument("--bg-music", type=str, help="背景音乐文件路径")
     p.add_argument("--bg-volume", type=float, default=0.25, help="背景音乐音量 (0.0-1.0)")
@@ -365,6 +367,8 @@ def run_single(args):
                      enabled=stages_cfg.get("rife", False))
     engine.add_stage("speed_ramp", SpeedRampStage(),
                      enabled=stages_cfg.get("speed_ramp", False))
+    engine.add_stage("smart_crop", SmartCropStage(),
+                     enabled=stages_cfg.get("smart_crop", False))  # 2026-06-20: 抖音/竖版默认 false 但 douyin preset 已开启
     engine.add_stage("danmaku", DanmakuStage(),
                      enabled=stages_cfg.get("danmaku", False))
     engine.add_stage("intensity_burst", IntensityBurstStage(),
@@ -793,7 +797,7 @@ ALL_STAGES = [
     "face_blur", "motion_heatmap", "sync_score", "beat_flash",
     "highlight", "energy_bar", "intro_outro", "watermark",
     "mascot", "blush", "face_beautify", "face_beautify2",
-    "rife", "speed_ramp", "danmaku", "intensity_burst",
+    "rife", "speed_ramp", "smart_crop", "danmaku", "intensity_burst",
     "film_look", "pip", "bgm_beat", "qin_cold_open",
     "export", "face_enhance",
 ]
@@ -834,6 +838,8 @@ def _apply_cli_overrides_from_dict(config, overrides):
     if overrides.get('full_video'):
         config["full_video"] = True
         config["stages"]["highlight"] = False
+    if overrides.get('strict'):
+        config["strict_mode"] = True
     if overrides.get('skeleton_overlay'):
         config["stages"]["skeleton_overlay"] = True
     if overrides.get('audio'):
