@@ -73,25 +73,43 @@ class FaceSwapStage:
             print(f"    跳过: 教练 '{lead_name}' 在 tools/ 下无照片 (可放 {lead_name}.png 启用换脸)")
             return
 
-        # 用 mascot 输出作目标（所有下游阶段都吃换脸结果）
-        target = ctx.get("face_swap_target") or ctx.get("mascot_path")
-        if not target or not path_exists(target):
-            print(f"    跳过: mascot 输出不存在")
+        # 换脸目标: 优先显式指定 → mascot 输出 → 任意上游视频
+        # (mascot 未开启时也能换脸, 不再硬依赖吉祥物; 下游仍读 mascot_path 接力)
+        _TARGET_KEYS = [
+            "face_swap_target", "mascot_path", "watermark_path",
+            "skin_smooth_path", "denoise_path", "skin_tone_filter_path",
+            "color_path", "ken_burns_path", "warped_path", "face_path",
+            "h2v_path", "stabilized_path", "pre_deblock_path",
+        ]
+        target = None
+        for _k in _TARGET_KEYS:
+            _p = ctx.get(_k)
+            if _p and path_exists(_p):
+                target = _p
+                break
+        if not target:
+            print(f"    跳过: 无可用上游视频作为换脸目标")
             return
 
         stem = Path(target).stem
         out_path = ctx.output_dir / f"{stem}_faceswap.mp4"
 
-        every_n = 2
-        max_frames = 0
+        # 换脸参数. face_swap 在 preset 里通常是 bool (开关), 参数单独放顶层 face_swap 块.
+        fs_cfg = ctx.config.get("face_swap")
+        if not isinstance(fs_cfg, dict):
+            fs_cfg = {}
+        gfpgan_strength = fs_cfg.get("gfpgan_strength", 0.5)  # 换脸后 GFPGAN 美颜修复强度
+        color_match_strength = fs_cfg.get("color_match_strength", 0.8)  # 肤色迁移回原场景 (消偏色/过白)
+        max_frames = fs_cfg.get("max_frames", 0)
 
-        print(f"    换脸: {lead_name} ← {Path(source_face).name}")
+        print(f"    换脸: {lead_name} ← {Path(source_face).name} (GFPGAN={gfpgan_strength}, 色温={color_match_strength})")
 
         sys.path.insert(0, tools_dir)
         try:
             from tools.face_swap import process_video, FFMPEG
             process_video(source_face, str(target), str(out_path),
-                         max_frames=max_frames, every_n=every_n)
+                         max_frames=max_frames, gfpgan_strength=gfpgan_strength,
+                         color_match_strength=color_match_strength)
 
             # 兜底：如果工具内部混音失败，手动用源视频音频混合
             if not os.path.exists(str(out_path)):
