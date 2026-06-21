@@ -185,9 +185,101 @@ def gfpgan_restore_frame(frame, model, cascade, device, strength=0.5):
     return frame
 
 
+# ============================================================
+# 源照质量门控 + 自动 GFPGAN 增强 (不合格照片自动修好, 存 _gfpgan.png 长期复用)
+# ============================================================
+def _imread_unicode(path):
+    """中文路径安全读图 (Windows 下 cv2.imread 对中文路径返回 None)."""
+    try:
+        return cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+
+
+def _imwrite_unicode(path, img):
+    """中文路径安全写图."""
+    ext = os.path.splitext(path)[1] or ".png"
+    ok, buf = cv2.imencode(ext, img)
+    if ok:
+        buf.tofile(path)
+    return ok
+
+
+# 源照质量阈值 (任一不达标 → 触发 GFPGAN 增强)
+SRC_FACE_MIN_PX = 160      # 人脸 bbox 短边像素下限 (换脸 embedding 质量关键)
+SRC_FACE_MIN_BLUR = 60     # 人脸区域拉普拉斯方差下限 (模糊度)
+SRC_FACE_MIN_DET = 0.50    # insightface 检测置信度下限
+
+
+def assess_source_quality(img, app):
+    """评估换脸源照质量. 返回 (ok, reason, best_face).
+    ok=True 合格可直接换脸; ok=False 建议先增强."""
+    faces = app.get(img)
+    if not faces:
+        return False, "未检测到人脸", None
+    best = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+    fw = best.bbox[2] - best.bbox[0]
+    fh = best.bbox[3] - best.bbox[1]
+    face_short = min(fw, fh)
+    x1, y1 = max(0, int(best.bbox[0])), max(0, int(best.bbox[1]))
+    x2, y2 = int(best.bbox[2]), int(best.bbox[3])
+    roi = cv2.cvtColor(img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY) if x2 > x1 and y2 > y1 else None
+    blur = float(cv2.Laplacian(roi, cv2.CV_64F).var()) if roi is not None and roi.size > 0 else 0.0
+    if face_short < SRC_FACE_MIN_PX:
+        return False, f"脸太小({face_short:.0f}px<{SRC_FACE_MIN_PX})", best
+    if blur < SRC_FACE_MIN_BLUR:
+        return False, f"脸模糊(清晰度{blur:.0f}<{SRC_FACE_MIN_BLUR})", best
+    if best.det_score < SRC_FACE_MIN_DET:
+        return False, f"置信度低({best.det_score:.2f}<{SRC_FACE_MIN_DET})", best
+    return True, f"合格(脸{face_short:.0f}px,清晰度{blur:.0f})", best
+
+
+def enhance_source_photo(img, model, cascade, device):
+    """对源照全强度 GFPGAN 增强人脸 → 高清美颜照.
+    换脸源照核心是人脸清晰度, GFPGAN(修脸+2x) 比通用 Real-ESRGAN(整图超分, 放大噪点) 更对口."""
+    return gfpgan_restore_frame(img, model, cascade, device, strength=1.0)
+
+
+def ensure_source_photo(source_path, coach_name, app=None, force=False, out_dir=None):
+    """换脸源照质量门控 + 自动增强. 返回最终源照路径.
+
+    - 文件名已含 _gfpgan → 已增强, 幂等返回 (除非 force).
+    - 检测质量: 合格→原路; 不合格→GFPGAN 增强→存 {coach}_gfpgan.png→返回新路.
+    - 生成的 _gfpgan.png 会被 find_coach_face 下次优先命中 → 长期复用, 零重复算力.
+    """
+    base = os.path.basename(source_path)
+    if "_gfpgan" in base and not force:
+        return source_path
+    if out_dir is None:
+        out_dir = os.path.dirname(source_path) or "tools"
+    img = _imread_unicode(source_path)
+    if img is None:
+        print(f"  源照读取失败: {base}, 用原图")
+        return source_path
+    if app is None:
+        app = get_face_analyser()
+    ok, reason, _ = assess_source_quality(img, app)
+    if ok and not force:
+        print(f"  源照{reason}, 无需增强: {base}")
+        return source_path
+    print(f"  源照不合格({reason}), GFPGAN 增强中: {base}")
+    model, cascade, device = _load_gfpgan()
+    if model is None:
+        print(f"  GFPGAN 不可用, 用原图")
+        return source_path
+    enhanced = enhance_source_photo(img, model, cascade, device)
+    out_path = os.path.join(out_dir, f"{coach_name}_gfpgan.png")
+    _imwrite_unicode(out_path, enhanced)
+    # NOTE: 增强后不再用 blur 二次卡门 — GFPGAN 美颜照高频方差天然偏低 (皮肤光滑),
+    # 拉普拉斯"清晰度"对美颜照不公 (实测增强前后均 ~23); GFPGANv1.4 输出即成熟修复脸, 直接信任复用.
+    eh, ew = enhanced.shape[:2]
+    print(f"  已 GFPGAN 增强 → {os.path.basename(out_path)} ({ew}x{eh}), 下次自动复用")
+    return out_path
+
+
 def extract_face_embedding(app, image_path):
     """从源图片提取人脸特征"""
-    img = cv2.imread(image_path)
+    img = _imread_unicode(image_path)
     if img is None:
         raise ValueError(f"无法读取图片: {image_path}")
     faces = app.get(img)

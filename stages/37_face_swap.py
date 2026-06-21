@@ -102,11 +102,15 @@ class FaceSwapStage:
         color_match_strength = fs_cfg.get("color_match_strength", 0.8)  # 肤色迁移回原场景 (消偏色/过白)
         max_frames = fs_cfg.get("max_frames", 0)
 
-        print(f"    换脸: {lead_name} ← {Path(source_face).name} (GFPGAN={gfpgan_strength}, 色温={color_match_strength})")
-
         sys.path.insert(0, tools_dir)
         try:
-            from tools.face_swap import process_video, FFMPEG
+            from tools.face_swap import process_video, ensure_source_photo, FFMPEG
+            # 源照质量门控: 不合格 (脸小/模糊/低置信) 自动 GFPGAN 增强 → 存 {coach}_gfpgan.png 长期复用
+            try:
+                source_face = ensure_source_photo(source_face, lead_name, out_dir=tools_dir)
+            except Exception as _e:
+                print(f"    源照增强跳过: {_e}")
+            print(f"    换脸: {lead_name} ← {Path(source_face).name} (GFPGAN={gfpgan_strength}, 色温={color_match_strength})")
             process_video(source_face, str(target), str(out_path),
                          max_frames=max_frames, gfpgan_strength=gfpgan_strength,
                          color_match_strength=color_match_strength)
