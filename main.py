@@ -165,6 +165,9 @@ def build_single_parser():
                    help="背景图路径 (默认 assets/bg/gym_studio.jpg)")
     p.add_argument("--bg-coach", type=str, default=None,
                    help="教练名 (换脸用, 默认从文件名检测)")
+    p.add_argument("--coach", type=str, default=None,
+                   help="领操教练名 (换脸/片头用, 默认从文件名检测). "
+                        "文件名不含教练名时用此项显式指定, 例: 丽丽/艳青/建玲/小红豆/枫林红/郭海军")
 
     return p
 
@@ -302,6 +305,15 @@ def run_single(args):
     if "output_dir" in config:
         ctx.output_dir = Path(config["output_dir"])
 
+    # 领操人名: CLI --coach 优先, 否则从文件名检测. 注入 ctx 供 face_swap/intro_outro 等下游统一使用
+    # (之前 main.py 检测了 coach 却只存局部变量, 导致下游各 stage 各自兜底 detect, 也无法显式指定)
+    _lead = getattr(args, "coach", None)
+    if not _lead:
+        from lib.coach_profiles import detect_coach_from_filename
+        _lead = detect_coach_from_filename(str(input_path))
+    if _lead:
+        ctx.set("lead_name", _lead)
+
     engine = PipelineEngine(config)
     stages_cfg = config["stages"]
 
@@ -356,7 +368,7 @@ def run_single(args):
     engine.add_stage("mascot", MascotStage(),
                      enabled=stages_cfg.get("mascot", False))
     engine.add_stage("face_swap", FaceSwapStage(),
-                     enabled=stages_cfg.get("face_swap", False))
+                     enabled=stages_cfg.get("face_swap", True))  # 2026-06-21: 换脸为必要阶段, 默认开 (缺教练照片时 stage 内部自动跳过)
     engine.add_stage("blush", BlushStage(),
                      enabled=stages_cfg.get("blush", False))
     engine.add_stage("face_beautify", FaceBeautifyStage(),
@@ -751,6 +763,15 @@ def _process_video_task(task):
 
         ctx = PipelineContext(str(video_path), file_config)
         ctx.output_dir = _Path(file_output_dir)
+
+        # 领操人名: 从文件名检测 (batch 多视频, 每个靠文件名). 注入 ctx 供下游 face_swap/intro_outro 统一使用
+        try:
+            from lib.coach_profiles import detect_coach_from_filename
+            _lead = detect_coach_from_filename(str(video_path))
+            if _lead:
+                ctx.set("lead_name", _lead)
+        except Exception:
+            pass
 
         engine = PipelineEngine(file_config)
         stages_cfg = file_config["stages"]

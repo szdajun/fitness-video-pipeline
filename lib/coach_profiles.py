@@ -5,6 +5,16 @@
 import re
 import os
 
+# 繁简转换（可选依赖）
+try:
+    import zhconv
+
+    def to_traditional(text: str) -> str:
+        return zhconv.convert(text, "zh-tw")
+except ImportError:
+    def to_traditional(text: str) -> str:
+        return text
+
 DEFAULT_CHANNEL = "细柳营健身"
 
 DEFAULT_SHORTS_POEM = (
@@ -31,46 +41,46 @@ COACH_PROFILES = {
         "hook": "暴汗燃脂",
         "workout": "力量燃脂操",
         "focus": "塑腰臀",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "胭脂虎啸震四方\n踏步如风腰似浪\n刚柔并济铿锵行\n细柳营中第一将",
-        "shorts_en_title": "FIERCE CARDIO 🔥",
+        "shorts_en_title": "FIERCE CARDIO",
         "shorts_en_subtitle": "Power & Grace · 胭脂虎",
     },
     "丽丽": {
-        "nickname": "腰女",
-        "judgment": "腰细若柳摇金殿，腿长随风步步轻，柔姿渐起刚骨架，丽影无双醉银屏",
+        "nickname": "长安腰女",
+        "judgment": "长安腰细若柳摇，腿长随风步步轻，柔姿渐起刚骨架，丽影无双醉银屏",
         "traits": ["腰细腿长", "身姿柔美", "力度渐强"],
-        "hook": "极致瘦腰",
+        "hook": "长安腰女",
         "workout": "腰腹燃脂操",
         "focus": "打造S曲线",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "腰若细柳随风摆\n腿如青莲步步开\n柔姿渐起刚骨架\n丽影无双入梦来",
-        "shorts_en_title": "WAIST SHREDDER 🔥",
-        "shorts_en_subtitle": "S-Curve Sculpt · 腰女",
+        "shorts_en_title": "WAIST SHREDDER",
+        "shorts_en_subtitle": "S-Curve Sculpt · 长安腰女",
     },
     "建玲": {
-        "nickname": "三宝妈",
+        "nickname": "三宝菩萨",
         "judgment": "时代广场行将令，帅哥美女齐上阵，吉祥三宝福在手，岁月不催韵犹在",
         "traits": ["三孩母亲", "带操利落", "团队领袖", "身材不老"],
         "hook": "高效全身",
         "workout": "全身燃脂操",
         "focus": "产后恢复",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
-        "shorts_poem": "三宝妈来气势足\n带操利落不含糊\n岁月不催容颜改\n细柳营中顶梁柱",
-        "shorts_en_title": "30s FAT BURN 🔥",
-        "shorts_en_subtitle": "3-Mommy Coach · 三宝妈",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
+        "shorts_poem": "三宝菩萨气势足\n带操利落不含糊\n岁月不催容颜改\n细柳营中顶梁柱",
+        "shorts_en_title": "30s FAT BURN",
+        "shorts_en_subtitle": "Power Mom · 三宝菩萨",
     },
     "小红豆": {
-        "nickname": "红娘子",
+        "nickname": "红线女",
         "judgment": "红豆香汗透罗裳，花枝乱颤舞红妆，娇喘微微惹人怜，酥胸玉臂醉银屏",
         "traits": ["娇小可爱", "女人味足", "动作标准"],
-        "hook": "新手友好",
+        "hook": "红线女",
         "workout": "全身燃脂操",
         "focus": "居家有氧",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "红豆生来俏模样\n香汗淋漓透红妆\n娇喘微微惹人怜\n花枝乱颤舞霓裳",
-        "shorts_en_title": "EASY CARDIO 🌸",
-        "shorts_en_subtitle": "Beginner Friendly · 红娘子",
+        "shorts_en_title": "EASY CARDIO",
+        "shorts_en_subtitle": "Beginner Friendly · 红线女",
     },
     "郭海军": {
         "nickname": "老兵不老",
@@ -79,9 +89,9 @@ COACH_PROFILES = {
         "hook": "老兵不老",
         "workout": "力量燃脂操",
         "focus": "刚劲塑形",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "老兵卸甲志不休\n铁骨铮铮弄潮头\n操场点兵威风在\n汗洒细柳写春秋",
-        "shorts_en_title": "VETERAN POWER 💪",
+        "shorts_en_title": "VETERAN POWER",
         "shorts_en_subtitle": "Never Too Old · 老兵不老",
     },
     "枫林红": {
@@ -91,9 +101,9 @@ COACH_PROFILES = {
         "hook": "霸道总裁",
         "workout": "全身燃脂操",
         "focus": "高效有氧",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "总裁迈步气场开\n纤腰玉臂柔中来\n动若脱兔静若松\n枫林红透万千宅",
-        "shorts_en_title": "CEO'S FAT BURN 🔥",
+        "shorts_en_title": "CEO'S FAT BURN",
         "shorts_en_subtitle": "High Energy · 霸道总裁",
     },
     "李刚": {
@@ -103,46 +113,34 @@ COACH_PROFILES = {
         "hook": "托塔天王",
         "workout": "力量燃脂操",
         "focus": "全身塑形",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "天王托塔镇四方\n铁骨铮铮气宇昂\n步履稳如泰山石\n带操一声万人唱",
-        "shorts_en_title": "STRENGTH CARDIO 💪",
+        "shorts_en_title": "STRENGTH CARDIO",
         "shorts_en_subtitle": "Full Body Power · 托塔天王",
     },
     "小飞侠": {
-        "nickname": "节拍战神",
-        "judgment": "飞侠踏乐步生风，节拍入魂韵无穷，举手投足皆律动，战神一舞万巷空",
+        "nickname": "雷震子",
+        "judgment": "雷震双翼踏乐行，节拍入魂韵无穷，举手投足皆律动，风雷一舞万巷空",
         "traits": ["节奏感极强", "动作与音乐完美契合", "律动带动全场"],
         "hook": "跟着音乐",
         "workout": "燃脂操",
         "focus": "律动全身",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
-        "shorts_poem": "飞侠踏乐步生烟\n节拍入魂舞翩跹\n举手投足皆韵律\n战神一现万巷传",
-        "shorts_en_title": "BEAT SYNC CARDIO 💥",
-        "shorts_en_subtitle": "Full Body Burn · 节拍战神",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
+        "shorts_poem": "雷震双翼踏乐生\n节拍入魂舞翩跹\n举手投足皆韵律\n风雷一现万巷传",
+        "shorts_en_title": "THUNDER BEAT",
+        "shorts_en_subtitle": "Full Body Burn · 雷震子",
     },
     "张杰": {
-        "nickname": "飞毛腿",
+        "nickname": "神行太保",
         "judgment": "万里征途始于足下，飞毛腿疾如风，马拉松魂燃细柳营",
         "traits": ["马拉松跑者", "耐力持久", "节奏稳定"],
-        "hook": "飞毛腿",
+        "hook": "神行太保",
         "workout": "燃脂跟练",
         "focus": "持久有氧",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}耐力燃脂 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}耐力燃脂 | {channel}",
         "shorts_poem": "天高云淡路远\n帅哥美女争先\n遥见一骑如烟\n细柳营中张哥",
-        "shorts_en_title": "ENDURANCE BURN 🏃",
-        "shorts_en_subtitle": "Marathon Spirit · 飞毛腿",
-    },
-    "艳玲": {
-        "nickname": "俏玲珑",
-        "judgment": "玲珑身段柔中刚，娇俏带操步步香，一笑倾城细柳营\n恍惚间似花枝乱颤，耳畔闻娇喘微微，眼见她香汗淋漓，面如桃花肤似雪",
-        "traits": ["身段玲珑", "娇俏带操", "柔中带刚"],
-        "hook": "全身塑形",
-        "workout": "塑形燃脂操",
-        "focus": "纤细身段",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}优雅跟练 | {channel}",
-        "shorts_poem": "玲珑身段柔中刚\n娇俏带操步步香\n细柳营中花一朵\n一笑倾城压群芳",
-        "shorts_en_title": "GRACEFUL BURN ✨",
-        "shorts_en_subtitle": "Elegant Sculpt · 俏玲珑",
+        "shorts_en_title": "ENDURANCE BURN",
+        "shorts_en_subtitle": "Marathon Spirit · 神行太保",
     },
     "彩娥": {
         "nickname": "孤勇者",
@@ -151,9 +149,9 @@ COACH_PROFILES = {
         "hook": "孤勇者",
         "workout": "全身燃脂操",
         "focus": "勇气燃脂",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "挥袖踏歌领众行\n汗沾罗袖亦娉婷\n一身勇毅承风雨\n独护庭前两稚青",
-        "shorts_en_title": "FEARLESS CARDIO ⚡",
+        "shorts_en_title": "FEARLESS CARDIO",
         "shorts_en_subtitle": "Courage & Sweat · 孤勇者",
     },
 }
@@ -190,9 +188,35 @@ def _clean_input_name(name: str) -> str:
 def _match_coach_key(stem: str):
     """从 stem 匹配最长的教练 key，未匹配返回 None"""
     for key in _SORTED_COACH_KEYS:
-        if key.startswith(stem) or stem.startswith(key):
+        if key.startswith(stem) or stem.startswith(key) or stem in key or key in stem:
             return key
     return None
+
+
+def _resolve_coach_name(name: str) -> str:
+    """统一识别: 文件名或简称 → 完整教练名 (如 '海军3' → '郭海军', '海军_danmaku' → '郭海军')
+
+    2026-06-17 修: 之前 _clean_input_name 把"海军3_danmaku_burst"截成"海军",
+    _match_coach_key("海军") 又匹配不到 "郭海军" (因为 in/startswith 方向错),
+    导致 get_coach() 返回默认画像 (无专属诗词/英文名).
+
+    解决: 先用 detect_coach_from_filename 走完整匹配逻辑, 失败再用 _match_coach_key + 简单包含测试
+    """
+    # 1. 用完整 detect 流程 (含文件名清理)
+    detected = detect_coach_from_filename(name)
+    if detected in COACH_PROFILES:
+        return detected
+    # 2. 退化: 直接在 stem 上找最长 key 包含
+    stem = _clean_input_name(name)
+    if stem in COACH_PROFILES:
+        return stem
+    if key := _match_coach_key(stem):
+        return key
+    # 3. 找最长 key 在 stem 任意位置出现
+    for key in _SORTED_COACH_KEYS:
+        if key in stem or stem in key:
+            return key
+    return stem
 
 
 def get_coach(name: str) -> dict:
@@ -207,23 +231,19 @@ def get_coach(name: str) -> dict:
     Returns:
         教练画像 dict，含 name/nickname/judgment/traits/hook/workout/focus/title_tpl。
     """
-    stem = _clean_input_name(name)
-    if stem in COACH_PROFILES:
-        return {"name": stem, **COACH_PROFILES[stem]}
+    resolved = _resolve_coach_name(name)
+    if resolved in COACH_PROFILES:
+        return {"name": resolved, **COACH_PROFILES[resolved]}
 
-    key = _match_coach_key(stem)
-    if key:
-        return {"name": key, **COACH_PROFILES[key]}
-
-    if stem in _NICKNAME_MAP:
-        real_name = _NICKNAME_MAP[stem]
+    if resolved in _NICKNAME_MAP:
+        real_name = _NICKNAME_MAP[resolved]
         return {"name": real_name, **COACH_PROFILES[real_name]}
 
     return {
-        "name": stem, "nickname": stem, "judgment": "",
+        "name": resolved, "nickname": resolved, "judgment": "",
         "traits": [], "hook": "全身燃脂", "workout": "燃脂操",
         "focus": "暴汗燃脂",
-        "title_tpl": "【{hook}】{nickname}{name}{workout} | {focus}跟练 | {channel}",
+        "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
     }
 
 
@@ -238,6 +258,9 @@ def detect_coach_from_filename(filename: str) -> str:
     """
     stem = os.path.splitext(os.path.basename(str(filename)))[0]
     stem = _clean_input_name(stem)
+    if not stem:
+        return ""  # 纯数字/符号开头文件名 (如 2026-06-22_xxx) 截断后为空 → 返回空让下游 skip,
+                   # 而非被 _match_coach_key("") 误匹配成某教练 (会导致给无关视频误换脸)
     key = _match_coach_key(stem)
     return key if key else stem
 
@@ -290,13 +313,42 @@ def generate_title(coach: dict, config: dict) -> str:
         标题字符串，如 "【暴汗燃脂】胭脂虎艳青力量燃脂操 | 塑腰臀跟练 | 细柳营健身"
     """
     channel = config.get("channel", DEFAULT_CHANNEL)
-    return coach["title_tpl"].format(
+    base_title = coach["title_tpl"].format(
         name=coach["name"],
         nickname=coach["nickname"],
         channel=channel,
         hook=coach.get("hook", "暴汗燃脂"),
         workout=coach.get("workout", "燃脂操"),
         focus=coach.get("focus", "全身燃脂"),
+    )
+    # 追加搜索关键词（户外/零基础/不伤膝/跟练）
+    keywords = config.get("seo_keywords", "户外燃脂操｜零基础不伤膝｜跟练打卡")
+    title = f"{base_title}｜{keywords}"
+    # 繁体转换
+    if config.get("traditional", False):
+        title = to_traditional(title)
+    return title
+
+
+def generate_douyin_title(name: str) -> str:
+    """生成抖音短标题，限 30 字。格式：【花名】简短描述"""
+    coach = get_coach(name)
+    nickname = coach.get("nickname", name)
+    workout = coach.get("workout", "燃脂操")
+    focus = coach.get("focus", "全身燃脂")
+    return f"【{nickname}】{focus}{workout}"[:30]
+
+
+def generate_douyin_description(name: str) -> str:
+    """生成抖音简介文案，含判词 + CTA + 话题"""
+    coach = get_coach(name)
+    nickname = coach.get("nickname", name)
+    poem_lines = coach.get("shorts_poem", "").split("\n")
+    poem_short = "，".join(poem_lines[:2]) if poem_lines else ""
+    return (
+        f"{nickname}{coach['name']}带操！{poem_short}。"
+        "汉细柳营故地·时代广场，每天跟练暴汗燃脂，零基础也能跳！"
+        f"#胭脂虎健身团 #{nickname} #燃脂操 #跟练 #健身"
     )
 
 
@@ -344,7 +396,10 @@ def generate_description(coach: dict, config: dict, duration: str = "") -> str:
     if tags:
         lines.append(" ".join(f"#{t}" for t in tags))
 
-    return "\n".join(lines)
+    desc = "\n".join(lines)
+    if config.get("traditional", False):
+        desc = to_traditional(desc)
+    return desc
 
 
 def generate_tags(coach: dict, config: dict) -> list:
