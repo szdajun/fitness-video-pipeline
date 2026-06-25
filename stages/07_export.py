@@ -680,29 +680,25 @@ class ExportStage:
             use_tc = ctx.config.get("seo", {}).get("traditional", False)
             # YouTube Shorts (30s, 英文+诗词)
             try:
-                import importlib as _imp_shorts
-                _ms_mod = _imp_shorts.import_module("_make_shorts")
-                make_shorts = _ms_mod.make_shorts
+                import importlib
+                _sm = importlib.import_module("stages.39_shorts")
                 if kp_file.exists() and path_exists(shorts_src):
-                    # _make_shorts.py 签名: (src_path, output_dir, keypoints_file, duration=15, audio_src=None)
-                    # 不支持 traditional 参数
-                    result = make_shorts(str(shorts_src), str(ctx.output_dir),
-                                        str(kp_file), duration=30,
-                                        audio_src=str(ctx.input_path))
+                    result = _sm.make_shorts(str(shorts_src), str(ctx.output_dir),
+                                             str(kp_file), duration=30,
+                                             audio_src=str(ctx.input_path))
                     if result:
                         ctx.set("shorts_path", result)
                         print(f"    Shorts: {Path(result).name}")
             except Exception as e:
                 print(f"    Shorts 失败: {e}")
-            # 抖音竖版 (带片头片尾)
+            # 抖音竖版
             try:
-                import importlib as _imp_shorts
-                _ms_mod = _imp_shorts.import_module("_make_shorts")
-                make_douyin_vertical = _ms_mod.make_douyin_vertical
+                import importlib
+                _sm = importlib.import_module("stages.39_shorts")
                 intro_p = ctx.output_dir / f"{video_path.stem}_intro.mp4"
                 outro_p = ctx.output_dir / f"{video_path.stem}_outro.mp4"
                 if kp_file.exists() and path_exists(shorts_src):
-                    result = make_douyin_vertical(
+                    result = _sm.make_douyin_vertical(
                         str(shorts_src), str(ctx.output_dir),
                         str(kp_file), audio_src=str(ctx.input_path),
                         intro_path=str(intro_p) if intro_p.exists() else None,
