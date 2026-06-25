@@ -117,25 +117,33 @@ def _opening_overlay_filter(coach_name: str, duration: float):
     alpha_opt = f"alpha='{alpha_expr}'"
 
     filters = [
-        # 英文大字 - 顶部居中, 黄色粗体
+        # 英文大字 - 顶部居中, 黄色粗体 (最大但不过大)
         f"drawtext=fontfile='{FONT_BOLD}':text='{title_esc}':"
-        f"fontcolor=yellow:fontsize=52:{alpha_opt}:"
-        f"x=(w-text_w)/2:y=h*0.06:"
-        f"borderw=3:bordercolor=black",
+        f"fontcolor=yellow:fontsize=72:{alpha_opt}:"
+        f"x=(w-text_w)/2:y=h*0.02:"
+        f"borderw=5:bordercolor=black",
 
-        # 英文副标题 - 大字下方
+        # 英文副标题 - 大字下方 (加大)
         f"drawtext=fontfile='{FONT}':text='{sub_esc}':"
-        f"fontcolor=white:fontsize=28:{alpha_opt}:"
-        f"x=(w-text_w)/2:y=h*0.14:"
+        f"fontcolor=white:fontsize=58:{alpha_opt}:"
+        f"x=(w-text_w)/2:y=h*0.09:"
         f"borderw=2:bordercolor=black",
 
-        # 中文诗句 - 中部偏上
-        f"drawtext=fontfile='{FONT}':text='{poem_esc}':"
-        f"fontcolor=yellow:fontsize=36:{alpha_opt}:"
-        f"x=(w-text_w)/2:y=h*0.30:"
-        f"line_spacing=8:"
-        f"borderw=2:bordercolor=black",
     ]
+
+    # 中文诗句 - 逐行渲染 (避免换行符导致方块)
+    poem_lines = poem.strip().split("\n")
+    for i, line in enumerate(poem_lines):
+        line_esc = _escape_ffmpeg_text(line.strip())
+        line_y = 0.17 + i * 0.048  # 行距收紧
+        filters.append(
+            f"drawtext=fontfile='{FONT}':text='{line_esc}':"
+            f"fontcolor=yellow:fontsize=56:{alpha_opt}:"
+            f"x=(w-text_w)/2:y=h*{line_y:.3f}:"
+            f"borderw=3:bordercolor=black"
+        )
+
+    # 结束标记
     return ",".join(filters)
 
 
@@ -163,23 +171,23 @@ def _ending_cta_filter(duration: float):
     filters = [
         # 红色分割线
         f"drawtext=fontfile='{FONT}':text='———————————':"
-        f"fontcolor=red:fontsize=24:{alpha_opt}:"
-        f"x=(w-text_w)/2:y=h*0.78",
+        f"fontcolor=red:fontsize=32:{alpha_opt}:"
+        f"x=(w-text_w)/2:y=h*0.76",
 
-        # ① 黄色大字 CTA
+        # ① 黄色大字 CTA (最大)
         f"drawtext=fontfile='{FONT_BOLD}':text='{_escape_ffmpeg_text(cta_lines[0])}':"
-        f"fontcolor=yellow:fontsize=34:{alpha_opt}:"
-        f"x=(w-text_w)/2:y=h*0.82:"
-        f"borderw=2:bordercolor=black",
+        f"fontcolor=yellow:fontsize=50:{alpha_opt}:"
+        f"x=(w-text_w)/2:y=h*0.81:"
+        f"borderw=3:bordercolor=black",
 
-        # ② 白色小字
+        # ② 白色小字 (加大)
         f"drawtext=fontfile='{FONT}':text='{_escape_ffmpeg_text(cta_lines[1])}':"
-        f"fontcolor=white:fontsize=24:{alpha_opt}:"
-        f"x=(w-text_w)/2:y=h*0.88",
+        f"fontcolor=white:fontsize=40:{alpha_opt}:"
+        f"x=(w-text_w)/2:y=h*0.87",
 
-        # ③ 灰色小字
+        # ③ 灰色小字 (最小)
         f"drawtext=fontfile='{FONT}':text='{_escape_ffmpeg_text(cta_lines[2])}':"
-        f"fontcolor=gray:fontsize=20:{alpha_opt}:"
+        f"fontcolor=gray:fontsize=26:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.93",
     ]
     return ",".join(filters)
