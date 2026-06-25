@@ -23,7 +23,7 @@ if not os.path.exists(FFMPEG):
 FFPROBE = FFMPEG.replace("ffmpeg.exe", "ffprobe.exe")
 
 FONT = "C\\:/Windows/Fonts/simhei.ttf"
-FONT_BOLD = "C\\:/Windows/Fonts/msyhbd.ttf"
+FONT_BOLD = "C\\:/Windows/Fonts/msyhbd.ttc"
 
 
 # ── 工具 ──────────────────────────────────────────────
@@ -90,7 +90,7 @@ def _escape_ffmpeg_text(text: str) -> str:
 
 # ── 片头叠加滤镜 (英文标题 + 诗歌) ─────────────────────
 
-def _opening_overlay_filter(coach_name: str, duration: float, fps: float):
+def _opening_overlay_filter(coach_name: str, duration: float):
     """生成片头文字叠加的 ffmpeg drawtext 滤镜链。
 
     结构: 顶层英文大字 → 小字副标题 → 中部黄色诗句
@@ -101,7 +101,7 @@ def _opening_overlay_filter(coach_name: str, duration: float, fps: float):
     subtitle = en.get("subtitle", DEFAULT_SHORTS_EN["subtitle"])
     poem = get_shorts_poem(coach_name) or DEFAULT_SHORTS_POEM
 
-    # 渐显/渐隐 alpha 表达式 (帧级)
+    # 渐显/渐隐 alpha 表达式
     # 0-0.5s 渐显, 0.5-3.0s 停留, 3.0-3.5s 渐隐
     total_fade = 3.5
     alpha_expr = (
@@ -114,29 +114,28 @@ def _opening_overlay_filter(coach_name: str, duration: float, fps: float):
     sub_esc = _escape_ffmpeg_text(subtitle)
     poem_esc = _escape_ffmpeg_text(poem)
 
+    alpha_opt = f"alpha='{alpha_expr}'"
+
     filters = [
         # 英文大字 - 顶部居中, 黄色粗体
         f"drawtext=fontfile='{FONT_BOLD}':text='{title_esc}':"
-        f"fontcolor=yellow@$ALPHA$:fontsize=52:"
+        f"fontcolor=yellow:fontsize=52:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.06:"
-        f"borderw=3:bordercolor=black@0.7",
+        f"borderw=3:bordercolor=black",
 
         # 英文副标题 - 大字下方
         f"drawtext=fontfile='{FONT}':text='{sub_esc}':"
-        f"fontcolor=white@$ALPHA$:fontsize=28:"
+        f"fontcolor=white:fontsize=28:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.14:"
-        f"borderw=2:bordercolor=black@0.5",
+        f"borderw=2:bordercolor=black",
 
         # 中文诗句 - 中部偏上
         f"drawtext=fontfile='{FONT}':text='{poem_esc}':"
-        f"fontcolor=yellow@$ALPHA$:fontsize=36:"
+        f"fontcolor=yellow:fontsize=36:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.30:"
         f"line_spacing=8:"
-        f"borderw=2:bordercolor=black@0.7",
+        f"borderw=2:bordercolor=black",
     ]
-
-    # 替换 $ALPHA$ 为实际表达式
-    filters = [f.replace("$ALPHA$", alpha_expr) for f in filters]
     return ",".join(filters)
 
 
@@ -157,33 +156,32 @@ def _ending_cta_filter(duration: float):
         f"if(lt(t,{fade_in_start}), 0, "
         f"if(lt(t,{fade_in_start + 1.0}), (t-{fade_in_start})/1.0, 1))"
     )
+    alpha_opt = f"alpha='{alpha_expr}'"
 
-    cta_lines = _SHORTS_CTA_EN  # ["点赞 LIKE & SUBSCRIBE 关注", "完整版 Full Workout on Channel", "新视频 New Videos Daily"]
+    cta_lines = _SHORTS_CTA_EN
 
     filters = [
         # 红色分割线
         f"drawtext=fontfile='{FONT}':text='———————————':"
-        f"fontcolor=red@$ALPHA$:fontsize=24:"
+        f"fontcolor=red:fontsize=24:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.78",
 
         # ① 黄色大字 CTA
         f"drawtext=fontfile='{FONT_BOLD}':text='{_escape_ffmpeg_text(cta_lines[0])}':"
-        f"fontcolor=yellow@$ALPHA$:fontsize=34:"
+        f"fontcolor=yellow:fontsize=34:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.82:"
-        f"borderw=2:bordercolor=black@0.7",
+        f"borderw=2:bordercolor=black",
 
         # ② 白色小字
         f"drawtext=fontfile='{FONT}':text='{_escape_ffmpeg_text(cta_lines[1])}':"
-        f"fontcolor=white@$ALPHA$:fontsize=24:"
+        f"fontcolor=white:fontsize=24:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.88",
 
         # ③ 灰色小字
         f"drawtext=fontfile='{FONT}':text='{_escape_ffmpeg_text(cta_lines[2])}':"
-        f"fontcolor=gray@$ALPHA$:fontsize=20:"
+        f"fontcolor=gray:fontsize=20:{alpha_opt}:"
         f"x=(w-text_w)/2:y=h*0.93",
     ]
-
-    filters = [f.replace("$ALPHA$", alpha_expr) for f in filters]
     return ",".join(filters)
 
 
@@ -224,13 +222,19 @@ def make_shorts(src_path, output_dir, keypoints_file, duration=30, audio_src=Non
     crop_filter = f"crop={crop_w}:{crop_h}:{crop_x}:0,scale=1080:1920:flags=lanczos"
 
     # 4b. 片头文字 (渐显渐隐)
-    fps = 30
-    opening = _opening_overlay_filter(coach_name or "", duration, fps)
+    opening = _opening_overlay_filter(coach_name or "", duration)
 
     # 4c. 片尾 CTA
     cta = _ending_cta_filter(duration)
 
-    vf = f"{crop_filter},{opening},{cta}"
+    vf = f"[0:v]{crop_filter},{opening},{cta}[v]"
+
+    # Windows subprocess 用 GBK 传参, 中文 drawtext 会被截断
+    # 写入临时滤镜文件 UTF-8, ffmpeg -filter_complex_script 读取
+    import tempfile
+    vf_file = os.path.join(output_dir, f"_shorts_vf_{src_stem}.txt")
+    with open(vf_file, "w", encoding="utf-8") as f:
+        f.write(vf)
 
     # 5. FFmpeg 编码
     out_path = os.path.join(output_dir, f"{src_stem}_shorts_v2.mp4")
@@ -242,11 +246,11 @@ def make_shorts(src_path, output_dir, keypoints_file, duration=30, audio_src=Non
         "-i", src_path,
         "-ss", str(start_time), "-t", str(duration),
         "-i", audio_input,
-        "-vf", vf,
+        "-/filter_complex", vf_file,
         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k",
-        "-map", "0:v:0", "-map", "1:a:0",
+        "-map", "[v]", "-map", "1:a:0",
         "-shortest",
         out_path
     ]
