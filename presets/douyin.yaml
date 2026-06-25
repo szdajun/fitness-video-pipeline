@@ -25,6 +25,8 @@ stages:
   motion_heatmap: false
   sync_score: false
   bgm_beat: false
+  skin_tone_filter: false
+  skin_smooth: false
 
 output:
   width: 1080
