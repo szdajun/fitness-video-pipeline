@@ -369,11 +369,19 @@ class SmartCropStage:
             out[i] = v
             prev = v
 
-        # 12. cv2.VideoWriter 直接编码 (跳过 PNG 中转, 节省 17GB I/O + ffmpeg 时间)
+        # 12. 缓存 cx 序列 (跨 preset 复用)
+        stem = Path(input_path).stem
+        cx_cache_path = ctx.output_dir / f"{stem}_smartcrop_cx.json"
+        ctx.set("smart_crop_cx_path", str(cx_cache_path))
+        # 保存 float32 数组为 JSON (转为 list)
+        cx_list = [float(v) for v in out]
+        with open(cx_cache_path, "w", encoding="utf-8") as f:
+            json.dump({"cx": cx_list, "out_w": out_w, "out_h": out_h, "frames": max_frames}, f)
+
+        # 13. cv2.VideoWriter 直接编码 (跳过 PNG 中转, 节省 17GB I/O + ffmpeg 时间)
         ctx.output_dir.mkdir(parents=True, exist_ok=True)
         from lib.utils import create_writer
 
-        stem = Path(input_path).stem
         out_path = ctx.output_dir / f"{stem}_smartcrop.mp4"
         writer = create_writer(str(out_path), fps, out_w, out_h)
         if writer is None or not writer.isOpened():
