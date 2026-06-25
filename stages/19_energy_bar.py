@@ -132,7 +132,7 @@ class EnergyBarStage:
         print(f"    能量条: {orig_w}x{orig_h}, bar=({bar_x},{bar_top})-({bar_x+bar_width},{bar_bottom}), lead_tid={lead_tid}")
 
         # PNG + FFmpeg concat（避免 cv2.VideoWriter mp4v 截断问题）
-        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        ffmpeg_bin = "C:/Users/18091/ffmpeg/ffmpeg.exe" if os.path.exists("C:/Users/18091/ffmpeg/ffmpeg.exe") else shutil.which("ffmpeg")
         tmpdir = Path(tempfile.mkdtemp(prefix="eb_"))
         tmpdir_short = _to_short(str(tmpdir))
 

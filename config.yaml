@@ -25,15 +25,15 @@ stages:
   beat_flash: true          # 进程隔离不卡父进程
   highlight: true          # 进程隔离
   energy_bar: true
-  skin_smooth: true         # 开
+  skin_smooth: false        # 关: CPU 3.3h/次, 换脸已覆盖美颜, 健身视频不需要
   intro_outro: true
   watermark: true           # 叠加：水印
   blush: false
   face_beautify2: false      # 关：CPU 太慢，GPU 修复后再开
-  mascot: true             # 叠加：吉祥物猫咪
+  mascot: false              # 关: 占用1.4GB+9min, 健身视频不需要吉祥物
   rife: false              # 关：磁盘空间不够暂关
   bgm_beat: false           # 关闭: 原视频自带伴奏节拍，不混入外部BGM
-  pip: true                 # 画中画
+  pip: false                 # 关: 健身视频看人跟练就行, 不需要画中画
   speed_ramp: false         # 关：此源节拍太密
   film_look: false          # 暂关-排查发白
   danmaku: true            # 弹幕特效

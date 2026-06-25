@@ -115,6 +115,7 @@ class ExportStage:
                          ctx.get("bgm_path") or
                          ctx.get("pip_path") or
                          ctx.get("burst_path") or
+                         ctx.get("danmaku_path") or
                          ctx.get("mascot_path") or
                          ctx.get("watermark_path") or
                          ctx.get("energybar_path") or

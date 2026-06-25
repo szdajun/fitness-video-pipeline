@@ -100,6 +100,52 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 - `ctx.config.get("stages", {}).get("stabilize", {})` — stabilize 配置（勿用 `ctx.config.get("stabilize")`）
 - `ctx.config.get("stages", {}).get("ken_burns", {})` — ken_burns 配置
 
+## Design Decisions (2026-06-25)
+
+以下决策已写入代码，不要再改回去：
+
+### 永久关闭的 Stage
+
+| Stage | 原因 |
+|-------|------|
+| `skin_smooth` | CPU 3.3h/次，换脸已覆盖面部美颜；健身出汗场景不需要全帧磨皮 |
+| `mascot` | 占用 1.4GB + 9min，健身视频不应有吉祥物遮挡 |
+| `pip` | 画中画干扰跟练，无意义 |
+
+### smart_crop v21 — 拼接视频自动分段
+
+`stages/38_smart_crop.py` v21：滑动窗口中位数检测 cx 突变点（>0.08），
+自动识别正面→背面机位切换，各段独立算稳定 cx。不再硬编码帧范围。
+
+### export 链修复
+
+`stages/07_export.py`：fallback 链补充 `danmaku_path`，确保弹幕/水印/能量条
+不被跳过。顺序：`burst → danmaku → mascot → watermark → energybar → ...`
+
+### 关键 Bug 修复
+
+- **energy_bar ffmpeg 路径** (`stages/19_energy_bar.py`)：优先用 `C:/Users/18091/ffmpeg/ffmpeg.exe`，
+  Winget 版本有编码兼容问题会生成损坏 mp4
+- **pip timeout** (`stages/31_pip.py`)：120s → 600s，长视频编码不会超时
+- **lib/seal.py**：原文件丢失，已创建接口兼容 stub（`overlay_seal(frame, text, pos, size, margin, alpha, **kwargs)`）
+- **pre-commit hook 建议**：拒绝 >10MB 文件（防大视频再误入 git）
+
+### 平台策略
+
+| 平台 | Preset | 格式 | 时长 | 上传 |
+|------|--------|------|------|------|
+| YouTube | `youtube` | 16:9 1920×1080 | 完整 | 预定 18:00 |
+| YouTube Shorts | `douyin` 30s cut | 9:16 1080×1920 | 30 秒 | 预定 18:30 |
+| 抖音 | `douyin` | 9:16 1080×1920 | 完整 | 人工 |
+| ~~小红书~~ | — | — | — | **放弃** (3:4 无增量价值) |
+
+YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_shorts preset。
+
+### .gitignore 原则
+
+大文件绝不入 git：`*.mp4` `*.pt` `*.bin` `*.zip` `source_videos/` `output/` 
+`_temp/` `models/` `weights/` `gfpgan/` `venv/` `music_library/` `coach_portraits/`
+
 ## Conventions
 
 - Python 3.9+，依赖 OpenCV / ultralytics / FFmpeg / NumPy / PyYAML
@@ -107,6 +153,7 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 - Stage 编号前缀 (`01_`, `02_`) 表示执行顺序，不可随意调换
 - `lib/` 目录存放跨 stage 共享的底层模块
 - `output/` 目录存放处理结果和中间文件
+- `source_videos/` 放原始素材，不入 git
 
 ## Files for Distribution
 

@@ -110,7 +110,7 @@ class PiPStage:
         ]
 
         r = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=120)
+                          encoding="utf-8", errors="replace", timeout=600)
 
         if r.returncode != 0:
             print(f"    画中画失败: {r.stderr[-300:]}")

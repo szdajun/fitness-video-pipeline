@@ -12,6 +12,7 @@ stages:
   face_blur: false
   motion_heatmap: false
   sync_score: false
+  pip: false
 
 output:
   width: 1920

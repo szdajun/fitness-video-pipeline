@@ -259,44 +259,59 @@ class SmartCropStage:
         med_win = max(win, 90)  # 90 帧 (3 秒)
         half = med_win // 2
 
-        # v19: 分段选 cx
-        # 实际数据 (这次重新校准):
-        #   正面段 (frame 0~50): 绿衣人在 cx≈0.49 (中央, torso_w 稳定)
-        #   背面段 (frame 80+): 绿衣人在 cx≈0.25 (最左, 拼接后镜头换了)
-        # 找两个最稳定的 cx:
-        def find_stable_cx(start, end, cx_lo, cx_hi, w_thr=0.04):
-            window_cx = raw_cx[start:end]
-            window_w = raw_torso_w[start:end]
-            mask = (window_w > w_thr) & (window_cx > cx_lo) & (window_cx < cx_hi)
-            valid_idx = np.where(mask)[0]
-            if len(valid_idx) >= 3:
-                weights = window_w[valid_idx]
-                return float(np.sum(window_cx[valid_idx] * weights) / np.sum(weights))
-            return None
+        # v21: 自动检测分段点（拼接视频机位切换），各段独立算 cx
+        # 思路：滑动窗口中位数突变 → 分段边界；段内可靠帧 (torso_w>0.04) 取加权中位数
+        # 单段视频退化为全片统一 cx
 
-        # 正面段: cx in [0.40, 0.55], torso_w > 0.04
-        cx_front = find_stable_cx(0, 60, 0.40, 0.55)
-        # 背面段: cx in [0.20, 0.35], torso_w > 0.04
-        cx_back = find_stable_cx(100, max_frames, 0.20, 0.35)
-
-        if cx_front is None:
-            cx_front = 0.5
-        if cx_back is None:
-            cx_back = cx_front
-
-        # 中间过渡: frame 60~100 用线性插值
-        smooth = np.zeros(max_frames, dtype=np.float32)
+        # 1. 滑动窗口找分段点
+        seg_win = max(30, min(150, max_frames // 20))  # 30~150 帧窗口
+        roll_med = np.zeros(max_frames, dtype=np.float32)
         for i in range(max_frames):
-            if i < 60:
-                smooth[i] = cx_front
-            elif i > 100:
-                smooth[i] = cx_back
-            else:
-                t = (i - 60) / (100 - 60)
-                smooth[i] = cx_front * (1 - t) + cx_back * t
+            lo = max(0, i - seg_win // 2)
+            hi = min(max_frames, i + seg_win // 2)
+            roll_med[i] = float(np.median(raw_cx[lo:hi]))
 
-        print(f"    v19: 分段 cx={cx_front:.3f} (前) -> {cx_back:.3f} (后), 过渡 frame 60~100")
-        # v18: 整个视频用同一 cx, 不再漂移 (no 死区/限速/冻结)
+        # 找滚动中位数突变点（前后窗口差 > 阈值 且持续）
+        split_frame = None
+        jump_thr = 0.08  # cx 突变阈值
+        for i in range(seg_win, max_frames - seg_win, 5):
+            before = float(np.median(roll_med[i - seg_win:i]))
+            after = float(np.median(roll_med[i:i + seg_win]))
+            if abs(after - before) > jump_thr:
+                # 确认不是单帧噪声：检查前后 30 帧稳定
+                b2 = float(np.median(roll_med[max(0, i - seg_win - 30):max(0, i - 30)]))
+                a2 = float(np.median(roll_med[min(max_frames, i + 30):min(max_frames, i + seg_win + 30)]))
+                if abs(a2 - b2) > jump_thr * 0.7:
+                    split_frame = i
+                    break
+
+        if split_frame:
+            print(f"    v21: 检测到分段点 frame {split_frame} (cx 突变 {roll_med[max(0,split_frame-seg_win)]:.3f} → {roll_med[min(max_frames-1,split_frame+seg_win)]:.3f})")
+            segments = [(0, split_frame), (split_frame, max_frames)]
+        else:
+            print(f"    v21: 未检测到分段点，全片统一")
+            segments = [(0, max_frames)]
+
+        smooth = np.zeros(max_frames, dtype=np.float32)
+        for seg_start, seg_end in segments:
+            seg_cx = raw_cx[seg_start:seg_end]
+            seg_tw = raw_torso_w[seg_start:seg_end]
+            reliable = seg_tw > 0.04
+            if reliable.sum() >= 5:
+                seg_target = float(np.median(seg_cx[reliable]))
+            else:
+                seg_target = float(np.median(seg_cx))
+            seg_target = max(0.20, min(0.60, seg_target))
+            seg_len = seg_end - seg_start
+            # 段内前 1/4 从旧值渐变，后 3/4 保持目标
+            fade_n = min(seg_len // 4, 90)
+            for j in range(seg_len):
+                if j < fade_n and split_frame and seg_start > 0:
+                    t = j / fade_n
+                    smooth[seg_start + j] = smooth[seg_start - 1] * (1 - t) + seg_target * t
+                else:
+                    smooth[seg_start + j] = seg_target
+            print(f"    v21: 段 [{seg_start}-{seg_end}] cx={seg_target:.3f}")
 
         # 10. 场景突变 (>0.3) 重置 (保留: 真正大跳跃时让画框跟)
         for i in range(1, max_frames):

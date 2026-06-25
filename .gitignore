@@ -1,80 +1,87 @@
-# Python
+# ═══════════════════════════════════════════════════════════
+# .gitignore — 健身视频流水线
+# 原则: 大文件 (视频/模型/音频) 绝不上 git; 中间产物不上 git
+# ═══════════════════════════════════════════════════════════
+
+# ── Python ──────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyc
-.env
+*.pyo
 
-# Output
-output/
+# ── 视频/音频 (大文件, 绝不 commit) ─────────────────────
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.aac
+*.flac
 
-# Video intermediates
-*_keypoints.json
-*_manifest.json
-*_metrics.json
-*_stabilized.mp4
-*_vectors.trf
-*_audio.aac
-
-# Debug images
-check_*.jpg
-dbg_*.jpg
-debug_*.png
-*.py.jpg
-
-# Temp
-*.tmp
-*.log
-
-# Model files (large)
+# ── 模型权重 (大文件) ───────────────────────────────────
 *.pt
 *.pth
 *.onnx
 *.tflite
-gfpgan/weights/
-weights/
+*.bin
+*.zip
 
-# Venv
+# ── 源视频目录 (不入库) ─────────────────────────────────
+source_videos/
+
+# ── 输出目录 (中间产物 + 最终成品都不入库) ──────────────
+output/
+
+# ── 临时/中间文件 ────────────────────────────────────────
+_temp/
+tmp/
+logs/
+*.tmp
+*.log
+*.trf
+*_keypoints.json
+*_manifest.json
+*_metrics.json
+outputtest_*
+
+# ── 调试图片 ─────────────────────────────────────────────
+check_*.jpg
+dbg_*.jpg
+debug_*.png
+*.py.jpg
+_verify_*.png
+
+# ── 权重/模型库 (大文件, 不在 git 管理) ─────────────────
+gfpgan/
+weights/
+models/
+
+# ── 虚拟环境 ─────────────────────────────────────────────
 venv/
 
-# Assets (large files)
-assets/bgm.mp3
-assets/bgm.raw
-assets/qin_cold_open.mp3
+# ── 资产 (音乐/图片等二进制) ────────────────────────────
+assets/*.mp3
+assets/*.raw
+assets/*.mp4
+music_library/
+music_royalty_free/
+coach_portraits/
 
-# Temp scripts
-_make_shorts.py
-_upload_now.py
-*.log
+# ── 自动化状态 (运行时产生, 不入库) ─────────────────────
+auto_publish*.log
+auto_publish_state.json
+day_counter.json
+video_index.db
+upload_manifest.json
+publish_queue.json
 
-# Output keep final
-output/*_keypoints.json
-output/*_manifest.json
-output/*_metrics.json
-output/*_stabilized*
-output/*_kenburns*
-output/*_smooth*
-output/*_denoise*
-output/*_beatflash*
-output/*_highlight*
-output/*_energybar_watermark*
-output/*_mascot_danmaku*
-output/*_burst*
-output/*_film*
-output/*_pip*
-output/*_withbgm*
-output/*_hook*
-output/*_qinopen*
-output/_*
-output/*.fade
-output/*.wav
-
-# OS
+# ── 系统 ──────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-# observability: 日志和临时输出
-logs/
-_make_video.log
-_make_video.err
+desktop.ini
 
-# LLM/敏感: API keys 文件 (建议放 .env 然后用环境变量)
+# ── 敏感 ──────────────────────────────────────────────────
 .env
+*.key
+*.pem
