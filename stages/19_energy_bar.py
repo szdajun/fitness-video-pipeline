@@ -5,6 +5,7 @@
 """
 
 import cv2
+import os
 from lib.utils import path_exists
 import numpy as np
 import json
