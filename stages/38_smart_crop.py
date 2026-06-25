@@ -369,65 +369,41 @@ class SmartCropStage:
             out[i] = v
             prev = v
 
-        # 12. 写 PNG + FFmpeg crop+scale
+        # 12. cv2.VideoWriter 直接编码 (跳过 PNG 中转, 节省 17GB I/O + ffmpeg 时间)
         ctx.output_dir.mkdir(parents=True, exist_ok=True)
-        ffmpeg = Path("C:/Users/18091/ffmpeg/ffmpeg.exe")
-        if not ffmpeg.exists():
-            ffmpeg = Path(shutil.which("ffmpeg") or "ffmpeg")
+        from lib.utils import create_writer
 
         stem = Path(input_path).stem
         out_path = ctx.output_dir / f"{stem}_smartcrop.mp4"
-        tmpdir = Path(tempfile.mkdtemp(prefix="smartcrop_"))
-        tmpdir_s = _get_short_path(str(tmpdir))
+        writer = create_writer(str(out_path), fps, out_w, out_h)
+        if writer is None or not writer.isOpened():
+            print(f"    跳过: 无法创建 writer {out_path}")
+            return
+        cap = cv2.VideoCapture(input_path)
+        if not cap.isOpened():
+            print(f"    跳过: 无法打开 {input_path}")
+            writer.release()
+            return
         try:
-            cap = cv2.VideoCapture(input_path)
-            if not cap.isOpened():
-                print(f"    跳过: 无法打开 {input_path}")
-                return
             for i in range(max_frames):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                # 在原始输入像素上算 crop 位置
                 cx_norm = float(out[i])
                 cx_px = int(cx_norm * in_w - crop_w / 2)
                 cx_px = max(0, min(cx_px, in_w - crop_w))
                 if in_aspect > out_aspect:
-                    # 水平裁
                     cropped = frame[:, cx_px:cx_px + crop_w]
                 else:
-                    # 竖源: 水平 fit, 垂直居中裁
                     cy_px = max(0, (in_h - crop_h) // 2)
                     cropped = frame[cy_px:cy_px + crop_h, :]
-                # 写到 out_w x out_h (不缩放, 让 export 再 scale, 减少双重插值)
-                # 但 export 会再裁一次? 不, 我们直接把输出尺寸 = out_w x out_h
                 if cropped.shape[1] != out_w or cropped.shape[0] != out_h:
                     cropped = cv2.resize(cropped, (out_w, out_h), interpolation=cv2.INTER_LANCZOS4)
-                fname = f"{tmpdir_s}/f_{i:06d}.png"
-                cv2.imwrite(fname, cropped)
-            cap.release()
-
-            out_s = _get_short_path(str(out_path))
-            cmd = [
-                str(ffmpeg), "-y",
-                "-framerate", str(fps),
-                "-i", f"{tmpdir_s}/f_%06d.png",
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "18",
-                "-pix_fmt", "yuv420p",
-                "-an",
-                out_s,
-            ]
-            r = subprocess.run(
-            cmd,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=600)
-            if r.returncode != 0:
-                print(f"    FFmpeg 编码失败: {r.stderr[-200:]}")
-                return
+                writer.write(cropped)
+            print(f"    编码完成: {out_path.name}")
         finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+            cap.release()
+            writer.release()
 
         ctx.set("smart_crop_path", str(out_path))
         # 同步 lead_cx 给 07_export 当回退 (静态窗口)
