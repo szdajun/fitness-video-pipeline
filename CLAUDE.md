@@ -126,6 +126,51 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 
 - **energy_bar ffmpeg 路径** (`stages/19_energy_bar.py`)：优先用 `C:/Users/18091/ffmpeg/ffmpeg.exe`，
   Winget 版本有编码兼容问题会生成损坏 mp4
+
+### YouTube 上传标题模板（钉死的规则）
+
+**模板**： `【{nickname}】{coach}{focus}操 | {focus}跟练 | 细柳营健身`
+
+**示例**：
+- 【老兵不老】郭海军力量燃脂操 | 刚劲塑形跟练 | 细柳营健身
+- 【胭脂虎】艳青暴汗燃脂操 | 塑腰弯跟练 | 细柳营健身
+
+**来源**：`lib/upload_utils.py:build_title()`，从 `lib/coach_profiles.py:COACH_PROFILES.{coach}.nickname/focus` 自动取。
+**不要改**为 `细柳营·{coach} | 有氧健身操·燃脂暴汗 | {date}` —— 旧版扁平标题，已弃用。
+
+上传完成后必须 `records/upload_manifest.json` 留痕（`lib/upload_utils.upload_video()` 自动写）。
+
+### Face Swap 流水线（2026-06-26 验证可用）
+
+**核心配置**（钉死，不要改）：
+- `gfpgan_strength: 0` — GFPGAN 跑 CPU 要 7h/视频, 跑 GPU 也只修"假脸"无意义。**完全关闭**。
+- `min_face_area: 0.001` — 健身视频全身镜头里领操人脸只占 0.5-1%, 旧 0.02 会过滤掉所有人。
+- `color_match_strength: 0.8` — LAB Reinhard 迁移, 消除 inswapper 输出和场景的明暗不均。
+- `output.encoder: nvenc` + `output.prefer_gpu: true` — h264_nvenc 加速 export **48%** (275s → 142s)。
+
+**Lead 检测策略**（2026-06-26 解决"间歇性换脸不均"):
+- pose keypoints 找 cx 居中 + 身体最大的 person = 领操人
+- bbox 大小 = `max(肩宽 × 1.5, 160px)`. ROI 太小 (<160) insightface 漏检, 太大远处小脸混入被误选.
+- ROI 内用 **`min(dist_to_center, -area, -det_score)`** 选 lead —— 选 cx 接近 ROI 中心的, 不是最大脸. 避免远处大婶被误选.
+- 朝向过滤: 鼻子-肩膀中点偏移 > 0.10 → 'back', 跳过换脸.
+
+**已知限制**:
+- 领操人远景/仰头 (郭海军1) 时 insightface buffalo_l 仍漏检 → 视觉上看不出换
+- 解决方向: 换 SCRFD/YOLO-face 检测器; 当前接受这个限制
+
+**Pre-commit 守门**:
+- `tests/test_face_swap_no_gfpgan.py` — gfpgan_strength=0 不能改
+- `tests/test_face_swap_min_face_area.py` — min_face_area ≤ 0.001
+- `tests/test_face_swap_lead_selection.py` — cx 中心选脸不能改 max area
+- `tests/test_upload_manifest_dedup.py` — 同一 file/ytid 不重复
+
+### 教练换脸资源
+
+`tools/{coach}_face_gfpgan.png` (1024×1024) — GFPGAN 重建过的高清照.
+- 优先级: `{coach}_gfpgan.png > {coach}_face.png > {coach}_face.jpg > {coach}.png`
+- 缺图时 face_swap 自动 skip (不报错).
+- 加新教练: 丢一张清晰照到 `tools/{coach}.jpg` 即可, 首次跑时自动 GFPGAN 增强生成 `_gfpgan.png` 长期复用.
+
 - **pip timeout** (`stages/31_pip.py`)：120s → 600s，长视频编码不会超时
 - **lib/seal.py**：原文件丢失，已创建接口兼容 stub（`overlay_seal(frame, text, pos, size, margin, alpha, **kwargs)`）
 - **pre-commit hook 建议**：拒绝 >10MB 文件（防大视频再误入 git）
@@ -162,3 +207,69 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 - `presets/README.md` — 预设风格详解
 - `requirements.txt` — Python 依赖
 - `pyproject.toml` — 项目打包配置
+
+
+## Post-2026-06-27 Pipeline Improvements (verified working on 丽丽2)
+
+### 1. ShortsStage 单入口重构 (`stages/short_vertical.py`)
+
+**新逻辑**: 跑 youtube preset 一次, ShortsStage 同步产出 YT Shorts + 抖音竖版.
+- `make_vertical(src, profile, duration)` 单入口
+- profile='yt_shorts' → 30s + 英文片头+CTA
+- profile='douyin' → 完整版 + 中文片头, **自动截掉 intro 4s + outro 5s** (-ss/-t)
+- cx 自适应裁切: 前 60 帧 cx 中位数 → 静态 crop_x (复用 face_swap.find_lead_person)
+- padding ±30px clamp, kp 缺失 fallback 居中
+
+### 2. 新增 CLI flag (`main.py`)
+
+```
+--reset-gpu                跑 pipeline 前清残留 GPU 状态 (杀残留进程 + reset clocks + torch empty_cache)
+--with-shorts / --no-shorts  生成 YouTube Shorts (30s) (默认开)
+--with-douyin / --no-douyin 生成抖音竖版完整版 (默认开)
+--shorts-duration <sec>    Shorts 时长 (默认 30)
+--shorts-coach <name>      教练名 (用于片头诗词 + 英文标题)
+```
+
+### 3. Face Swap 可靠性修复 (核心 - 解决 CUDNN 崩溃)
+
+**问题**: face_swap 跑到 ~500 帧 onnxruntime CUDNN_STATUS_EXECUTION_FAILED (Conv_73 节点) 进程 abort.
+
+**根因**:
+- GPU 长时间跑 pipeline 后 onnxruntime arena 碎片化 (kNextPowerOfTwo 默认策略)
+- `ctx.keypoints_file` 没人 set, pose bbox 分支永远走 fallback (老路径)
+
+**修复 (3 处)**:
+- `stages/01_pose_detect.py`: `ctx.set("keypoints_file", cache_path)` (cache hit + miss 两处)
+- `tools/face_swap.py`: providers 加 `arena_extend_strategy='kSameAsRequested'` + `gpu_mem_limit=8GB`
+- `tools/reset_gpu.py` (新建): 跑前 `--reset-gpu` 触发, 杀残留 + reset clocks + torch empty_cache
+
+**效果**: 丽丽2 之前永远跑不到 500 帧就崩, 现在 2898/2898 帧 swap 完成, swap_count 100%, back=0 (无背面跳过).
+
+### 4. FFmpeg drawtext 路径坑 (Windows)
+
+**Bug**: filter 字符串里 `'C:/Windows/Fonts/msyh.ttc'` ffmpeg 把 `C:` 当相对路径, 报 `No option name near '/Windows/...'`.
+**Fix**: 在 `stages/short_vertical.py` 写文件前 `vf.replace("C:/", "C\\:/")` (双反斜杠 + 冒号).
+
+### 5. emoji print GBK 坑
+
+**Bug**: `youtube_upload.py` 用 ⚠ ✓ 等 emoji print, Windows GBK 编码崩.
+**Fix**: 已替换为 [WARN] [OK] ASCII. 同样适用未来 print emoji 的代码.
+
+### 6. YT 上传路径坑
+
+**关键区别** (CLAUDE.md 之前没写):
+- `final_path = *final_16x9_1920x1080.mp4` → **main, 含片头片尾** (用于 YT 主视频, 105.6s for 丽丽2)
+- `full_16x9 = *_full_16x9.mp4` → **去头去尾 16:9 副本** (不用于 YT 上传)
+
+**Always** 上传 `final_path`, NOT `full_16x9`. (我刚传错过, 已删 + 重传).
+
+### 7. 上传 manifest 必填
+
+`records/upload_manifest.json` 记录 ytid + file + title + privacy + uploaded_at.
+- 写失败不影响上传 (try/except 包了)
+- 但 manual 删除 video 后必须同步删 manifest entry (否则下次跑会以为没传过)
+
+### 8. douyin preset 现状 (可选快路)
+
+保留为可选: 想跑抖音干净版 (无汉印无mascot无能量条) 可单独 `--preset douyin`.
+默认主流程是 `--preset youtube` → ShortsStage 自动出 抖音完整版 (含所有效果).

@@ -232,6 +232,56 @@ fitness-video-pipeline/
         └── *final*.mp4
 ```
 
+
+## 2026-06-27 新增能力
+
+### CLI flag 速查
+
+```bash
+# 标准流程 (推荐): 跑 youtube preset → 产出宽屏 + YT Shorts + 抖音
+python main.py process input.mp4 --preset youtube
+
+# 不想跑 ShortsStage
+python main.py process input.mp4 --preset youtube --no-shorts
+python main.py process input.mp4 --preset youtube --no-douyin
+
+# 跑前重置 GPU (解决 onnxruntime CUDNN 碎片化, 长期跑建议加)
+python main.py process input.mp4 --preset youtube --reset-gpu
+
+# 修改 Shorts 时长 / 教练名
+python main.py process input.mp4 --preset youtube --shorts-duration 60 --shorts-coach 丽丽
+```
+
+### 输出文件命名规则（避免传错）
+
+跑 `--preset youtube` 一次性产出 4 个 16:9 / 9:16 文件，**长视频必须传 `final_path`**：
+
+| 模式 | 文件名 | 时长 | 用途 |
+|---|---|---|---|
+| **final_path** | `*_final_16x9_1920x1080.mp4` | ~105s | **YT 主视频（含片头片尾）** |
+| full_16x9 | `*_final_16x9_1920x1080_full_16x9.mp4` | ~96s | 16:9 多格式副本（**不上传**） |
+| YT Shorts | `*_final_16x9_1920x1080_yt_shorts.mp4` | 30s | YouTube Shorts |
+| 抖音 | `*_final_16x9_1920x1080_douyin.mp4` | ~96s | 抖音（人工传） |
+
+### 换脸必读
+
+`--reset-gpu` 跑前加一个能避免 90% 的 CUDNN 崩溃。如果 face_swap 还是崩，看 `tools/face_swap.py:65` 确认有 `arena_extend_strategy='kSameAsRequested'`。
+
+### YT 上传示例
+
+```python
+from lib.upload_utils import upload_pair
+
+upload_pair(
+    coach="丽丽",
+    long_path=r"D:\shorts_test\2026-06-25\丽丽2_final_16x9_1920x1080.mp4",
+    short_path=r"D:\shorts_test\2026-06-25\丽丽2_final_16x9_1920x1080_yt_shorts.mp4",
+    record_date="2026-04-20",
+    privacy="public",
+)
+# Manifest 自动写 records/upload_manifest.json
+```
+
 ## 常见问题
 
 **Q: 竖版视频抖动严重？**
