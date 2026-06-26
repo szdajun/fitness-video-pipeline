@@ -82,6 +82,7 @@ class PoseDetectStage:
                     cache = json.load(f)
                 ctx.set("keypoints", {int(k): v for k, v in cache["keypoints"].items()})
                 ctx.set("video_info", cache["video_info"])
+                ctx.set("keypoints_file", str(cache_path))  # 2026-06-27: 给 stage 37 face_swap 用
                 print(f"    关键点缓存: {cache_path.name}")
                 return
             except Exception:
@@ -257,6 +258,7 @@ class PoseDetectStage:
         }
         with open(cache_path, "w") as f:
             json.dump(cache_data, f)
+        ctx.set("keypoints_file", str(cache_path))  # 2026-06-27: 给 stage 37 face_swap 用
         print(f"    缓存已保存: {cache_path.name}")
 
     def _run_mediapipe(self, cap, ctx, fps, width, height, max_frames, cache_path):
@@ -318,4 +320,5 @@ class PoseDetectStage:
         }
         with open(cache_path, "w") as f:
             json.dump(cache_data, f)
+        ctx.set("keypoints_file", str(cache_path))  # 2026-06-27: 给 stage 37 face_swap 用
         print(f"    缓存已保存: {cache_path.name}")

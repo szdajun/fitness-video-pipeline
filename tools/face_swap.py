@@ -57,19 +57,56 @@ def _ensure_cuda_dlls():
 _ensure_cuda_dlls()
 
 
+def _build_onnx_session_options():
+    """构造 onnxruntime SessionOptions, 设 arena 策略 + 显存上限
+
+    2026-06-27 修复: 长跑 + 多 stage GPU 共享导致 CUDNN_STATUS_EXECUTION_FAILED.
+    - arena_extend_strategy='kSameAsRequested' 避免 kNextPowerOfTwo 的显存碎片
+    - gpu_mem_limit=8GB 防止 onnxruntime 抢占所有显存
+    """
+    try:
+        import onnxruntime as ort
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # 注: onnxruntime 1.19 Python API 不能直接设 arena_extend_strategy,
+        # 要通过 CUDAExecutionProvider 的 provider_options 传 (下面使用)
+        return opts
+    except Exception:
+        return None
+
+
+def _cuda_provider_options():
+    """onnxruntime CUDA EP 的 provider_options (arena 策略 + 显存上限)"""
+    return [{
+        "device_id": 0,
+        "arena_extend_strategy": "kSameAsRequested",  # 避免 kNextPowerOfTwo 碎片
+        "gpu_mem_limit": 8 * 1024 * 1024 * 1024,      # 8GB 上限 (4070 有 12GB)
+        "cudnn_conv_algo_search": "EXHAUSTIVE",
+        "do_copy_in_default_stream": True,
+    }]
+
+
 def get_swapper():
     import insightface
     if not os.path.exists(SWAPPER_MODEL):
         raise FileNotFoundError(f"模型未找到: {SWAPPER_MODEL}\n请先下载: python _download_inswapper.py")
     # 优先 GPU (CUDA), 不可用时降级 CPU
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    # 2026-06-27: 加 provider_options (arena 策略 + 显存上限) 修 CUDNN 碎片化
+    providers = [
+        ("CUDAExecutionProvider", _cuda_provider_options()[0]),
+        "CPUExecutionProvider",
+    ]
     return insightface.model_zoo.get_model(SWAPPER_MODEL, providers=providers)
 
 
 def get_face_analyser():
     import insightface
     # 优先 GPU (CUDAExecutionProvider, ctx_id=0), 不可用时降级 CPU
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    # 2026-06-27: 加 provider_options (arena 策略 + 显存上限) 修 CUDNN 碎片化
+    providers = [
+        ("CUDAExecutionProvider", _cuda_provider_options()[0]),
+        "CPUExecutionProvider",
+    ]
     app = insightface.app.FaceAnalysis(name="buffalo_l", providers=providers)
     # 尝试 GPU (ctx_id=0), 失败回退 CPU (ctx_id=-1)
     try:
