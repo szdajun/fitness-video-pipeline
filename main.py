@@ -114,12 +114,27 @@ def build_single_parser():
     p.add_argument("--no-ken-burns", action="store_true")
     p.add_argument("--skeleton-overlay", action="store_true", help="叠加骨架显示")
     p.add_argument("--no-pose-gpu", action="store_true", help="禁用 pose GPU 加速（用 CPU）")
+    p.add_argument("--reset-gpu", action="store_true", help="跑 pipeline 前重置 4070 GPU 状态 (清残留显存/进程, 重置 clocks, 解决 CUDNN 碎片化)")
     p.add_argument("--full-video", action="store_true", help="生成完整视频（跳过精华片段选取）")
     p.add_argument("--strict", action="store_true", help="严格模式: 任何 stage 失败立即停止 (默认优雅降级)")
     p.add_argument("--audio", action="store_true", help="启用音频处理（响度标准化+背景音乐）")
     p.add_argument("--bg-music", type=str, help="背景音乐文件路径")
     p.add_argument("--bg-volume", type=float, default=0.25, help="背景音乐音量 (0.0-1.0)")
     p.add_argument("--target-lufs", type=float, default=-14.0, help="目标响度 LUFS (默认-14)")
+
+    # Stage 39: 竖版短视频 (YouTube Shorts + 抖音)
+    p.add_argument("--with-shorts", dest="with_shorts", action="store_true",
+                   default=None, help="生成 YouTube Shorts (30s, 默认开)")
+    p.add_argument("--no-shorts", dest="with_shorts", action="store_false",
+                   help="不生成 YouTube Shorts")
+    p.add_argument("--with-douyin", dest="with_douyin", action="store_true",
+                   default=None, help="生成抖音竖版完整版 (默认开)")
+    p.add_argument("--no-douyin", dest="with_douyin", action="store_false",
+                   help="不生成抖音竖版")
+    p.add_argument("--shorts-duration", type=int, default=30,
+                   help="Shorts 时长(秒), 默认 30")
+    p.add_argument("--shorts-coach", type=str, default="",
+                   help="教练名 (用于片头诗词 + 英文标题)")
 
     # 身体变形参数
     p.add_argument("--leg-lengthen", type=float, help="腿部拉长比例 (1.0-1.4)")
@@ -200,6 +215,7 @@ def build_batch_parser():
     p.add_argument("--blush-strength", type=float, default=None, help="腮红强度 (0~1)")
     p.add_argument("--brighten-strength", type=float, default=None, help="局部美白强度 (0~1)")
     p.add_argument("--no-pose-gpu", action="store_true", help="禁用 pose GPU 加速（用 CPU）")
+    p.add_argument("--reset-gpu", action="store_true", help="跑 pipeline 前重置 4070 GPU 状态 (清残留显存/进程, 重置 clocks, 解决 CUDNN 碎片化)")
     p.add_argument("--full-video", action="store_true", help="生成完整视频（跳过精华片段选取）")
     p.add_argument("--audio", action="store_true", help="启用音频处理（响度标准化+背景音乐）")
     p.add_argument("--bg-music", type=str, help="背景音乐文件路径")
@@ -278,6 +294,14 @@ def run_single(args):
     config = load_config(args.config or "config.yaml")
     if args.preset:
         deep_merge(config, load_preset(args.preset), copy=False)
+
+    # 2026-06-27: --reset-gpu 跑 pipeline 前清残留 GPU 状态 (修复 onnxruntime CUDNN 碎片化)
+    if getattr(args, 'reset_gpu', False):
+        try:
+            from tools.reset_gpu import reset_gpu
+            reset_gpu(verbose=True)
+        except Exception as e:
+            print(f"  [警告] reset_gpu 失败: {e}")
 
     if args.preview:
         config["preview"] = True
@@ -397,7 +421,7 @@ def run_single(args):
     engine.add_stage("export", ExportStage(),
                      enabled=stages_cfg.get("export", True))
     engine.add_stage("shorts", ShortsStage(),
-                     enabled=stages_cfg.get("shorts", False))
+                     enabled=stages_cfg.get("shorts", True))
     engine.add_stage("face_enhance", FaceEnhanceStage(),
                      enabled=stages_cfg.get("face_enhance", False))
 
@@ -688,6 +712,10 @@ def _get_cli_overrides_dict(args):
         'no_color_grade': getattr(args, 'no_color_grade', False),
         'no_ken_burns': getattr(args, 'no_ken_burns', False),
         'no_pose_gpu': getattr(args, 'no_pose_gpu', False),
+        'with_shorts': getattr(args, 'with_shorts', None),
+        'with_douyin': getattr(args, 'with_douyin', None),
+        'shorts_duration': getattr(args, 'shorts_duration', 30),
+        'shorts_coach': getattr(args, 'shorts_coach', ''),
         'full_video': getattr(args, 'full_video', False),
         'skeleton_overlay': getattr(args, 'skeleton_overlay', False),
         'auto_preset': getattr(args, 'auto_preset', False),
@@ -869,6 +897,16 @@ def _apply_cli_overrides_from_dict(config, overrides):
     if overrides.get('audio'):
         config["stages"]["audio"] = True
         config.setdefault("audio", {})["enabled"] = True
+    # 2026-06-27: shorts 默认开, --no-shorts / --no-douyin 关
+    if overrides.get('with_shorts') is False:
+        config["stages"]["shorts_yt"] = False
+    if overrides.get('with_douyin') is False:
+        config["stages"]["shorts_douyin"] = False
+    if overrides.get('shorts_duration') is not None:
+        config["stages"]["shorts_duration"] = int(overrides['shorts_duration'])
+    if overrides.get('shorts_coach'):
+        config["stages"]["shorts_coach"] = overrides['shorts_coach']
+
     if overrides.get('auto_preset'):
         config["auto_preset"] = True
         config["stages"]["audio"] = True
