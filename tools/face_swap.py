@@ -13,7 +13,7 @@
   4. 编码输出视频（含原音频）
 """
 
-import cv2, numpy as np, argparse, os, subprocess, sys, tempfile, shutil
+import cv2, numpy as np, argparse, os, subprocess, sys, tempfile, shutil, json
 from pathlib import Path
 
 # 换脸默认用 GPU (inswapper + GFPGAN 都吃 GPU, 比 CPU 快十几倍).
@@ -291,8 +291,107 @@ def extract_face_embedding(app, image_path):
     return best
 
 
+def get_lead_bbox_from_pose(person, frame_w, frame_h, lead_orientation_threshold=0.10):
+    """从 BlazePose 33 kp 算出领操人脸的 bbox + 朝向.
+
+    Returns:
+        (bbox, orientation): bbox=(x1,y1,x2,y2) 或 None; orientation in 'front'/'side'/'back'/'unknown'
+
+    规则:
+        - kp 0 = nose, kp 11/12 = 左右肩
+        - 鼻子 conf < 0.3 → 'back'
+        - 鼻子-肩膀中点偏移 > lead_orientation_threshold (归一化) → 'back'
+        - bbox 大小 = max(肩宽 × 1.5, 160px) (保证脸完整在 ROI 内, 让 insightface 找到)
+    """
+    if not person or len(person) < 13:
+        return None, "unknown"
+    nose = person[0]
+    ls = person[11]
+    rs = person[12]
+
+    # 背面: 鼻子不可见
+    if nose[2] < 0.3:
+        return None, "back"
+
+    # 计算朝向
+    if ls[2] > 0.3 and rs[2] > 0.3:
+        scx = (ls[0] + rs[0]) / 2
+        offset = abs(nose[0] - scx)
+        orientation = "front" if offset < 0.03 else ("side" if offset < lead_orientation_threshold else "back")
+    else:
+        # 缺肩膀数据 → 假设正面
+        orientation = "front"
+        offset = 0
+
+    if orientation == "back":
+        return None, "back"
+
+    # 算 bbox
+    cx = nose[0] * frame_w
+    cy = nose[1] * frame_h
+
+    if ls[2] > 0.3 and rs[2] > 0.3:
+        shoulder_w = abs(ls[0] - rs[0]) * frame_w
+    else:
+        shoulder_w = 100
+
+    # ROI 大小: max(肩宽 × 1.5, 160px). 收紧避免远处小脸混入
+    # ROI 大小: max(肩宽 × 1.5, 160px). 收紧避免远处小脸混入
+    face_size = max(int(shoulder_w * 1.5), 160)
+    half = face_size // 2
+    x1 = max(0, int(cx - half))
+    y1 = max(0, int(cy - half))
+    x2 = min(frame_w, int(cx + half))
+    y2 = min(frame_h, int(cy + half))
+
+    return (x1, y1, x2, y2), orientation
+
+
+def find_lead_person(keypoints_this_frame, frame_w, frame_h):
+    """从 pose keypoints 中找领操人.
+
+    策略: 优先 cx 接近 0.5 + bbox 较大的 (近景, 通常是领操人).
+    bbox 估算: kp 11 (l_shoulder) 和 12 (r_shoulder) 之间的距离.
+
+    Returns: person kp list (33 个) 或 None
+    """
+    if not keypoints_this_frame:
+        return None
+    candidates = []
+    for person in keypoints_this_frame:
+        valid = [k for k in person if len(k) > 2 and k[2] > 0.3]
+        if len(valid) < 5:
+            continue
+        xs = [k[0] for k in valid[:13]]
+        cx_norm = sum(xs) / len(xs)
+        # 估算身体宽度 (用肩膀距离)
+        if len(person) >= 13 and person[11][2] > 0.3 and person[12][2] > 0.3:
+            body_w = abs(person[11][0] - person[12][0])
+        else:
+            # fallback: 用所有可见关键点 x 范围
+            xs_all = [k[0] for k in valid]
+            body_w = max(xs_all) - min(xs_all) if xs_all else 0
+        candidates.append((cx_norm, body_w, person))
+
+    if not candidates:
+        return None
+
+    # 评分: cx 居中度 (-|cx-0.5|) + 身体大小 (越大越可能是近景领操人)
+    # 归一化身体大小: 除以最大
+    max_body = max(c[1] for c in candidates) or 1
+    scored = []
+    for cx_norm, body_w, person in candidates:
+        cx_score = 1 - abs(cx_norm - 0.5) * 4  # cx=0.5 得 1, cx=0.25 得 0
+        size_score = body_w / max_body
+        score = cx_score * 0.4 + size_score * 0.6  # 大小更重要
+        scored.append((score, person))
+    scored.sort(key=lambda x: -x[0])
+    return scored[0][1]
+
+
 def swap_face(swapper, source_face, target_img, app, multi_src_faces=None,
-              only_lead=True, min_face_area=0.02):
+              only_lead=True, min_face_area=0.001, lead_bbox=None,
+              color_match_strength=0.8):
     """多脸换脸: 默认只换领操人 (面积最大的人脸)
 
     Args:
@@ -302,12 +401,56 @@ def swap_face(swapper, source_face, target_img, app, multi_src_faces=None,
         app: face detector
         multi_src_faces: 多张源脸列表 (按 x 排序分配) — 优先于 source_face
         only_lead: True=只换最大脸 (领操人), False=换所有脸 (旧行为)
-        min_face_area: 跳过小于此面积比 (相对画面) 的人脸, 默认 0.02 (2%)
+        min_face_area: 跳过小于此面积比 (相对画面) 的人脸, 默认 0.001 (0.1%)
+            (健身视频全身镜头里领操人脸常只占 0.5-1%, 旧默认 0.02 会把领操人过滤掉)
+        lead_bbox: (可选) 用 pose 关键点算出的领操人脸 bbox (x1,y1,x2,y2).
+            若提供: 在 ROI 内做 swap (绕开 insightface 在全身/仰头/侧脸时的漏检).
+            若 None: 用 app.get() 全图检测 (旧行为).
     """
+    h, w = target_img.shape[:2]
+
+    # === 分支 1: lead_bbox 已知 → 在 ROI 内 swap (pose-driven) ===
+    if lead_bbox is not None:
+        x1, y1, x2, y2 = lead_bbox
+        x1 = max(0, min(w, x1)); x2 = max(0, min(w, x2))
+        y1 = max(0, min(h, y1)); y2 = max(0, min(h, y2))
+        if x2 - x1 < 20 or y2 - y1 < 20:
+            return target_img
+        roi = target_img[y1:y2, x1:x2].copy()
+        roi_faces = app.get(roi)
+        if not roi_faces:
+            return target_img
+        # 选 lead: 优先 cx 接近 ROI 中心的脸 (领操人), 否则最大脸.
+        # 距离 ROI 中心越近越优先, 再按面积. 避免远处大婶被误选.
+        roi_cx = (x2 - x1) / 2
+        roi_cy = (y2 - y1) / 2
+
+        def lead_score(f):
+            bbox = f.bbox
+            cx = (bbox[0] + bbox[2]) / 2
+            cy = (bbox[1] + bbox[3]) / 2
+            dist = ((cx - roi_cx) ** 2 + (cy - roi_cy) ** 2) ** 0.5
+            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            return (dist, -area, -f.det_score)  # 距离小 > 面积大 > 置信度高
+
+        roi_face = min(roi_faces, key=lead_score)
+        # 备份原 ROI 用于色温迁移 (消偏色/过白)
+        orig_face_roi = roi.copy() if color_match_strength > 0 else None
+        try:
+            roi_swapped = swapper.get(roi, roi_face, source_face, paste_back=True)
+            # 色温迁移: 把换后脸肤色拉回原场景
+            if color_match_strength > 0 and orig_face_roi is not None:
+                roi_swapped = color_match_face(
+                    roi_swapped, roi_face.bbox, orig_face_roi, color_match_strength)
+            target_img[y1:y2, x1:x2] = roi_swapped
+        except Exception:
+            pass
+        return target_img
+
+    # === 分支 2: 全图检测 (旧逻辑) ===
     faces = app.get(target_img)
     if not faces:
         return target_img
-    h, w = target_img.shape[:2]
     img_area = h * w
 
     # 过滤: 置信度 + 面积
@@ -425,7 +568,8 @@ def color_match_face(frame, bbox, ref_roi, strength=0.8):
 
 def process_video(source_path, target_path, output_path, max_frames=0, every_n=1,
                   multi_sources=None, bg_path=None, only_lead=True, gfpgan_strength=0.5,
-                  min_face_area=0.001, color_match_strength=0.8):
+                  min_face_area=0.001, color_match_strength=0.8,
+                  keypoints_file=None, lead_orientation_threshold=0.10):
     """逐帧处理视频换脸 (支持多脸 + 简单换背景 + GFPGAN 美颜修复)
 
     Args:
@@ -527,36 +671,80 @@ def process_video(source_path, target_path, output_path, max_frames=0, every_n=1
     out_fi = 0
     swap_count = 0
     face_count = 0
+    skip_back = 0
+    skip_no_pose = 0
+
+    # 加载 keypoints (若提供)
+    keypoints = None
+    if keypoints_file and os.path.exists(keypoints_file):
+        try:
+            with open(keypoints_file, encoding="utf-8") as f:
+                kp_data = json.load(f)
+            keypoints = kp_data.get("keypoints", kp_data)
+            print(f"  pose keypoints 加载: {keypoints_file} ({len(keypoints)} 帧)")
+        except Exception as e:
+            print(f"  [警告] keypoints 加载失败: {e}")
+            keypoints = None
+
     while fi < total:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # 每帧都换脸 (不再隔帧 → 消除奇偶帧交替闪烁). swap_face 内部自检人脸.
-        faces_before = app.get(frame)
-        if faces_before:
+        # === 优先: 用 pose 定位领操人 + 朝向判断 ===
+        lead_bbox = None
+        use_pose = False
+        if keypoints is not None:
+            persons = keypoints.get(str(fi), [])
+            lead_person = find_lead_person(persons, w, h)
+            if lead_person is not None:
+                bbox, orientation = get_lead_bbox_from_pose(lead_person, w, h,
+                                                            lead_orientation_threshold)
+                if orientation == "back":
+                    skip_back += 1
+                    # 背面: 直接写原帧, 不换脸
+                    proc.stdin.write(frame.tobytes())
+                    out_fi += 1
+                    fi += 1
+                    continue
+                if bbox is not None:
+                    lead_bbox = bbox
+                    use_pose = True
+
+        if not use_pose:
+            # fallback: 老逻辑, 用 app.get() 选最大脸
+            faces_before = app.get(frame)
+            if not faces_before:
+                skip_no_pose += 1
+                proc.stdin.write(frame.tobytes())
+                out_fi += 1
+                fi += 1
+                continue
             face_count += 1
-            # 换脸前先抓原肤色 (领操人最大脸), 供换脸后色温迁移用 → 消除偏色/过白
             lead = max(faces_before, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
             lx1, ly1, lx2, ly2 = [int(v) for v in lead.bbox]
             orig_face_roi = frame[ly1:ly2, lx1:lx2].copy()
-            # 换脸 (默认只换领操人, 跳过群众脸 — 提速 3-9 倍)
-            frame = swap_face(swapper, source_face, frame, app, multi_src_faces,
-                              only_lead=only_lead, min_face_area=min_face_area)
-            swap_count += 1
-            # GFPGAN 美颜修复: 把 128px 换脸脸增强回高清美颜质感 (inswapper → GFPGAN 标准两步)
-            if gfpgan_model is not None:
-                frame = gfpgan_restore_frame(frame, gfpgan_model, gfpgan_cascade,
-                                             gfpgan_device, gfpgan_strength)
-            # 色温迁移: 换脸+GFPGAN 后脸会偏色/发白, 把肤色拉回原场景 → 自然不吓人
-            if color_match_strength > 0 and orig_face_roi.size > 0:
-                frame = color_match_face(frame, lead.bbox, orig_face_roi,
-                                         color_match_strength)
-            # 换背景 (在脸位置周围简单 mask)
-            if bg_img is not None:
-                mask = get_bg_mask_simple(frame, faces_before)
-                if mask is not None:
-                    frame = swap_background(frame, mask, bg_img)
+
+        # 换脸 (pose 模式传 lead_bbox; 旧模式不传)
+        frame = swap_face(swapper, source_face, frame, app, multi_src_faces,
+                          only_lead=only_lead, min_face_area=min_face_area,
+                          lead_bbox=lead_bbox,
+                          color_match_strength=color_match_strength)
+        swap_count += 1
+
+        # GFPGAN 美颜修复 (默认关闭)
+        if gfpgan_model is not None:
+            frame = gfpgan_restore_frame(frame, gfpgan_model, gfpgan_cascade,
+                                         gfpgan_device, gfpgan_strength)
+        # 色温迁移: 换脸+GFPGAN 后脸会偏色/发白, 把肤色拉回原场景 → 自然不吓人
+        if color_match_strength > 0 and 'orig_face_roi' in dir() and orig_face_roi.size > 0:
+            frame = color_match_face(frame, lead.bbox, orig_face_roi,
+                                     color_match_strength)
+        # 换背景 (在脸位置周围简单 mask)
+        if bg_img is not None and 'faces_before' in dir():
+            mask = get_bg_mask_simple(frame, faces_before)
+            if mask is not None:
+                frame = swap_background(frame, mask, bg_img)
 
         try:
             proc.stdin.write(frame.tobytes())
@@ -567,7 +755,7 @@ def process_video(source_path, target_path, output_path, max_frames=0, every_n=1
         fi += 1
 
         if fi % 50 == 0:
-            print(f"  进度: {fi}/{total} ({fi*100//total}%) 人脸:{face_count}帧", flush=True)
+            print(f"  进度: {fi}/{total} ({fi*100//total}%) swap:{swap_count} back:{skip_back} 人脸:{face_count}帧", flush=True)
 
     cap.release()
     try:
@@ -577,7 +765,7 @@ def process_video(source_path, target_path, output_path, max_frames=0, every_n=1
     retcode = proc.wait()
     if retcode != 0:
         print(f"    ffmpeg pipe failed: rc={retcode}")
-    print(f"  换脸完成: {out_fi} 帧, 混入音频...")
+    print(f"  换脸完成: {out_fi} 帧 (swap={swap_count}, 背面跳过={skip_back}, 无pose={skip_no_pose}), 混入音频...")
 
     # 混入原音频（如果 target 无音频流则跳过，直接复制无声视频）
     r = subprocess.run([
