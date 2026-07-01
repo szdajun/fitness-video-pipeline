@@ -5,6 +5,48 @@ import numpy as np
 import os
 import ctypes
 from pathlib import Path
+import shutil
+
+
+# ffmpeg 可执行路径解析 (2026-07-02: 从 tools/face_swap 抽出共享, 消除裸硬编码).
+# 解析顺序: override > FFMPEG/BG_FFMPEG env > 已知好路径 > PATH > 兜底字符串.
+# **已知好路径优先于 PATH**: Winget 版 ffmpeg (8.1-full) 有编码兼容 bug 会生成损坏 mp4,
+# C:/Users/18091/ffmpeg/ffmpeg.exe (8.1-essentials) 实测稳定, 只要它存在就用它;
+# 换机器 (此路径不存在) 自动落 PATH, 保证可移植. tools/bg_swap 有自己的 _resolve_ffmpeg
+# (由 tests/test_bg_swap_defaults 守门固化), 本函数供 face_swap 等其它工具复用.
+_KNOWN_GOOD_FFMPEG = r"C:/Users/18091/ffmpeg/ffmpeg.exe"
+
+
+def resolve_ffmpeg(override: str = None) -> str:
+    """返回可用的 ffmpeg 可执行路径. override 显式覆盖最高优先级."""
+    if override:
+        return override
+    env = os.environ.get("FFMPEG") or os.environ.get("BG_FFMPEG")
+    if env:
+        return env
+    if os.path.isfile(_KNOWN_GOOD_FFMPEG):
+        return _KNOWN_GOOD_FFMPEG
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    return _KNOWN_GOOD_FFMPEG
+
+
+# ComfyUI 根目录解析 (2026-07-02: main.py bgswap 子进程 + upload_utils 借 custom_nodes,
+# 原裸硬编码 F:/wkspace/ComfyUI 换机器即坏, 镜像 resolve_ffmpeg 模式).
+# 解析顺序: COMFYUI_ROOT env > 已知路径 > None (调用方应 skip).
+_KNOWN_COMFYUI_ROOT = r"F:/wkspace/ComfyUI"
+
+
+def resolve_comfyui_root():
+    """返回 ComfyUI 根目录; env COMFYUI_ROOT > 已知路径; 都不在返回 None (调用方 skip)."""
+    env = os.environ.get("COMFYUI_ROOT")
+    if env:
+        return env
+    if os.path.isdir(_KNOWN_COMFYUI_ROOT):
+        return _KNOWN_COMFYUI_ROOT
+    return None
+
 
 # 视频文件扩展名集合（用于 path_exists 跳过 cv2.VideoCapture）
 VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mts', '.m2ts'}

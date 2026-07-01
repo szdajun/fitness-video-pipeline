@@ -16,6 +16,10 @@
 import cv2, numpy as np, argparse, os, subprocess, sys, tempfile, shutil, json
 from pathlib import Path
 
+# 确保项目根在 sys.path (直接 `python tools/face_swap.py` 跑时根不在 path)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lib.utils import resolve_ffmpeg
+
 # 换脸默认用 GPU (inswapper + GFPGAN 都吃 GPU, 比 CPU 快十几倍).
 # 仅当显式 FACE_SWAP_FORCE_CPU=1 时才回退 CPU (老机器显存吃紧时用).
 # NOTE: 之前无条件禁 CUDA 是换脸慢到 22 分钟/片的元凶, 且把 GFPGAN 也拖到 CPU.
@@ -24,7 +28,7 @@ if os.environ.get("FACE_SWAP_FORCE_CPU", "0") == "1":
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 SWAPPER_MODEL = os.path.expanduser("~/.insightface/models/inswapper_128.onnx")
-FFMPEG = "C:/Users/18091/ffmpeg/ffmpeg.exe"
+FFMPEG = resolve_ffmpeg()  # 可移植解析 (override/env/已知好路径/PATH), 不裸硬编码
 
 # GFPGAN 换脸后修复: inswapper_128 输出仅 128px, 必须再过 GFPGAN 才有美颜质感.
 # 权重搜索路径 (按优先级, 找到即用).
@@ -71,7 +75,8 @@ def _build_onnx_session_options():
         # 注: onnxruntime 1.19 Python API 不能直接设 arena_extend_strategy,
         # 要通过 CUDAExecutionProvider 的 provider_options 传 (下面使用)
         return opts
-    except Exception:
+    except Exception as e:
+        print(f"  [WARN] CUDA provider_options 构建失败: {e}")
         return None
 
 
@@ -114,7 +119,8 @@ def get_face_analyser():
     # 尝试 GPU (ctx_id=0), 失败回退 CPU (ctx_id=-1)
     try:
         app.prepare(ctx_id=0, det_size=(640, 640))
-    except Exception:
+    except Exception as e:
+        print(f"  [WARN] insightface GPU prepare 失败, 回退 CPU: {e}")
         app.prepare(ctx_id=-1, det_size=(640, 640))
     return app
 
@@ -232,7 +238,8 @@ def _imread_unicode(path):
     """中文路径安全读图 (Windows 下 cv2.imread 对中文路径返回 None)."""
     try:
         return cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
-    except Exception:
+    except Exception as e:
+        print(f"  [WARN] 图像解码失败({path}): {e}")
         return None
 
 

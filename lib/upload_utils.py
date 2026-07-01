@@ -7,8 +7,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# YouTube 上传模块路径
-YT_UPLOAD_PATH = r"F:\wkspace\ComfyUI\custom_nodes"
+# YouTube 上传模块路径 (ComfyUI custom_nodes 借用 youtube-upload; 走 resolve_comfyui_root 可移植)
+from lib.utils import resolve_comfyui_root
+_comfy_root = resolve_comfyui_root()
+YT_UPLOAD_PATH = str(Path(_comfy_root) / "custom_nodes") if _comfy_root else r"F:\wkspace\ComfyUI\custom_nodes"
 
 # ====== 频道品牌信息 ======
 CHANNEL_NAME = "胭脂虎健身团"

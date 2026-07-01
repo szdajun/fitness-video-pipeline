@@ -1,12 +1,15 @@
+# Python 依赖 — uv 优先管理 (uv sync --extra dev), 本文件兼容 pip install -r.
+# 权威源: pyproject.toml [project.dependencies] + uv.lock (可复现).
+# Python >=3.11 (3.9 已 EOL 2025-10; uv 按 .python-version 管 Python 版本).
+# torch (GPU, RVM 抠像用) 不在此 — 装: uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 opencv-python>=4.8.0
-numpy>=1.24.0
+numpy>=1.24,<2
 pyyaml>=6.0
 filterpy>=1.4.5
+scipy>=1.10
+pillow>=9.0
 ultralytics>=8.0.0
 mediapipe>=0.10,<0.11
 insightface>=0.7.3
-onnxruntime-gpu>=1.19.0  # GPU 加速换脸; 借 torch 自带 cuDNN, 无 GPU 时 provider 自动 fallback CPU
-
-# Optional GPU acceleration
-# torch>=2.0.0
-# torchvision>=0.15.0
+onnxruntime-gpu>=1.19.0
+pytest>=8.0  # dev only

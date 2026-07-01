@@ -89,6 +89,26 @@ python main.py process "input.mp4" --leg-lengthen 1.2 --waist-slim 0.85
 python main.py process "input.mp4" --no-stabilize --no-ken-burns --preview
 ```
 
+## 环境管理 (uv)
+
+Python **>=3.11**（3.9 已 EOL 2025-10）。用 **uv** 管 Python 版本 + 依赖，`uv.lock` 锁定可复现。
+
+```bash
+# 首次/拉新依赖: uv 按 .python-version (3.11) + pyproject.toml 建 .venv 并装依赖
+uv sync --extra dev          # dev=pytest; 加 --extra gpu 装 torch (RVM 抠像用)
+
+# 跑管线/测试 (uv run 自动用 .venv, 无需手动 activate)
+uv run python main.py process "input.mp4" --preset youtube --shorts-coach 丽丽
+uv run pytest tests/ -q
+
+# GPU torch (RVM/bg_swap 用; 默认 ultralytics 只拉 CPU torch)
+uv pip install torch --index-url https://download.pytorch.org/whl/cu121
+```
+
+- **不要**直接 `python main.py`（pyenv shim 可能指向 3.9）；用 `uv run` 或 `.venv/Scripts/python`。
+- **不要**碰 `F:/wkspace/ComfyUI/venv/`（3.11.9，SAM2/bgswap 子进程用，独立环境，借用其权重 + custom_nodes）。本项目与 ComfyUI **子进程解耦，版本无需对齐**。
+- numpy 钉 `<2`（2.x 有 breaking，升前需验证）。`.venv/` 入 `.gitignore`，`uv.lock` **入 git**（可复现）。
+
 ## Key Implementation Details
 
 ### cv2.VideoCapture H.264 Bug
@@ -184,7 +204,7 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 - 加新教练: 丢一张清晰照到 `tools/{coach}.jpg` 即可, 首次跑时自动 GFPGAN 增强生成 `_gfpgan.png` 长期复用.
 
 - **pip timeout** (`stages/31_pip.py`)：120s → 600s，长视频编码不会超时
-- **lib/seal.py**：原文件丢失，已创建接口兼容 stub（`overlay_seal(frame, text, pos, size, margin, alpha, **kwargs)`）
+- **lib/seal.py**：汉印水印叠加（AI PNG `tools/seal_ai.png` 优先 + PIL 篆体朱文兜底），被 `stages/24_watermark.py` 调用；接口 `overlay_seal(frame, text, pos, size, margin, alpha, **kwargs)`
 - **pre-commit hook 建议**：拒绝 >10MB 文件（防大视频再误入 git）
 
 ### 平台策略

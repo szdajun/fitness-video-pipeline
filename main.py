@@ -474,8 +474,13 @@ def _run_bgswap(ctx, args):
 
     output = ctx.output_dir / f"{ctx.input_path.stem}_bgswap.mp4"
 
-    # ComfyUI Python (SAM2 需要 Python 3.11+)
-    comfy_py = "F:/wkspace/ComfyUI/venv/Scripts/python.exe"
+    # ComfyUI Python (SAM2 需要 Python 3.11+); 路径走 resolve_comfyui_root 可移植
+    from lib.utils import resolve_comfyui_root
+    comfy_root = resolve_comfyui_root()
+    if not comfy_root:
+        print("[bgswap] 跳过: ComfyUI 未配置 (设 COMFYUI_ROOT 或装到 F:/wkspace/ComfyUI)")
+        return
+    comfy_py = str(Path(comfy_root) / "venv" / "Scripts" / "python.exe")
     if not Path(comfy_py).exists():
         print(f"[bgswap] 跳过: ComfyUI Python 不存在 {comfy_py}")
         return
