@@ -473,8 +473,110 @@ class ExportStage:
                     # 这样 acrossfade 输出恰好等于 total_sec，无需 apad 静音填充
                     need_content = total_sec - content_dur + xfade_dur
 
-                    if need_content > 0.5 and has_intro:
-                        # acrossfade：取音频内容前段做无缝循环延伸
+                    # 提前判断有无音频, 后续 if/elif/else 各分支都能用
+                    has_audio = ExportStage.has_audio_stream(str(audio_src))
+                    # 2026-06-29: 片头音乐 sting (秦腔). 只在 has_intro 主分支用, 替换 anullsrc 静音
+                    has_sting = False
+                    sting_path = None
+
+                    if has_intro and has_audio:
+                        # 2026-06-28 修复: intro 段音频 = 静音 (anullsrc), 主体段 = 原音频 0~content_dur
+                        # 旧代码 atrim=0:{content_dur} 把原视频第 0s 音频直接塞到 final 视频第 0s,
+                        # 但 final 第 0s 是片头画面 → 用户感知 "音乐提前了 intro_duration 秒"
+                        # intro/outro 时长从 intro_outro config 拿, 与 stages/20_intro_outro.py 同步
+                        intro_outro_cfg_audio = ctx.config.get("intro_outro", {})
+                        intro_dur_for_audio = intro_outro_cfg_audio.get("intro_duration", 4.0)
+                        outro_dur_for_audio = intro_outro_cfg_audio.get("outro_duration", 5.0)
+                        # 2026-06-29: 片头音乐 sting. 原秦腔 (intro_qinqiang.wav) 用户要求换现代古风,
+                        # 切到 intro_ref1.wav (同为 4s). 可经 intro_outro.intro_sting 覆盖; 秦腔文件保留可回退.
+                        default_sting = Path(__file__).parent.parent / "music_library" / "intro_sting" / "intro_ref1.wav"
+                        sting_path = Path(intro_outro_cfg_audio.get("intro_sting", str(default_sting)))
+                        has_sting = sting_path.exists()
+                        main_dur = content_dur                # 主体段音频长度
+                        out_dur = total_sec                   # 最终音频长度
+                        fade_st = max(0, out_dur - audio_fade_d)
+
+                        # 简化: 用 adelay 给原音频延时 intro_dur 秒, 让 intro 段自然变静音
+                        # 原音频通过 adelay 推到 intro_dur 开始, 时长 = main_dur + intro_dur
+                        # 再 atrim 截取 0~out_dur
+                        # 最后 afade out
+                        # 2026-06-29: intro 段音频 = 秦腔 sting (有则用, 无则退化为静音, 兜底).
+                        #   sting atrim 切长/apad 补短到 intro_dur 秒; [main_a]主体音频不变;
+                        #   concat 硬切 → sting 在 intro_dur 戛然而止, 主体音乐即时接管, 不溢出.
+                        #   sting 的 0.3s 淡入已 baked 进 wav, filter 里不再加.
+                        # 2026-06-30: 片头音乐=片头画面对应的素材原声 (用户方案: "从原视频拿
+                        # 合适的4秒音乐"). 配置 intro_outro.intro_music_from_clip=true 启用.
+                        # 片头画面截自素材 best_start 起 intro_dur 秒 (20_intro_outro 存的
+                        # intro_start_sec), 片头音频用同一段原声 → 音画完全同步 (原片高潮段
+                        # 原汁原味原声). 主体音频=素材完整原声 0~main_dur (与主体画面同步,
+                        # 口令动作对齐不穿帮). 消除独立 sting 风格突兀, 无错位无重复.
+                        # sting 仍作 fallback 保留.
+                        music_from_main = intro_outro_cfg_audio.get("intro_music_from_main", False)
+                        music_from_clip = intro_outro_cfg_audio.get("intro_music_from_clip", False)
+                        if music_from_main:
+                            # 2026-06-30: 片头=主体"完全终止落点"前最后几小节 (截掉前面铺垫).
+                            # 片头音频=主体[offset:phrase_end] (offset/end 由 20_intro_outro 算, phrase_end=8小节
+                            # 完全终止). 结尾锁定落点 → 节拍完全落下且片头短. 主体段原声 0~main_dur 不变
+                            # (与画面同步, 口令动作对齐不穿帮). 接缝(片头末尾完全终止→主体开头新乐段):
+                            # 片头末尾 seam 秒淡出 + 主体开头 seam 秒淡入, 软化硬切.
+                            # 用户: "接缝处理好, 片头前面可以随意截掉".
+                            has_sting = False
+                            intro_dur_a = float(ctx.get("intro_dur_aligned", intro_dur_for_audio))
+                            intro_off = float(ctx.get("intro_music_offset", 0.0))
+                            intro_end = float(ctx.get("intro_music_end", intro_dur_a))
+                            seam = 0.35
+                            fc_parts = [
+                                # 片头段: 主体[offset:phrase_end] (截前面铺垫, 保留完全终止落点), 末尾淡出软化接缝
+                                f"[1:a]atrim={intro_off:.3f}:{intro_end:.3f},asetpts=N/SR/TB,afade=type=out:st={max(0.0,intro_dur_a-seam):.3f}:d={seam}[intro_a]",
+                                # 主体段: 完整原声 0~main_dur (不迁移, 与画面同步), 开头淡入软化接缝
+                                f"[1:a]atrim=0:{main_dur},asetpts=N/SR/TB,afade=type=in:st=0:d={seam}[main_a]",
+                                f"[intro_a][main_a]concat=n=2:v=0:a=1[full_a]",
+                                f"[full_a]apad=whole_dur={out_dur},afade=type=out:st={fade_st:.3f}:d={audio_fade_d}[a]",
+                            ]
+                            print(f"    [片头音乐] 截前留落点 (主体[{intro_off:.2f}:{intro_end:.2f}]s, 片头{intro_dur_a:.2f}s, 接缝淡入淡出{seam}s)")
+                        elif music_from_clip:
+                            has_sting = False  # 不引入 sting input (input 只剩 0:v, 1:a)
+                            intro_start = float(ctx.get("intro_start_sec", 0.0))
+                            intro_clip_end = intro_start + intro_dur_for_audio
+                            # 接缝软化: 片头原声末尾淡出 + 主体开头淡入, 把硬切变软过渡,
+                            # 缓解"片头段→主体"音乐位置跳变的断裂感 (结构性跳变无法完全消除).
+                            seam = 0.35
+                            fc_parts = [
+                                # 片头段: 素材原声 [intro_start:intro_clip_end], 末尾淡出
+                                f"[1:a]atrim={intro_start:.3f}:{intro_clip_end:.3f},asetpts=N/SR/TB,afade=type=out:st={intro_dur_for_audio-seam:.3f}:d={seam}[intro_a]",
+                                # 主体段: 素材完整原声 [0:main_dur], 开头淡入
+                                f"[1:a]atrim=0:{main_dur},asetpts=N/SR/TB,afade=type=in:st=0:d={seam}[main_a]",
+                                # 片头+主体 concat
+                                f"[intro_a][main_a]concat=n=2:v=0:a=1[full_a]",
+                                # 补到总时长 (片尾段静音) + 末尾淡出
+                                f"[full_a]apad=whole_dur={out_dur},afade=type=out:st={fade_st:.3f}:d={audio_fade_d}[a]",
+                            ]
+                            print(f"    [片头音乐] 片头画面对应原声 (intro_music_from_clip) start={intro_start:.1f}s")
+                        elif has_sting:
+                            fc_parts = [
+                                f"[2:a]atrim=0:{intro_dur_for_audio},apad=whole_dur={intro_dur_for_audio},asetpts=N/SR/TB[intro_silence]",
+                                # 主体段: 原音频 0~main_dur (不变)
+                                f"[1:a]atrim=0:{main_dur},asetpts=N/SR/TB[main_a]",
+                                # intro 音乐 + 主体 concat (硬切)
+                                f"[intro_silence][main_a]concat=n=2:v=0:a=1[full_a]",
+                                # 整体淡出末尾
+                                f"[full_a]afade=type=out:st={fade_st:.3f}:d={audio_fade_d}[a]",
+                            ]
+                        else:
+                            fc_parts = [
+                                # 兜底: sting 不存在 → 维持静音 (行为同 2026-06-28 之前)
+                                f"anullsrc=r=48000:cl=stereo[si]",
+                                f"[si]atrim=0:{intro_dur_for_audio},asetpts=N/SR/TB[intro_silence]",
+                                # 主体段: 原音频 0~main_dur
+                                f"[1:a]atrim=0:{main_dur},asetpts=N/SR/TB[main_a]",
+                                # intro 静音 + 主体 concat
+                                f"[intro_silence][main_a]concat=n=2:v=0:a=1[full_a]",
+                                # 整体淡出末尾
+                                f"[full_a]afade=type=out:st={fade_st:.3f}:d={audio_fade_d}[a]",
+                            ]
+                        filter_complex = ";".join(fc_parts)
+                    elif need_content > 0.5 and has_intro:
+                        # 旧逻辑兜底: 主体音频延伸 (acrossfade), 用于无音频源 + intro 模式
                         ext_start = max(0, content_dur - need_content)
                         actual_fill = min(need_content, content_dur)
                         fc_parts = [
@@ -511,9 +613,13 @@ class ExportStage:
                     if filter_complex:
                         cmd = [ffmpeg, "-y",
                                "-i", str(processed_path),
-                               "-i", audio_src,
-                               "-filter_complex", filter_complex,
-                               "-map", "0:v", "-map", "[a]"]
+                               "-i", audio_src]
+                        if has_sting:
+                            # 2026-06-29: 片头音乐 sting → input index 2 ([2:a] 引用)
+                            cmd.extend(["-i", str(sting_path)])
+                            print(f"    [片头音乐] {sting_path.name}")
+                        cmd.extend(["-filter_complex", filter_complex,
+                                    "-map", "0:v", "-map", "[a]"])
                     else:
                         # 无音频, 直接复制
                         cmd = [ffmpeg, "-y",
@@ -666,48 +772,6 @@ class ExportStage:
                     ctx.set(f"final_{fmt}_path", str(fmt_out))
                 else:
                     print(f"    [{fmt}] FFmpeg 失败: {r_fmt.stderr[-200:]}")
-
-        # ---- Shorts 短视频 + 抖音竖版 ----
-        # YouTube Shorts: 30s 精华 + 英文标题 + 诗词 + 双语CTA
-        # 抖音: 竖版完整版 + 封面
-        if not is_preview:
-            shorts_src = (ctx.get("burst_path") or
-                          ctx.get("mascot_path") or
-                          str(processed_path))
-            kp_file = ctx.output_dir / f"{video_path.stem}_keypoints.json"
-            if not kp_file.exists():
-                kp_file = ctx.output_dir / f"{video_path.stem}_cropped_keypoints.json"
-            use_tc = ctx.config.get("seo", {}).get("traditional", False)
-            # YouTube Shorts (30s, 英文+诗词)
-            try:
-                import importlib
-                _sm = importlib.import_module("stages.39_shorts")
-                if kp_file.exists() and path_exists(shorts_src):
-                    result = _sm.make_shorts(str(shorts_src), str(ctx.output_dir),
-                                             str(kp_file), duration=30,
-                                             audio_src=str(ctx.input_path))
-                    if result:
-                        ctx.set("shorts_path", result)
-                        print(f"    Shorts: {Path(result).name}")
-            except Exception as e:
-                print(f"    Shorts 失败: {e}")
-            # 抖音竖版
-            try:
-                import importlib
-                _sm = importlib.import_module("stages.39_shorts")
-                intro_p = ctx.output_dir / f"{video_path.stem}_intro.mp4"
-                outro_p = ctx.output_dir / f"{video_path.stem}_outro.mp4"
-                if kp_file.exists() and path_exists(shorts_src):
-                    result = _sm.make_douyin_vertical(
-                        str(shorts_src), str(ctx.output_dir),
-                        str(kp_file), audio_src=str(ctx.input_path),
-                        intro_path=str(intro_p) if intro_p.exists() else None,
-                        outro_path=str(outro_p) if outro_p.exists() else None)
-                    if result:
-                        ctx.set("douyin_vertical_path", result)
-                        print(f"    抖音竖版: {Path(result).name}")
-            except Exception as e:
-                print(f"    抖音竖版失败: {e}")
 
         # 清理中间文件
         self._is_preview = is_preview  # 传 self 给 helper 函数

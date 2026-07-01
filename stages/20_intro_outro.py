@@ -141,9 +141,35 @@ class IntroOutroStage:
         print(f"    片头片尾生成: {channel_name} | 带操人:{lead_name} | {location}/{date_str}")
         print(f"    频道: {channel_name}, 片头:{intro_duration}s, 片尾:{outro_duration}s, 音频淡出:{audio_fade_out}s")
 
+        # 2026-06-30: 片头=主体"完全终止落点"前最后几个小节 (截掉前面铺垫). beat_frames 已"隔一取
+        # 卡强拍"故 beat_period=2拍间隔; measure=4×beat_period=8拍=2个4/4小节=1乐句单元.
+        # phrase_end=8小节(4单元)=完全终止(落点, 固定); 片头只保留落点前 4 小节(n_head=2单元=第5-8小节),
+        # 前面铺垫截掉 → 片头短, 结尾锁定落点节拍完全落下. 接缝(完全终止→主体开头新乐段)由 export 加
+        # 短淡入淡出软化. 用户: "接缝处理好, 片头前面可以随意截掉". 无 beat 数据退回原 intro_duration.
+        beat_frames = ctx.get("beat_frames")
+        intro_dur_aligned = intro_duration
+        intro_music_offset = 0.0
+        intro_music_end = intro_duration
+        if beat_frames and len(beat_frames) >= 5:
+            diffs = np.diff(sorted(beat_frames))
+            beat_period_sec = float(np.median(diffs)) / fps
+            measure = 4.0 * beat_period_sec  # 8拍 = 2个4/4小节 = 1乐句单元
+            if 0.3 < measure < 4.0:
+                n = max(1, round(intro_duration / measure))
+                n_end = max(4, n)   # 落点 = 8小节(完全终止)
+                n_head = 2          # 片头保留 4 小节(第5-8小节), 截掉前4小节铺垫
+                phrase_end_sec = round(n_end * measure, 3)
+                intro_dur_aligned = max(2.5, min(phrase_end_sec, round(n_head * measure, 3)))
+                intro_music_offset = round(phrase_end_sec - intro_dur_aligned, 3)
+                intro_music_end = phrase_end_sec
+                print(f"    节拍对齐: 强拍{beat_period_sec:.3f}s, 单元{measure:.3f}s(8拍) → 片头 {intro_dur_aligned}s (主体[{intro_music_offset}:{phrase_end_sec}]s截前留落点, {n_head*2}小节)")
+        ctx.set("intro_dur_aligned", intro_dur_aligned)
+        ctx.set("intro_music_offset", intro_music_offset)
+        ctx.set("intro_music_end", intro_music_end)
+
         intro_path = self._create_intro(
             video_path, ctx.output_dir / f"{stem}_intro.mp4",
-            lead_name, channel_name, location, date_str, intro_duration, fps, cfg, use_tc
+            lead_name, channel_name, location, date_str, intro_dur_aligned, fps, cfg, use_tc
         )
 
         outro_path = self._create_outro(
@@ -152,6 +178,9 @@ class IntroOutroStage:
         )
 
         ctx.set("intro_path", str(intro_path))
+        # 2026-06-30: 片头画面截自素材的起始秒 (best_start/fps). export 用它截对应段原声,
+        # 让片头音画同步 (原片高潮段原声), 替代独立 sting. 见 export intro_music_from_clip.
+        ctx.set("intro_start_sec", float(getattr(self, "_intro_start_sec", 0.0)))
         ctx.set("outro_path", str(outro_path))
         print(f"    输出: 片头={intro_path.name}, 片尾={outro_path.name}")
 
@@ -183,6 +212,7 @@ class IntroOutroStage:
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if r.returncode != 0:
                 raise RuntimeError(f"FFmpeg copy failed: {r.stderr[-200:]}")
+            self._intro_start_sec = 0.0  # 短视频: 片头=全部, 起始 0s
             return output_path
 
         # 找运动强度最高的片段
@@ -247,6 +277,7 @@ class IntroOutroStage:
 
         _encode_pngs_to_video(tmpdir, frame_count, str(output_path), actual_fps, tag="intro")
         shutil.rmtree(tmpdir, ignore_errors=True)
+        self._intro_start_sec = best_start / actual_fps  # 片头画面在素材中的起始秒
         return output_path
 
     def _draw_intro_text_pil(self, frame, lead_name: str, channel: str, location: str, date_str: str, progress: float, use_tc: bool = False):

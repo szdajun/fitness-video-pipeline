@@ -249,29 +249,32 @@ class WatermarkStage:
         os.close(tmp_fd)
         tmp_path_tmp = Path(tmp_path_tmp)
 
-        print(f"    写入完成: {frame_idx} 帧，调用 FFmpeg 编码...")
-        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        cmd = [ffmpeg_bin, "-y", "-v", "error",
-               "-framerate", str(fps),
-               "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-pix_fmt", "yuv420p", "-an", str(tmp_path_tmp)]
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
-        if r.returncode != 0:
-            print(f"    FFmpeg stderr: {r.stderr}")
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            # 不抛异常, 回退: 用原视频作 watermark 源
-            ctx.set("watermark_path", input_path)
-            return
-
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
         try:
-            shutil.move(str(tmp_path_tmp), str(out_path))
-        except Exception:
-            alt_path = ctx.output_dir / f"{Path(input_path).stem}_watermark_new.mp4"
-            shutil.move(str(tmp_path_tmp), str(alt_path))
-            out_path = alt_path
+            print(f"    写入完成: {frame_idx} 帧，调用 FFmpeg 编码...")
+            # 强制用本地 ffmpeg (WinGet 版 8.1 长视频编码超时, 与 06_color_grade 同根因)
+            ffmpeg_bin = "C:/Users/18091/ffmpeg/ffmpeg.exe"
+            cmd = [ffmpeg_bin, "-y", "-v", "error",
+                   "-framerate", str(fps),
+                   "-i", f"{tmpdir_short}/f_%06d.png",
+                   "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                   "-pix_fmt", "yuv420p", "-an", str(tmp_path_tmp)]
+            # 600s: 5822 帧 1920x1080 编码需 ~250s
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
+            if r.returncode != 0:
+                print(f"    FFmpeg stderr: {r.stderr}")
+                # 不抛异常, 回退: 用原视频作 watermark 源
+                ctx.set("watermark_path", input_path)
+                return
 
-        ctx.set("watermark_path", str(out_path))
-        print(f"    输出: {out_path.name}")
+            try:
+                shutil.move(str(tmp_path_tmp), str(out_path))
+            except Exception:
+                alt_path = ctx.output_dir / f"{Path(input_path).stem}_watermark_new.mp4"
+                shutil.move(str(tmp_path_tmp), str(alt_path))
+                out_path = alt_path
+
+            ctx.set("watermark_path", str(out_path))
+            print(f"    输出: {out_path.name}")
+        finally:
+            # 2026-06-29: 无论成功/失败/超时都清理 wm_ PNG 序列目录 (防磁盘满, 同 06_color_grade 修复)
+            shutil.rmtree(tmpdir, ignore_errors=True)

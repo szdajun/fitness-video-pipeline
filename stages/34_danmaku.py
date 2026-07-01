@@ -100,16 +100,29 @@ class DanmakuStage:
             pil_font = ImageFont.load_default()
 
         # 预生成弹幕队列: (文字, 出现帧, 起始y, 颜色)
+        # 轨道分配: 弹幕区切成多条横向轨道, 每条独占一轨 + 同轨时间错开, 杜绝文字重叠
         interval = cfg.get("interval", 30)  # 每隔N帧可能出现
+        track_h = max(1, int(font_size * 1.4))  # 行高 > 字高, 异轨垂直不叠
+        top, bottom = orig_h // 6, orig_h * 5 // 6
+        num_tracks = max(1, (bottom - top) // track_h)
+        scroll_v = 3.9  # px/帧 (与下方 active 计算 1.3*orig_w / (orig_w/3) 一致)
+        gap_px = max(40, int(font_size * 0.6))  # 同轨前后弹幕安全间距
+        track_free_at = [0] * num_tracks  # 每轨最早可放新弹幕的帧号
+        colors = [(255, 255, 100), (255, 150, 100), (100, 255, 200),
+                  (255, 200, 255), (255, 255, 255)]
         danmaku_list = []
         for f in range(0, max_frames, interval):
             if f in beat_frames or random.random() < 0.3:
                 text = random.choice(PHRASES)
-                y = random.randint(orig_h // 6, orig_h * 5 // 6)
-                colors = [(255, 255, 100), (255, 150, 100), (100, 255, 200),
-                          (255, 200, 255), (255, 255, 255)]
+                tw = pil_font.getbbox(text)[2] - pil_font.getbbox(text)[0]
+                # 选最早空闲的轨道; 全忙则跳过这条 (限流防拥挤, 宁少勿叠)
+                t = min(range(num_tracks), key=lambda i: track_free_at[i])
+                if track_free_at[t] > f:
+                    continue
+                y = top + t * track_h  # 锁到轨道顶, 同轨对齐异轨分行
                 color = random.choice(colors)
                 danmaku_list.append((text, f, y, color))
+                track_free_at[t] = f + int((tw + gap_px) / scroll_v)
 
         out_path = ctx.output_dir / f"{Path(input_path).stem}_danmaku.mp4"
         tmpdir = Path(tempfile.mkdtemp(prefix="dm_"))
@@ -182,13 +195,13 @@ class DanmakuStage:
         cap.release()
         print(f"    写入完成: {frame_idx} 帧，调用 FFmpeg 编码...")
 
-        ffmpeg = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        ffmpeg = "C:/Users/18091/ffmpeg/ffmpeg.exe"  # 强制本地版, WinGet 8.1 长视频超时
         cmd = [ffmpeg, "-y", "-framerate", str(fps),
                "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "1",
+               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                "-pix_fmt", "yuv420p", "-an", str(out_path)]
         r = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace", timeout=600)
         shutil.rmtree(tmpdir, ignore_errors=True)
 
         if r.returncode != 0:

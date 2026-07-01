@@ -62,7 +62,7 @@ class PipelineEngine:
             "audio_path": "audio", "beatflash_path": "beat_flash",
             "highlight_path": "highlight", "energybar_path": "energy_bar",
             "intro_path": "intro_outro", "outro_path": "intro_outro",
-            "watermark_path": "watermark", "mascot_path": "mascot",
+            "watermark_path": "watermark", "mascot_path": "face_swap",  # 2026-06-29: mascot 禁用, mascot_path 实际由 face_swap 产出. 映射到 face_swap 才不会被 disabled-skip 漏掉
             "blush_path": "blush", "face_beautify_path": "face_beautify",
             "face_beautify2_path": "face_beautify2", "rife_path": "rife",
             "speedramp_path": "speed_ramp", "danmaku_path": "danmaku",
@@ -86,11 +86,13 @@ class PipelineEngine:
             "watermark_path": [
                 f"{video_stem}_watermark.mp4",
                 f"{video_stem}_h2v_watermark.mp4",
+                f"{video_stem}_energybar_watermark.mp4",  # 2026-06-29: youtube preset watermark 输出名 (input=energybar), 缺它会每次重跑 ~13min
             ],
             "blush_path": [f"{video_stem}_h2v_blush.mp4"],
             "warped_path": [f"{video_stem}_h2v_warped.mp4"],
             "face_path": [f"{video_stem}_h2v_warped_face.mp4"],
             "color_path": [
+                f"{video_stem}_color.mp4",  # 2026-06-29: youtube 等无 h2v/stabilize 的 preset, color_grade 直接输出 _color.mp4
                 f"{video_stem}_h2v_kenburns_color.mp4",
                 f"{video_stem}_stabilized_kenburns_16x9_color.mp4",
             ],
@@ -106,9 +108,16 @@ class PipelineEngine:
             "highlight_path": [f"{video_stem}_highlight.mp4"],
             "energybar_path": [f"{video_stem}_energybar.mp4"],
             "mascot_path": [
+                # 2026-06-29: face_swap 跑完 set mascot_path=faceswap. face_swap 跳过时也要能
+                # 从 faceswap 接力 (否则 danmaku 读未换脸 fallback → 最终没换脸). 放首位.
+                f"{video_stem}_faceswap.mp4",
                 f"{video_stem}_mascot.mp4",
                 f"{video_stem}_energybar_watermark_mascot.mp4",
             ],
+            # 2026-06-29: 注册换脸输出. STAGE_OUTPUT_KEYS["face_swap"]=["face_swap_path"],
+            # 若不注册此模式, 预扫描设不了 ctx.face_swap_path → incremental 每次都重跑 face_swap
+            # (即便 _faceswap.mp4 已存在), 浪费 ~40min/次. stages/37 输出名固定为 _faceswap.mp4.
+            "face_swap_path": [f"{video_stem}_faceswap.mp4"],
             "danmaku_path": [
                 f"{video_stem}_danmaku.mp4",
                 f"{video_stem}_energybar_watermark_mascot_danmaku.mp4",
@@ -324,7 +333,8 @@ class PipelineEngine:
         "pip":               ["pip_path"],
         "bgm_beat":          ["bgm_path"],
         "qin_cold_open":     ["coldopen_path"],
-        "export":            ["final_path", "shorts_path"],
+        "export":            ["final_path"],
+        "shorts":            ["shorts_path", "douyin_vertical_path"],
         "face_enhance":      ["face_enhance_path"],
         "face_swap":         ["face_swap_path"],
     }

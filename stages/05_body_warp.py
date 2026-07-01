@@ -143,29 +143,33 @@ class BodyWarpStage:
 
         cap.release()
 
-        print(f"    写入完成: {frame_idx} 帧，调用 FFmpeg 编码...")
-        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
-        cmd = [ffmpeg_bin, "-y", "-v", "info",
-               "-framerate", str(fps),
-               "-i", f"{tmpdir_short}/f_%06d.png",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if r.returncode != 0:
-            print(f"    FFmpeg 错误: {r.stderr[:500]}")
-            raise RuntimeError(f"FFmpeg 编码失败: {r.stderr[:200]}")
-        print(f"    编码完成")
-
-        # 移动到最终路径
         try:
-            shutil.move(str(tmp_path_tmp), str(out_path))
-        except Exception:
-            alt_path = ctx.output_dir / f"{Path(h2v_path).stem}_warped_new.mp4"
-            shutil.move(str(tmp_path_tmp), str(alt_path))
-            out_path = alt_path
+            print(f"    写入完成: {frame_idx} 帧，调用 FFmpeg 编码...")
+            ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+            cmd = [ffmpeg_bin, "-y", "-v", "info",
+                   "-framerate", str(fps),
+                   "-i", f"{tmpdir_short}/f_%06d.png",
+                   "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                   "-pix_fmt", "yuv444p", "-an", str(tmp_path_tmp)]
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if r.returncode != 0:
+                print(f"    FFmpeg 错误: {r.stderr[:500]}")
+                raise RuntimeError(f"FFmpeg 编码失败: {r.stderr[:200]}")
+            print(f"    编码完成")
 
-        ctx.set("warped_path", str(out_path))
-        print(f"    输出: {Path(out_path).name}")
+            # 移动到最终路径
+            try:
+                shutil.move(str(tmp_path_tmp), str(out_path))
+            except Exception:
+                alt_path = ctx.output_dir / f"{Path(h2v_path).stem}_warped_new.mp4"
+                shutil.move(str(tmp_path_tmp), str(alt_path))
+                out_path = alt_path
+
+            ctx.set("warped_path", str(out_path))
+            print(f"    输出: {Path(out_path).name}")
+        finally:
+            # 2026-06-29: 无论成功/失败都清理 bw_ PNG 序列目录 (防磁盘满, 同 cg_/wm_ 修复)
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def _sharpen_face(self, frame, kps, crop_w, crop_h):
         """对脸部区域轻锐化，防止变形后脸部模糊

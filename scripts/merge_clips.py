@@ -1,19 +1,31 @@
-"""视频合并脚本 — 同一天同一教练合并"""
+"""视频合并脚本 — 同一天同一教练合并
 
-import argparse, subprocess, shutil, uuid
+2026-06-29: 输出文件名改为 {教练名}_{日期}.mp4 (教练名在前). 下游
+detect_coach_from_filename 的 _clean_input_name 遇数字/下划线/横线即截断后续,
+所以教练名必须在文件名最前面 (后面跟数字或分隔符) 才能被正确提取.
+旧名 "合并_{coach}_{date}" 的 "合并_" 前缀会让提取得到 "合并" 而非教练名
+→ 判词/换脸/标题全串 (建玲合并踩过). 同时 get_coach 改为复用
+coach_profiles.detect_coach_from_filename, 识别全部教练 (旧硬编码只认 4 个).
+"""
+import argparse, subprocess, shutil, uuid, sys
 from pathlib import Path
 from collections import defaultdict
 
+# scripts/ 子目录 import 项目根的 lib
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from lib.coach_profiles import COACH_PROFILES, detect_coach_from_filename
 
 FFMPEG = "C:/Users/18091/ffmpeg/ffmpeg.exe"
 
 
-def get_coach(name):
-    if "艳青" in name or "胭脂" in name or "海军" in name: return "艳青"
-    if "丽丽" in name or "腰女" in name: return "丽丽"
-    if "小红豆" in name or "妙女" in name: return "小红豆"
-    if "建玲" in name or "带队" in name: return "建玲"
-    return "unknown"
+def coach_of(stem):
+    """识别教练名; 未识别返回 'unknown' (合并分组用).
+    复用 detect_coach_from_filename 与下游 (判词/换脸/标题) 解析统一."""
+    d = detect_coach_from_filename(stem)
+    return d if d in COACH_PROFILES else "unknown"
 
 
 def get_date(stem):
@@ -116,7 +128,7 @@ def auto_merge(output_base, min_clips=2):
     for v in videos:
         date = get_date(v.stem)
         if date:
-            key = (f"{date.year:04d}-{date.month:02d}-{date.day:02d}", get_coach(v.stem))
+            key = (f"{date.year:04d}-{date.month:02d}-{date.day:02d}", coach_of(v.stem))
             groups[key].append(v)
 
     print(f"找到 {len(videos)} 个视频，分成 {len(groups)} 组（每天每教练 >= {min_clips} 才合并）")
@@ -129,7 +141,7 @@ def auto_merge(output_base, min_clips=2):
         clips.sort()
         out_dir = output_base / date_str
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"合并_{coach}_{date_str}.mp4"
+        out_file = out_dir / f"{coach}_{date_str}.mp4"
         print(f"[{date_str} {coach}] {len(clips)} 个 -> {out_file.name}")
         for c in clips:
             print(f"  + {c.name}")

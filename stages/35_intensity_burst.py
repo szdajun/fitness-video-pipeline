@@ -110,7 +110,7 @@ class IntensityBurstStage:
 
         out_path = ctx.output_dir / f"{Path(input_path).stem}_burst.mp4"
         tmpdir = Path(tempfile.mkdtemp(prefix="burst_"))
-        ffmpeg_bin = shutil.which("ffmpeg") or "C:/Users/18091/ffmpeg/ffmpeg.exe"
+        ffmpeg_bin = "C:/Users/18091/ffmpeg/ffmpeg.exe"  # 强制本地版, WinGet 8.1 长视频超时
         burst_lookup = {b["frame"]: b for b in burst_moments}
         burst_duration = int(fps * 0.6)  # 0.6 seconds
 
@@ -174,7 +174,7 @@ class IntensityBurstStage:
             "-i", str(tmpdir / "f_%06d.png"),
             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
             "-pix_fmt", "yuv420p", "-an", str(_tmp_path),
-        ], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        ], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
         shutil.rmtree(tmpdir, ignore_errors=True)
 
         if r.returncode != 0:
