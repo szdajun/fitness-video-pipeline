@@ -57,16 +57,24 @@ def reset_gpu(verbose=True):
     elif verbose:
         print("[reset_gpu] 无残留 GPU 进程")
 
-    # 2. 重置 GPU clocks (释放电源管理降频) — 通常需要管理员
-    rc, _ = _run(["nvidia-smi", "-rgc"])
-    if rc == 0 and verbose:
-        print("[reset_gpu] ✓ GPU clocks 重置到默认")
-    elif verbose:
-        print("[reset_gpu] GPU clocks 重置需管理员, 跳过 (Win+R, 不影响显存)")
-
-    rc, _ = _run(["nvidia-smi", "-rmc"])
-    if rc == 0 and verbose:
-        print("[reset_gpu] ✓ GPU memory clocks 重置到默认")
+    # 2. 重置 GPU clocks (释放电源管理降频) — 通常需要管理员.
+    # 2026-06-28: Windows 无管理员权限时 nvidia-smi -rgc/-rmc 会在驱动层 hang,
+    # 且 subprocess.run timeout=15 的 kill 不彻底 (驱动句柄未释放, python 的 wait 仍卡),
+    # 实测带 --reset-gpu 跑 pipeline 在此卡 155s+ 且无任何 stdout 输出.
+    # Windows 直接跳过 clocks reset —— 防 CUDNN 主要靠上面的杀进程 + 下面 torch empty_cache
+    # + face_swap 的 arena 策略 (kSameAsRequested), clocks reset 只是电源管理次要项.
+    if os.name == 'nt':
+        if verbose:
+            print("[reset_gpu] Windows 跳过 clocks reset (需管理员; 无权限时 nvidia-smi -rgc hang)")
+    else:
+        rc, _ = _run(["nvidia-smi", "-rgc"])
+        if rc == 0 and verbose:
+            print("[reset_gpu] ✓ GPU clocks 重置到默认")
+        elif verbose:
+            print("[reset_gpu] GPU clocks 重置需管理员, 跳过")
+        rc, _ = _run(["nvidia-smi", "-rmc"])
+        if rc == 0 and verbose:
+            print("[reset_gpu] ✓ GPU memory clocks 重置到默认")
 
     # 3. Python 侧 torch 清碎片
     try:

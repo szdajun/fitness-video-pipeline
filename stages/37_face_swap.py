@@ -91,14 +91,18 @@ class FaceSwapStage:
             print(f"    跳过: 无可用上游视频作为换脸目标")
             return
 
-        stem = Path(target).stem
+        # 2026-06-29: 输出名用 ctx.input_path.stem (艳青1_faceswap.mp4), 不随 target 变.
+        # 之前用 target.stem → 艳青1_energybar_watermark_faceswap.mp4, 与 prescan 模式
+        # (艳青1_faceswap.mp4) 不符 → 找不到 → incremental 复用旧文件或重跑.
+        stem = Path(ctx.input_path).stem
         out_path = ctx.output_dir / f"{stem}_faceswap.mp4"
 
         # 换脸参数. face_swap 在 preset 里通常是 bool (开关), 参数单独放顶层 face_swap 块.
         fs_cfg = ctx.config.get("face_swap")
         if not isinstance(fs_cfg, dict):
             fs_cfg = {}
-        gfpgan_strength = fs_cfg.get("gfpgan_strength", 0.5)  # 换脸后 GFPGAN 美颜修复强度
+        # 2026-06-26: 关 GFPGAN — 既然换脸了, 美颜就修的是假脸, 没意义; 而且 CPU 跑要 7h/视频
+        gfpgan_strength = fs_cfg.get("gfpgan_strength", 0)
         color_match_strength = fs_cfg.get("color_match_strength", 0.8)  # 肤色迁移回原场景 (消偏色/过白)
         max_frames = fs_cfg.get("max_frames", 0)
 
@@ -110,10 +114,21 @@ class FaceSwapStage:
                 source_face = ensure_source_photo(source_face, lead_name, out_dir=tools_dir)
             except Exception as _e:
                 print(f"    源照增强跳过: {_e}")
-            print(f"    换脸: {lead_name} ← {Path(source_face).name} (GFPGAN={gfpgan_strength}, 色温={color_match_strength})")
+            # 2026-06-26: 用 pose keypoints 定位领操人, 跳过背面 (绕开 insightface 在仰头/侧脸的漏检)
+            # 2026-06-29: 关键修复 — pose 增量跳过时 ctx.keypoints_file 没人 set.
+            # pose_detect 只在它 RUN 时 ctx.set("keypoints_file"); prescan 只 set "keypoints_path".
+            # 找不到 → pose=否 → process_video 走 fallback 选最大脸 → 换错人
+            # (艳青1 曾因此把脸换给左边第二个男人, 艳青本人没换). 三路兜底确保增量跳过 pose 时也能进 pose 模式.
+            keypoints_file = ctx.get("keypoints_file") or ctx.get("keypoints_path")
+            if not keypoints_file:
+                candidate = ctx.output_dir / f"{ctx.input_path.stem}_keypoints.json"
+                keypoints_file = str(candidate) if candidate.exists() else None
+            kp_arg = keypoints_file if (keypoints_file and Path(keypoints_file).exists()) else None
+            print(f"    换脸: {lead_name} ← {Path(source_face).name} (GFPGAN={gfpgan_strength}, 色温={color_match_strength}, pose={'是' if kp_arg else '否'})")
             process_video(source_face, str(target), str(out_path),
                          max_frames=max_frames, gfpgan_strength=gfpgan_strength,
-                         color_match_strength=color_match_strength)
+                         color_match_strength=color_match_strength,
+                         keypoints_file=kp_arg)
 
             # 兜底：如果工具内部混音失败，手动用源视频音频混合
             if not os.path.exists(str(out_path)):

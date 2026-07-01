@@ -80,11 +80,16 @@ class PoseDetectStage:
             try:
                 with open(cache_path, "r", encoding="utf-8") as f:
                     cache = json.load(f)
-                ctx.set("keypoints", {int(k): v for k, v in cache["keypoints"].items()})
-                ctx.set("video_info", cache["video_info"])
-                ctx.set("keypoints_file", str(cache_path))  # 2026-06-27: 给 stage 37 face_swap 用
-                print(f"    关键点缓存: {cache_path.name}")
-                return
+                cached_kp = cache.get("keypoints", {})
+                # 2026-06-28: 防缓存毒化 — 空壳 keypoints (如 cap.read() 首帧即 False 产生的 {"keypoints":{}})
+                # 必须当 miss 重跑; 否则空缓存被无限复用 → face_swap 降级 fallback 全图检测 → 多人广角漏检/误选领操人
+                if cached_kp:
+                    ctx.set("keypoints", {int(k): v for k, v in cached_kp.items()})
+                    ctx.set("video_info", cache["video_info"])
+                    ctx.set("keypoints_file", str(cache_path))  # 2026-06-27: 给 stage 37 face_swap 用
+                    print(f"    关键点缓存: {cache_path.name}")
+                    return
+                print(f"    [WARN] 缓存为空壳, 视为未命中, 重跑 pose: {cache_path.name}")
             except Exception:
                 pass
 

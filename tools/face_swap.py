@@ -80,8 +80,11 @@ def _cuda_provider_options():
     return [{
         "device_id": 0,
         "arena_extend_strategy": "kSameAsRequested",  # 避免 kNextPowerOfTwo 碎片
-        "gpu_mem_limit": 8 * 1024 * 1024 * 1024,      # 8GB 上限 (4070 有 12GB)
-        "cudnn_conv_algo_search": "EXHAUSTIVE",
+        "gpu_mem_limit": 4 * 1024 * 1024 * 1024,      # 4GB 上限 (4070 12GB; inswapper 模型仅 52MB 够用,
+        # 留余量给同进程 RVM torch + buffalo_l 检测器. CUDNN 稳定性靠 arena 策略, 非此上限)
+        # HEURISTIC 而非 EXHAUSTIVE: bg_swap 同进程跑 RVM(torch)+buffalo_l+inswapper 三 GPU 模型,
+        # EXHAUSTIVE 搜大 workspace algo 瞬时撑爆 12GB → Conv_62 起即 OOM (2026-06-30). HEURISTIC 省 workspace.
+        "cudnn_conv_algo_search": "HEURISTIC",
         "do_copy_in_default_stream": True,
     }]
 
@@ -251,7 +254,7 @@ SRC_FACE_MIN_DET = 0.50    # insightface 检测置信度下限
 def assess_source_quality(img, app):
     """评估换脸源照质量. 返回 (ok, reason, best_face).
     ok=True 合格可直接换脸; ok=False 建议先增强."""
-    faces = app.get(img)
+    faces = _detect_with_fallback(app, img)
     if not faces:
         return False, "未检测到人脸", None
     best = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
@@ -314,12 +317,34 @@ def ensure_source_photo(source_path, coach_name, app=None, force=False, out_dir=
     return out_path
 
 
+def _detect_with_fallback(app, img):
+    """insightface 检测 + det_size 降级 (640→320).
+    640 在某些角度/遮挡照片漏检 (实测 yanqing 短发仰角图),
+    降级到 320 触发多尺度滑动窗口, 能救回 ~80% 的 640 漏检.
+    返回 faces list (空 list = 都没检到).
+    """
+    faces = app.get(img)
+    if faces:
+        return faces
+    # 降级: 临时把 det-size 改小
+    original_size = getattr(app.det_model, "input_size", (640, 640))
+    try:
+        app.det_model.input_size = (320, 320)
+        faces = app.get(img)
+        if faces:
+            print(f"  [降级] det_size=320 救回 {len(faces)} 张脸 (640 漏检)")
+            return faces
+    finally:
+        app.det_model.input_size = original_size
+    return []
+
+
 def extract_face_embedding(app, image_path):
     """从源图片提取人脸特征"""
     img = _imread_unicode(image_path)
     if img is None:
         raise ValueError(f"无法读取图片: {image_path}")
-    faces = app.get(img)
+    faces = _detect_with_fallback(app, img)
     if not faces:
         raise ValueError(f"未检测到人脸: {image_path}")
     # 取面积最大的人脸
@@ -453,14 +478,26 @@ def swap_face(swapper, source_face, target_img, app, multi_src_faces=None,
         y1 = max(0, min(h, y1)); y2 = max(0, min(h, y2))
         if x2 - x1 < 20 or y2 - y1 < 20:
             return target_img
-        roi = target_img[y1:y2, x1:x2].copy()
+        roi0 = target_img[y1:y2, x1:x2].copy()
+        rh0, rw0 = roi0.shape[:2]
+        # 2026-06-29: 远景小脸修复. insightface det_size=640 只把大图缩到 640, 不会放大小图.
+        # 健身全身镜头里 lead ROI 常仅 160px, 脸 ~40px → buffalo_l 漏检 (日志 "人脸:0帧",
+        # swap 计数空涨但 inswapper 没真跑, 输出原帧未换). 上采样 ROI 到 ≥512 让脸到 ~128px
+        # 可检可换, 完成后下采样贴回原位.
+        UPSCALE_TARGET = 512
+        upscaled = False
+        roi = roi0
+        if max(rh0, rw0) < UPSCALE_TARGET:
+            roi = cv2.resize(roi0, (UPSCALE_TARGET, UPSCALE_TARGET), interpolation=cv2.INTER_CUBIC)
+            upscaled = True
         roi_faces = app.get(roi)
         if not roi_faces:
             return target_img
         # 选 lead: 优先 cx 接近 ROI 中心的脸 (领操人), 否则最大脸.
         # 距离 ROI 中心越近越优先, 再按面积. 避免远处大婶被误选.
-        roi_cx = (x2 - x1) / 2
-        roi_cy = (y2 - y1) / 2
+        rh, rw = roi.shape[:2]
+        roi_cx = rw / 2
+        roi_cy = rh / 2
 
         def lead_score(f):
             bbox = f.bbox
@@ -471,14 +508,23 @@ def swap_face(swapper, source_face, target_img, app, multi_src_faces=None,
             return (dist, -area, -f.det_score)  # 距离小 > 面积大 > 置信度高
 
         roi_face = min(roi_faces, key=lead_score)
-        # 备份原 ROI 用于色温迁移 (消偏色/过白)
-        orig_face_roi = roi.copy() if color_match_strength > 0 else None
+        # 备份原【脸部区域】用于色温迁移 (2026-06-28: 改用纯脸框, 不用整个 ROI——
+        # 整个 ROI 含黑头发/暗背景会拉低均值, 把换上的脸拉暗成"深色面膜")
+        orig_face_roi = None
+        if color_match_strength > 0:
+            fx1, fy1, fx2, fy2 = [int(v) for v in roi_face.bbox]
+            fx1 = max(0, fx1); fy1 = max(0, fy1)
+            fx2 = min(roi.shape[1], fx2); fy2 = min(roi.shape[0], fy2)
+            if fx2 - fx1 > 5 and fy2 - fy1 > 5:
+                orig_face_roi = roi[fy1:fy2, fx1:fx2].copy()
         try:
             roi_swapped = swapper.get(roi, roi_face, source_face, paste_back=True)
             # 色温迁移: 把换后脸肤色拉回原场景
             if color_match_strength > 0 and orig_face_roi is not None:
                 roi_swapped = color_match_face(
                     roi_swapped, roi_face.bbox, orig_face_roi, color_match_strength)
+            if upscaled:
+                roi_swapped = cv2.resize(roi_swapped, (rw0, rh0), interpolation=cv2.INTER_AREA)
             target_img[y1:y2, x1:x2] = roi_swapped
         except Exception:
             pass
@@ -574,6 +620,10 @@ def color_match_face(frame, bbox, ref_roi, strength=0.8):
 
     用 LAB 空间 Reinhard 迁移 (匹配均值+方差), 只改颜色不改五官/纹理 → 保留换脸身份,
     但肤色/光感回归原场景. strength: 0=不迁移, 1=完全用原肤色. 默认 0.8.
+    2026-06-28: 关键在 ref 必须是【纯脸框】(换脸前原脸, 不含黑头发/背景)——
+    旧版 ref=整个ROI 时黑头发拉低 L 均值, 全迁会把脸拉暗成"深色面膜".
+    ref 改脸框后 L 均值=真实原肤色, L/a/b 全迁安全且必要 (只迁 a/b 不迁 L 会
+    "白皮+中等色调"发灰发青). 见 swap_face() 中 orig_face_roi 的取法.
     """
     x1, y1, x2, y2 = [int(v) for v in bbox]
     h, w = y2 - y1, x2 - x1
@@ -583,7 +633,8 @@ def color_match_face(frame, bbox, ref_roi, strength=0.8):
     ref = cv2.resize(ref_roi, (w, h))
     tgt_lab = cv2.cvtColor(tgt, cv2.COLOR_BGR2LAB).astype(np.float32)
     ref_lab = cv2.cvtColor(ref, cv2.COLOR_BGR2LAB).astype(np.float32)
-    out = np.empty_like(tgt_lab)
+    # 2026-06-28: ref 已是纯脸框(换脸前原脸), L 均值=真实原肤色, L/a/b 全迁安全且必要
+    out = tgt_lab.copy()
     for c in range(3):
         tm, ts = tgt_lab[..., c].mean(), tgt_lab[..., c].std() + 1e-6
         rm, rs = ref_lab[..., c].mean(), ref_lab[..., c].std() + 1e-6
@@ -718,7 +769,15 @@ def process_video(source_path, target_path, output_path, max_frames=0, every_n=1
             with open(keypoints_file, encoding="utf-8") as f:
                 kp_data = json.load(f)
             keypoints = kp_data.get("keypoints", kp_data)
-            print(f"  pose keypoints 加载: {keypoints_file} ({len(keypoints)} 帧)")
+            # 2026-06-28: 空 keypoints (缓存毒化 / pose 失败) 必须显式降级 + 警告,
+            # 否则空 dict is not None 仍走 pose 分支但每帧领操人=None → 静默 fallback 全图检测,
+            # 多人广角画面会漏检/误选领操人 (本 bug 曾导致艳青1 "看不出换脸")
+            non_empty = sum(1 for v in keypoints.values() if v) if isinstance(keypoints, dict) else 0
+            if non_empty == 0:
+                print(f"  [警告] keypoints 为空 ({os.path.basename(keypoints_file)}), 降级 fallback 全图检测 — 请重跑 pose")
+                keypoints = None
+            else:
+                print(f"  pose keypoints 加载: {keypoints_file} ({len(keypoints)} 帧, 非空 {non_empty})")
         except Exception as e:
             print(f"  [警告] keypoints 加载失败: {e}")
             keypoints = None
