@@ -36,7 +36,11 @@ dependencies = [
     "ultralytics>=8.0.0",
     "mediapipe>=0.10,<0.11",
     "insightface>=0.7.3",
-    "onnxruntime-gpu>=1.19.0",
+    # CUDA 12 build (1.23+ 链接 cublasLt64_13/CUDA 13, 系统 CUDA 12 只有 cublasLt64_12 → CUDA provider 加载失败回退 CPU, face_swap 视频换脸慢如龟)
+    "onnxruntime-gpu>=1.19,<1.23",
+    # YouTube 上传 (tools/upload_youtube.py 借用 ComfyUI youtube_upload custom node, 需 google 三件套; uv 迁移时漏装过)
+    "google-api-python-client>=2.0",
+    "google-auth-oauthlib>=1.0",
 ]
 
 [project.optional-dependencies]

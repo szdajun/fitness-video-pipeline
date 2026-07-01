@@ -133,7 +133,9 @@ _GFPGAN_CACHE = {"model": None, "cascade": None, "device": None}
 
 
 def _patch_torchvision_compat():
-    """新版 torchvision 删了 functional_tensor, 旧版 gfpgan/basicsr 依赖它 — 补回来."""
+    """新版 torchvision 删了 functional_tensor, 旧版 gfpgan/basicsr 依赖它 — 补回来.
+    gfpgan/__init__ 还依赖 facexlib.FaceRestoreHelper, 但本项目简化版用 OpenCV Haar
+    检测脸 (gfpgan_restore_frame), 不用 FaceRestoreHelper → stub 掉, 免装 facexlib 及其检测/解析权重."""
     global _GFPGAN_PATCHED
     if _GFPGAN_PATCHED:
         return
@@ -143,9 +145,21 @@ def _patch_torchvision_compat():
         m = types.ModuleType("torchvision.transforms.functional_tensor")
         m.rgb_to_grayscale = _F.rgb_to_grayscale
         sys.modules["torchvision.transforms.functional_tensor"] = m
+        # facexlib stub (gfpgan.utils 要 FaceRestoreHelper; 本项目简化版不实例化它)
+        if "facexlib.utils.face_restoration_helper" not in sys.modules:
+            _fx = types.ModuleType("facexlib"); _fx.__path__ = []
+            _fxu = types.ModuleType("facexlib.utils")
+            _fxfrh = types.ModuleType("facexlib.utils.face_restoration_helper")
+            class FaceRestoreHelper:
+                pass
+            _fxfrh.FaceRestoreHelper = FaceRestoreHelper
+            _fxu.face_restoration_helper = _fxfrh
+            sys.modules["facexlib"] = _fx
+            sys.modules["facexlib.utils"] = _fxu
+            sys.modules["facexlib.utils.face_restoration_helper"] = _fxfrh
         _GFPGAN_PATCHED = True
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"  [WARN] torchvision/facexlib compat patch 失败: {_e}")
 
 
 def _load_gfpgan(device="cuda", model_path=None):
