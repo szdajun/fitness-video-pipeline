@@ -64,6 +64,7 @@ def merge_videos(video_paths, output_path):
         r = subprocess.run([
             FFMPEG, "-y", "-i", str(c),
             "-c:v", "libx264", "-crf", "23", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-r", "30",  # 统一帧率 (多源帧率不一如 29.97/30, concat 要求一致)
             "-an",  # 去音频
             str(enc)
         ], capture_output=True, text=True, errors="replace")
@@ -156,7 +157,28 @@ def main():
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--min-clips", type=int, default=2)
     parser.add_argument("--input-dir", default="F:/wkspace/fitness-video-pipeline/output")
+    parser.add_argument("--clips", nargs="+", help="手动指定要合并的视频文件 (跳过 --auto 扫描)")
+    parser.add_argument("--output", help="--clips 模式的输出路径 (教练名必须在文件名最前, 如 丽丽4_5_6_merged.mp4)")
     args = parser.parse_args()
+
+    if args.clips:
+        if not args.output:
+            sys.exit("[ERROR] --clips 需配合 --output 指定输出路径")
+        clips = [Path(c) for c in args.clips]
+        for c in clips:
+            if not c.exists():
+                sys.exit(f"[ERROR] 文件不存在: {c}")
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        print(f"手动合并 {len(clips)} 个视频 -> {out.name}")
+        for c in clips:
+            print(f"  + {c.name}")
+        if merge_videos(clips, out):
+            print(f"完成: {out} ({out.stat().st_size/1024/1024:.1f}MB)")
+        else:
+            sys.exit("[ERROR] 合并失败")
+        return
+
     auto_merge(Path(args.input_dir), args.min_clips)
 
 

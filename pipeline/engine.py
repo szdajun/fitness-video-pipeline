@@ -175,8 +175,8 @@ class PipelineEngine:
                                 ctx.set("keypoints", raw.get("keypoints", raw))
                                 ctx.set("keypoints_path", str(fpath))
                             found += 1
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"    [WARN] keypoints 缓存读取失败: {e}")
                     else:
                         ctx.set(key, str(fpath))
                         found += 1
@@ -199,8 +199,8 @@ class PipelineEngine:
                 try:
                     with open(ckp_file) as f:
                         ctx.data["cropped_keypoints"] = json.load(f)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"    [WARN] cropped_keypoints 加载失败({ckp_file}): {e}")
 
         if found > 0:
             print(f"  增量: 发现 {found} 个已有文件，将跳过")
@@ -360,8 +360,8 @@ class PipelineEngine:
                     with open(ckp, "w", encoding="utf-8") as f:
                         json.dump(ck, f)
                     outputs["cropped_keypoints_path"] = str(ckp)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"    [WARN] cropped_keypoints 写入失败({ckp}): {e}")
 
         return outputs
 

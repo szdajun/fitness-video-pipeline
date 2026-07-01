@@ -167,9 +167,16 @@ class IntroOutroStage:
         ctx.set("intro_music_offset", intro_music_offset)
         ctx.set("intro_music_end", intro_music_end)
 
+        # 2026-07-01: 片头视频时长必须 = 片头音频时长, 否则主体音视频错位.
+        #   music_from_main=true: 片头音频=主体[offset:end]切片(长 intro_dur_aligned) → 视频 intro_dur_aligned.
+        #   music_from_main=false (默认, 独立 sting): 片头音频=固定 4s sting(intro_duration) → 视频 intro_duration.
+        #   用户: "片头不能挤占主体音乐" → 默认独立 sting, 主体音乐不动与动作对齐.
+        music_from_main = cfg.get("intro_music_from_main", False)
+        intro_video_dur = intro_dur_aligned if music_from_main else intro_duration
+
         intro_path = self._create_intro(
             video_path, ctx.output_dir / f"{stem}_intro.mp4",
-            lead_name, channel_name, location, date_str, intro_dur_aligned, fps, cfg, use_tc
+            lead_name, channel_name, location, date_str, intro_video_dur, fps, cfg, use_tc
         )
 
         outro_path = self._create_outro(

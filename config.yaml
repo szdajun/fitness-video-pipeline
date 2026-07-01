@@ -47,7 +47,9 @@ stages:
 # 片头=截主体"完全终止落点"前最后4小节(截掉前4小节铺垫), 由 beat_flash 节拍对齐算落点(8小节完全终止),
 # 接缝(完全终止→主体开头新乐段)叠0.35s淡入淡出软化. 短+落到底+接缝顺, 三全其美.
 intro_outro:
-  intro_music_from_main: true
+  # 2026-07-01: 关闭. music_from_main 切主体音乐做片头=挤占主体→音乐段落早于动作切换(合并视频尤其明显).
+  # 改回独立 sting (music_library/intro_sting/intro_ref1.wav, 3 候选选 1), 主体音乐原样不动与动作对齐.
+  intro_music_from_main: false
 
 pose_backend: yolo
 pose_model: yolov8m-pose

@@ -192,7 +192,8 @@ class BeatFlashStage:
         # 当视频帧过滤 → 误把 73.5s 之后的节拍全砍了。
         try:
             tempo, beat_times = librosa.beat.beat_track(y=y, sr=sr, units='time')
-        except Exception:
+        except Exception as e:
+            print(f"    [WARN] beat_track 节拍检测失败: {e}")
             return None
 
         # tempo 可能是 ndarray（旧版本返回数组，新版本返回标量）

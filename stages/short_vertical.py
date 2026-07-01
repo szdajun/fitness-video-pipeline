@@ -18,7 +18,9 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
+
+import numpy as np
 
 # 复用 face_swap 的领操人识别 (BlazePose 33 kp 假设)
 from tools.face_swap import find_lead_person
@@ -103,6 +105,212 @@ def compute_crop_x_from_kp(keypoints_dict: dict,
     raw_crop_x = int(median_cx * frame_w - crop_w / 2)
     clamped = max(padding, min(raw_crop_x, frame_w - crop_w - padding))
     return clamped
+
+
+# ── 1b. 逐段领操人裁切 (合并视频治本) ─────────────────
+# 2026-07-01: 旧 compute_crop_x_from_kp 只取前 60 帧 cx → 单一静态 crop_x,
+#   合并视频第二段领操人移位/背身就被裁出画面. 改逐段跟踪:
+#   每帧最大体型人 cx (lead 代理, 领操人通常最近/最大, 自然跨机位切割) +
+#   v21 分段 (cx 突变 >0.08 持续 = 段边界) + 段内可靠帧中位数 → 逐段 crop_x.
+#   不用 build_tracks: 合并视频切割处 track id 会断/列表下标错位 (见 38_smart_crop.py:221 注释).
+
+
+def _per_frame_lead_cx(kp_dict: dict, total_frames: int) -> Tuple[np.ndarray, np.ndarray]:
+    """每帧领操人 torso cx (归一化 0~1) + 躯干宽 (可靠性指标).
+
+    每帧取"最大体型(bbox 面积)人"作为 lead 代理. torso cx = 肩(11,12)+髋(23,24)可见点
+    x 均值; 躯干宽 = 肩宽/髋宽均值 (越大检测越可靠, smart_crop v17 同款指标).
+
+    Returns:
+        (cxs, torso_ws): 均 np.float32 [total_frames]. 缺失帧 cx=0.5/torso_w=0.
+    """
+    cxs = np.full(total_frames, 0.5, dtype=np.float32)
+    torso_ws = np.zeros(total_frames, dtype=np.float32)
+    torso_idx = [11, 12, 23, 24]
+    for fi in range(total_frames):
+        pose = kp_dict.get(fi)
+        if not pose:
+            continue
+        best_cx, best_size, best_tw = 0.5, -1.0, 0.0
+        for person in pose:
+            if not person or len(person) < 29:
+                continue
+            try:
+                kps = np.array(person, dtype=np.float32)
+            except (ValueError, TypeError):
+                continue
+            if kps.ndim != 2 or kps.shape[1] < 3:
+                continue
+            vis = kps[:, 2] > 0.3
+            if vis.sum() < 4:
+                continue
+            torso_vis = vis[torso_idx]
+            if torso_vis.sum() >= 2:
+                cx = float(np.mean(kps[torso_idx][torso_vis, 0]))
+                widths = []
+                if vis[11] and vis[12]:
+                    widths.append(abs(kps[12][0] - kps[11][0]))
+                if vis[23] and vis[24]:
+                    widths.append(abs(kps[24][0] - kps[23][0]))
+                tw = float(np.mean(widths)) if widths else 0.0
+            else:
+                cx = float(np.mean(kps[vis, 0]))
+                tw = 0.0
+            xs, ys = kps[vis, 0], kps[vis, 1]
+            size = float((xs.max() - xs.min()) * (ys.max() - ys.min()))
+            if size > best_size:
+                best_cx, best_size, best_tw = cx, size, tw
+        cxs[fi] = best_cx
+        torso_ws[fi] = best_tw
+    return cxs, torso_ws
+
+
+def _detect_crop_segments(cxs: np.ndarray, jump_thr: float = 0.08) -> List[Tuple[int, int]]:
+    """v21 分段: 滑动窗口中位数突变 (>jump_thr 且持续) → 段边界.
+
+    Returns:
+        [(start_frame, end_frame), ...]. 单段视频返回 [(0, n)].
+    """
+    n = len(cxs)
+    if n < 60:
+        return [(0, n)]
+    seg_win = max(30, min(150, n // 20))
+    roll_med = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        lo, hi = max(0, i - seg_win // 2), min(n, i + seg_win // 2)
+        roll_med[i] = float(np.median(cxs[lo:hi]))
+
+    breakpoints = []
+    i = seg_win
+    while i < n - seg_win:
+        before = float(np.median(roll_med[i - seg_win:i]))
+        after = float(np.median(roll_med[i:i + seg_win]))
+        if abs(after - before) > jump_thr:
+            # 持续性确认: 前后各扩 30 帧看是否仍 > 0.7*thr (过滤单帧噪声)
+            lo2 = max(0, i - seg_win - 30)
+            hi2 = max(0, i - 30)
+            lo3 = min(n, i + 30)
+            hi3 = min(n, i + seg_win + 30)
+            b2 = float(np.median(roll_med[lo2:hi2])) if hi2 > lo2 else before
+            a2 = float(np.median(roll_med[lo3:hi3])) if hi3 > lo3 else after
+            if abs(a2 - b2) > jump_thr * 0.7:
+                breakpoints.append(i)
+                i += seg_win  # 跳过一个窗口, 避免同一边界重复检出
+                continue
+        i += 5
+
+    # 合并过近断点 (< seg_win)
+    merged: List[int] = []
+    for bp in breakpoints:
+        if merged and bp - merged[-1] < seg_win:
+            continue
+        merged.append(bp)
+    bounds = [0] + merged + [n]
+    segs = [(bounds[k], bounds[k + 1]) for k in range(len(bounds) - 1)]
+    # 合并过短段 (< seg_win 帧 ≈ 5s) 到前一段, 杀掉背身噪声产生的碎段
+    merged_segs: List[Tuple[int, int]] = []
+    for s, e in segs:
+        if merged_segs and (e - s) < seg_win:
+            merged_segs[-1] = (merged_segs[-1][0], e)
+        else:
+            merged_segs.append((s, e))
+    return merged_segs if merged_segs else [(0, n)]
+
+
+def _seg_target_cx(cxs: np.ndarray, torso_ws: np.ndarray,
+                   seg_start: int, seg_end: int,
+                   reliable_thr: float = 0.04) -> float:
+    """段内目标 cx: 可靠帧 (torso_w > thr) 中位数; 不足 5 个可靠帧退全段中位数."""
+    seg_cx = cxs[seg_start:seg_end]
+    seg_tw = torso_ws[seg_start:seg_end]
+    reliable = seg_tw > reliable_thr
+    if reliable.sum() >= 5:
+        return float(np.median(seg_cx[reliable]))
+    return float(np.median(seg_cx))
+
+
+def compute_crop_x_segments(kp_dict: dict,
+                            frame_w: int = DEFAULT_FRAME_W,
+                            crop_w: int = DEFAULT_CROP_W,
+                            fps: float = 30.0,
+                            padding: int = CROP_PADDING
+                            ) -> Tuple[List[Tuple[int, int, int]], str]:
+    """逐段算 crop_x (像素) + ffmpeg crop x 表达式, 跟随领操人跨合并视频各段.
+
+    Args:
+        kp_dict: pose 关键点 dict {frame_idx: [person_kps, ...]} (key 可 int/str)
+        frame_w: 宽屏宽 (默认 1920)
+        crop_w: 9:16 裁切宽 (默认 608)
+        fps: 源帧率 (段边界 frame→秒)
+        padding: 左右钳制留白
+
+    Returns:
+        (segments, crop_x_expr):
+          segments: [(start_frame, end_frame, crop_x_px), ...]
+          crop_x_expr: ffmpeg crop 的 x 参数. 单段=常量字符串; 多段=if(lt(t,T),x,...)
+                       嵌套表达式 (内部逗号已转义 \\, 防被当 filter 链分隔).
+          无 kp 数据返回 ([], "") 由调用方 fallback 居中.
+    """
+    if not kp_dict:
+        return [], ""
+    # 归一化 key 为 int
+    nk = {}
+    for k, v in kp_dict.items():
+        try:
+            nk[int(k)] = v
+        except (ValueError, TypeError):
+            continue
+    if not nk:
+        return [], ""
+    total_frames = max(nk.keys()) + 1
+
+    cxs, torso_ws = _per_frame_lead_cx(nk, total_frames)
+    # 平滑: 滚动中位数 (~3s 窗) 抑制单帧错检 (领操人转背身时"最大体型人"可能瞬跳到旁人),
+    # 只让持续位移(机位切换/领操人横移)触发分段, 不让背身抖动触发.
+    smooth_win = max(60, int(round(3.0 * (fps or 30.0))))
+    half = smooth_win // 2
+    smoothed = np.zeros_like(cxs)
+    for i in range(total_frames):
+        lo, hi = max(0, i - half), min(total_frames, i + half)
+        smoothed[i] = float(np.median(cxs[lo:hi]))
+    cxs = smoothed
+    segs = _detect_crop_segments(cxs)
+
+    # 物理 cx 范围 (crop 窗口能放下的 cx 边界)
+    min_cx = (crop_w / 2 + padding) / frame_w
+    max_cx = 1.0 - (crop_w / 2 + padding) / frame_w
+
+    segments: List[Tuple[int, int, int]] = []
+    for (s, e) in segs:
+        target = _seg_target_cx(cxs, torso_ws, s, e)
+        target = max(min_cx, min(target, max_cx))
+        cx_px = int(round(target * frame_w - crop_w / 2))
+        cx_px = max(padding, min(cx_px, frame_w - crop_w - padding))
+        segments.append((s, e, cx_px))
+
+    # 合并 crop_x 相近 (<20px) 的相邻段, 缩短表达式 (相邻同值段无视觉差异)
+    dedup: List[Tuple[int, int, int]] = []
+    for seg in segments:
+        if dedup and abs(seg[2] - dedup[-1][2]) < 20:
+            dedup[-1] = (dedup[-1][0], seg[1], dedup[-1][2])
+        else:
+            dedup.append(seg)
+    segments = dedup
+
+    # ffmpeg crop x 表达式
+    if len(segments) <= 1:
+        crop_x_expr = str(segments[0][2]) if segments else ""
+    else:
+        # 从末段往前嵌套: if(lt(t, T_{i+1}), x_i, <后续>)
+        # T_{i+1} = 下一段起始帧/fps = 段 i 与 i+1 的边界时间
+        expr = str(segments[-1][2])
+        for i in range(len(segments) - 2, -1, -1):
+            next_start = segments[i + 1][0]
+            T = next_start / fps if fps > 0 else 0.0
+            expr = f"if(lt(t,{T:.3f}),{segments[i][2]},{expr})"
+        # 转义表达式内逗号 → \, (否则 ffmpeg filtergraph 会当成 filter 链分隔)
+        crop_x_expr = expr.replace(",", "\\,")
+    return segments, crop_x_expr
 
 
 # ── 2. profile → overlay filters ────────────────────────
@@ -195,6 +403,27 @@ def _get_duration(video_path: str) -> float:
     return 0.0
 
 
+def _get_fps(video_path: str) -> float:
+    """ffprobe 视频帧率. 失败返 0. 形如 "30/1" 或 "30000/1001"."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate",
+             "-of", "default=nw=1:nk=1", video_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            s = r.stdout.strip()
+            if "/" in s:
+                num, den = s.split("/")
+                d = float(den)
+                return float(num) / d if d else float(num)
+            return float(s)
+    except Exception:
+        pass
+    return 0.0
+
+
 # ── 4. make_vertical 主入口 ────────────────────────────
 
 # 沿用 39_shorts.py 的 FFMPEG 路径策略: 优先 ~/ffmpeg, 后 winget
@@ -256,16 +485,31 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
     output_dir = str(output_dir)
     src_stem = Path(src_path).stem
 
-    # 1. 算 crop_x (复用 find_lead_person)
-    crop_x = (DEFAULT_FRAME_W - DEFAULT_CROP_W) // 2  # 默认居中 fallback
+    # 1. 算 crop_x (逐段跟随领操人, 治合并视频第二段领操人被裁出画面)
+    #    2026-07-01: 旧逻辑只取前 60 帧 cx 中位数 → 单一静态 crop_x, 合并视频第二段
+    #    领操人移位/背身就被裁出. 改逐段: 每帧最大体型人 cx + v21 分段 + 段内中位数.
+    fps = _get_fps(src_path) or 30.0
+    fallback_x = (DEFAULT_FRAME_W - DEFAULT_CROP_W) // 2  # 默认居中
+    crop_x = fallback_x                                  # 用于日志/兜底
+    crop_x_expr = str(fallback_x)                        # ffmpeg crop 的 x 参数
+    crop_segments: List[Tuple[int, int, int]] = []
     if keypoints_file and os.path.exists(str(keypoints_file)):
         try:
             with open(keypoints_file, encoding="utf-8") as f:
                 kp_data = json.load(f)
             kp_dict = kp_data.get("keypoints", kp_data)
-            crop_x = compute_crop_x_from_kp(kp_dict, frame_w=DEFAULT_FRAME_W,
-                                            crop_w=DEFAULT_CROP_W)
-            print(f"    [crop] 自适应 crop_x={crop_x} (前 60 帧 cx 中位数)")
+            crop_segments, crop_x_expr = compute_crop_x_segments(
+                kp_dict, frame_w=DEFAULT_FRAME_W,
+                crop_w=DEFAULT_CROP_W, fps=fps)
+            if crop_segments:
+                crop_x = crop_segments[0][2]
+                if len(crop_segments) == 1:
+                    print(f"    [crop] 单段 crop_x={crop_x} (全片 cx 中位数)")
+                else:
+                    seg_log = " ".join(f"[{s}-{e}]={x}" for s, e, x in crop_segments)
+                    print(f"    [crop] 逐段 crop_x ({len(crop_segments)}段, fps={fps:.2f}): {seg_log}")
+            else:
+                print(f"    [crop] 无 kp 数据, fallback 居中 crop_x={crop_x}")
         except Exception as e:
             print(f"    [crop] kp 解析失败, fallback 居中: {e}")
 
@@ -310,7 +554,7 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
     #    1920:1080 = 16:9, 9:16 需要 607.5:1080 = 608:1080)
     #    所以: crop=608:1080 保持, scale=1080:1920 (把 608x1080 拉伸到 9:16 1080x1920)
     #    → 视频填满,但人物水平被拉宽 (608→1080 = 1.78 倍) -- 这跟抖音/YouTube 9:16 算法一致
-    crop_vf = (f"crop={DEFAULT_CROP_W}:1080:{crop_x}:0,"
+    crop_vf = (f"crop={DEFAULT_CROP_W}:1080:{crop_x_expr}:0,"
                f"scale=1080:1920:flags=lanczos")
 
     # 5. 2026-06-28: 用 3 段 ffmpeg + concat, 避开 ffmpeg 8.1 的 enable=between + audio input bug

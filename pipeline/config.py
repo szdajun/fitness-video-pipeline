@@ -137,7 +137,7 @@ def _build_all_known_keys() -> set:
         "seo",
         # Missing top-level stage sections
         "pip", "speed_ramp", "film_look", "danmaku", "intensity_burst",
-        "qin_cold_open",
+        "qin_cold_open", "shorts",  # ShortsStage (YT Shorts/抖音竖版, 2026-07-02 补)
     })
     # output section sub-keys
     known.update({
@@ -146,6 +146,7 @@ def _build_all_known_keys() -> set:
         "encoder", "resize_filter", "upscale_mode", "realesrgan_model",
         "realesrgan_scale", "realesrgan_tile", "realesrgan_gpu",
         "realesrgan_max_frames", "audio_bitrate", "video_fade_out",
+        "prefer_gpu",  # NVENC 硬件编码开关 (07_export 读, 2026-07-02 补)
     })
     # energy_bar section sub-keys
     known.update({
@@ -162,6 +163,7 @@ def _build_all_known_keys() -> set:
         "intro_duration", "outro_duration", "channel_name",
         "cta_text", "audio_fade_out", "fade_in_seconds",
         "fade_out_seconds", "location", "date",
+        "intro_music_from_main",  # 片头是否切主体音乐 (07_export/20_intro_outro 读, 2026-07-02 补)
     })
     # skin_smooth section sub-keys
     known.update({
@@ -235,10 +237,17 @@ def _build_all_known_keys() -> set:
 _ALL_KNOWN_KEYS = _build_all_known_keys()
 
 
+# 外部/遗留配置段 (主管线 main.py 不读, 仅供遗留工具 make_video/auto_publish 等
+# 或外部脚本读取). 校验跳过避免噪音. 2026-07-02.
+_EXTERNAL_CONFIG_SECTIONS = {"paths", "llm", "coaches"}
+
+
 def _validate_config_keys(user_cfg: dict, prefix: str = ""):
     """递归校验 config key 拼写，未知 key 给出 warning"""
     for key in user_cfg:
         full_key = f"{prefix}.{key}" if prefix else key
+        if not prefix and key in _EXTERNAL_CONFIG_SECTIONS:
+            continue  # 外部段主管线不读, 跳过校验 (paths/llm/coaches)
         if key not in _ALL_KNOWN_KEYS:
             logger.warning("未知配置项: '%s'", full_key)
         elif isinstance(user_cfg[key], dict):

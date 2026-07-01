@@ -43,7 +43,8 @@ class ExportStage:
                 errors="replace", timeout=10
             )
             return "audio" in r.stdout
-        except Exception:
+        except Exception as e:
+            print(f"    [WARN] ffprobe 探测音频失败({video_path}): {e}")
             return False
 
     @classmethod
