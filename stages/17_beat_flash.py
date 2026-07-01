@@ -76,6 +76,7 @@ class BeatFlashStage:
             return
 
         print(f"    检测到 {len(beat_frames)} 个节拍")
+        ctx.set("beat_frames", beat_frames)  # 2026-06-30: 检测成功即存, 不依赖闪烁视频编码 (供节拍对齐用)
         print(f"    闪烁: {orig_w}x{orig_h}")
 
         cap = cv2.VideoCapture(input_path)
@@ -147,18 +148,23 @@ class BeatFlashStage:
         tmpdir_short = _to_short(str(tmpdir)).replace("\\", "/")
         out_short = _to_short(str(temp_path))
 
+        # crf=1（无损）在 3000+ 帧 yuv444p PNG 上会让 libx264 报 Conversion failed。
+        # crf=18 是视觉无损阈值，对闪映画质影响几乎不可见，但编码稳定得多。
         cmd = [
             ffmpeg, "-y", "-framerate", str(fps),
             "-i", f"{tmpdir_short}/f_%06d.png",
             "-c:v", "libx264", "-preset", "fast",
-            "-crf", "1", "-pix_fmt", "yuv444p", "-an", out_short
+            "-crf", "18", "-pix_fmt", "yuv444p", "-an", out_short
         ]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                encoding="utf-8", errors="replace")
         shutil.rmtree(tmpdir, ignore_errors=True)
 
         if result.returncode != 0:
-            print(f"    FFmpeg 错误: {result.stderr[-200:]}")
+            # 编码失败时不要留下 48 字节空 mp4 让后续 stage 误读
+            if temp_path.exists() and temp_path.stat().st_size < 1024:
+                temp_path.unlink()
+            print(f"    FFmpeg 编码失败: {result.stderr[-300:]}")
             ctx.set("beatflash_path", None)
             return
 
@@ -180,24 +186,42 @@ class BeatFlashStage:
             print(f"    librosa 加载音频失败: {e}")
             return None
 
-        # 节奏检测
+        # 节奏检测 — 用 units='time'，单位是秒。
+        # 旧代码用 'frames' 是 BUG：返回的是 librosa 内部帧索引 (sr/hop),
+        # 不是视频帧。105.6s 视频的 librosa frame 是 4548 但 stage 用 max_frames=3168
+        # 当视频帧过滤 → 误把 73.5s 之后的节拍全砍了。
         try:
-            tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units='frames')
+            tempo, beat_times = librosa.beat.beat_track(y=y, sr=sr, units='time')
         except Exception:
             return None
 
+        # tempo 可能是 ndarray（旧版本返回数组，新版本返回标量）
+        try:
+            bpm = float(tempo)
+        except (TypeError, ValueError):
+            bpm = float(tempo[0]) if hasattr(tempo, '__len__') and len(tempo) > 0 else 120.0
+
+        # beat_times (秒) → 视频帧
         beat_frames = []
-        for f in beats:
-            frame_num = int(round(f))
-            if 0 <= frame_num < max_frames:
-                beat_frames.append(frame_num)
+        max_seconds = max_frames / fps
+        for t in beat_times:
+            t_sec = float(t)
+            if 0.0 <= t_sec < max_seconds:
+                beat_frames.append(int(round(t_sec * fps)))
 
         # 去重排序
         beat_frames = sorted(set(beat_frames))
 
-        # 每隔一个节拍过滤（健身音乐通常 120BPM，每秒2拍太多）
-        # 保留强拍（每2个节拍取1个）
-        if len(beat_frames) > max_frames * 0.5:
+        # 健身视频视觉卡点：闪烁节奏应对齐"强拍"（每 2 拍闪 1 次）。
+        # 旧过滤逻辑用 max_frames*0.5 作阈值是错的（240BPM 才触发），144BPM 健身歌全留，
+        # 导致 105s 内闪 246 次（2.34次/秒）→ 画面"跳"、用户感觉节拍不对。
+        # 新规则：BPM >= 100（典型健身快节奏）→ 每 2 拍闪 1 次；
+        #        慢节奏（BPM < 100）→ 每拍都闪，避免节奏点漏掉。
+        #        异常极少（< 30 个 beat）保留全部当兜底。
+        if 30 <= len(beat_frames) <= max_frames and bpm >= 100:
             beat_frames = beat_frames[::2]
+            print(f"    tempo={bpm:.1f}BPM → 隔一个取, 卡强拍")
+        else:
+            print(f"    tempo={bpm:.1f}BPM, beats={len(beat_frames)} → 不过滤")
 
         return beat_frames

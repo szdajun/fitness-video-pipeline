@@ -26,6 +26,13 @@ from tools.face_swap import find_lead_person
 
 # ── 1. cx 自适应裁切 ──────────────────────────────────
 
+# 2026-06-27: PIL CTA 渲染器 (避开 ffmpeg 8.1 drawtext 解析 UTF-8 bug)
+from tools.render_cta_overlay import render_cta_png as _render_cta_png  # noqa: E402
+
+def render_cta_overlay(output_path: str):
+    """2026-06-27: 用 PIL 渲染 CTA PNG, 给 ffmpeg overlay 用"""
+    return _render_cta_png(output_path)
+
 DEFAULT_CROP_W = 608         # 9:16 裁切宽度 (1080 * 9/16)
 DEFAULT_FRAME_W = 1920       # 宽屏原始宽度
 DEFAULT_LOOKHEAD = 60        # 前 N 帧 cx 中位数 (~2 秒 @ 30fps)
@@ -291,52 +298,184 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         print(f"    跳过: {out_name} 已存在")
         return out_path
 
-    # 4. profile → overlay filter 字符串
-    overlay_vf = get_overlay_filters(profile=profile, coach=coach,
-                                     duration=duration)
-
-    # 5. 拼 ffmpeg filter (crop + scale + overlay)
+    # 4. crop+scale+pad 算法
+    # 2026-06-28: 改用 1920x1080 居中裁 + scale 到 1080x1920 (放大到竖版全屏)
+    #             之前算法: crop=608:1080 + scale 不变 (608x1080 居中,左右黑边)
+    #             → 画面被压到中间 608 宽,左右各 236 黑边,人物显示小
+    #    正确算法: crop 中心 1080:1080 (1920x1080 的正中间 1:1) → scale 1080:1920
+    #             → 视频填满 1080x1920 全屏,无黑边,人物显示 18% 大
+    #    视频 1920x1080 → 居中裁 1080x1080 (cx 偏移) → scale 1080:1920
+    #    注意: scale 1080:1920 会把正方形拉伸到 9:16,人物会变窄高
+    #    为了不变形,改成 crop 1080:1920 等比裁 (从 1920x1080 裁出 9:16 是不可能的:
+    #    1920:1080 = 16:9, 9:16 需要 607.5:1080 = 608:1080)
+    #    所以: crop=608:1080 保持, scale=1080:1920 (把 608x1080 拉伸到 9:16 1080x1920)
+    #    → 视频填满,但人物水平被拉宽 (608→1080 = 1.78 倍) -- 这跟抖音/YouTube 9:16 算法一致
     crop_vf = (f"crop={DEFAULT_CROP_W}:1080:{crop_x}:0,"
                f"scale=1080:1920:flags=lanczos")
-    vf = crop_vf + "," + overlay_vf if overlay_vf else crop_vf
 
-    # 6. 写 UTF-8 激镜文件 (2026-06-27:
-    #    -filter_complex_script deprecated 但 Windows 可用 (2025 版)
-    #    直接字符串会被 ffmpeg 当：/path 加上 filter 错视 ，写文件可避开)
-    #    文件里的 Windows 路径 C:/ 加双反斜杠 C\\:/ 防止 ffmpeg 解析错误
-    vf_file = os.path.join(output_dir, f"_vf_{profile}_{src_stem}.txt")
-    # 字符串里的 C:/ －变 C\:/ (Windows 路径)
-    vf_safe = vf.replace("C:/", "C\\:/")
-    with open(vf_file, "w", encoding="utf-8") as f:
-        f.write(vf_safe)
+    # 5. 2026-06-28: 用 3 段 ffmpeg + concat, 避开 ffmpeg 8.1 的 enable=between + audio input bug
+    #    段1 (0~3.5s): 视频 + opening PNG 整段 overlay (无 enable 表达式)
+    #    段2 (3.5~cta_start): 视频, 无 overlay
+    #    段3 (cta_start~end): 视频 + cta PNG 整段 overlay (无 enable 表达式)
+    #    3 段 concat 起来, 音频从原片截取
+    from stages.render_short_overlay import render_opening, render_cta
 
-    # 7. 拼 ffmpeg 命令
+    opening_png = os.path.join(output_dir, f"_opening_overlay_{profile}_{src_stem}.png")
+    render_opening(opening_png, coach=coach, duration=duration or 30.0)
+
+    cta_png = os.path.join(output_dir, f"_cta_overlay_{profile}_{src_stem}.png")
+    render_cta(cta_png)
+
+    # 段时长计算 (实际编码时长)
+    # 2026-06-29 BUGFIX: douyin (duration=None) 之前 fallback 30.0 → 抖音输出 30s 且字节与 yt_shorts 相同.
+    #             281-289 行算的 t_opt/t_dur 是死代码, 从没被实际编码步骤用到. 现在用完整时长.
+    if duration is None:
+        raw_total = _get_duration(src_path)
+        total_dur = max(1.0, raw_total - skip - outro_dur) if raw_total > 0 else 30.0
+    else:
+        total_dur = float(duration)
+    opening_end = min(6.5, total_dur - 4.0) if total_dur > 4.0 else 0.0  # 2026-06-29: 3.5→6.5 诗词多显3s 方便阅读
+    cta_dur = min(4.0, total_dur - opening_end) if total_dur > opening_end + 4.0 else 0.0
+    middle_dur = max(0.0, total_dur - opening_end - cta_dur)
+
+    # 中间产物路径
+    part1_path = os.path.join(output_dir, f"_part_opening_{profile}_{src_stem}.mp4")
+    part2_path = os.path.join(output_dir, f"_part_middle_{profile}_{src_stem}.mp4")
+    part3_path = os.path.join(output_dir, f"_part_cta_{profile}_{src_stem}.mp4")
+    concat_list = os.path.join(output_dir, f"_concat_list_{profile}_{src_stem}.txt")
+
     audio_input = audio_src or src_path
-    cmd = [
+
+    def _build_crop_only_cmd(in_path, out_p, ss, t_len):
+        """只 crop+scale+pad, 无 overlay, 输出无音频
+        2026-06-28: 用 setpts=PTS-STARTPTS 让段首帧 PTS=0, 否则 filter_complex concat
+                    会因为段1 start_pts=0.033 丢失首段
+        """
+        if t_len <= 0:
+            return None
+        # 在 filter_complex 加 setpts=PTS-STARTPTS 重置时间戳
+        crop_reset = (f"{crop_vf},setpts=PTS-STARTPTS[vout]")
+        cmd = [
+            FFMPEG, "-y",
+            "-ss", str(ss), "-t", f"{t_len:.3f}",
+            "-i", in_path,
+            "-filter_complex", crop_reset,
+            "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-an",
+            out_p,
+        ]
+        return cmd
+
+    def _build_overlay_cmd(in_path, png_path, out_p, ss, t_len):
+        """crop+scale+pad + 整段 overlay 一张 PNG, 无音频
+        2026-06-28: 加 setpts=PTS-STARTPTS 重置时间戳
+        """
+        if t_len <= 0 or not os.path.exists(png_path):
+            return None
+        overlay_vf = (f"[0:v]{crop_vf},setpts=PTS-STARTPTS[bg];"
+                      f"[1:v]format=rgba[ol];"
+                      f"[bg][ol]overlay=0:0[vout]")
+        cmd = [
+            FFMPEG, "-y",
+            "-ss", str(ss), "-t", f"{t_len:.3f}",
+            "-i", in_path,
+            "-i", png_path,
+            "-filter_complex", overlay_vf,
+            "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-an",
+            out_p,
+        ]
+        return cmd
+
+    # 段 1: 开头 (0~3.5s) + opening 诗词
+    # 2026-06-28: 改 2 步法避开 ffmpeg 8.1 audio+overlay enable bug
+    #    step1: 单 ffmpeg 命令, 视频 + opening + cta overlay, **不带 audio input** (用 -an)
+    #    step2: 单独 ffmpeg 命令, 把 step1 的视频 + 原音频合并
+    #    这样 enable=between 在 3 input (视频+opening+cta, 无 audio) 环境下不会触发 ffmpeg 8.1 bug
+
+    # step1: 视频 crop+scale+pad + opening overlay + cta overlay
+    video_only_path = os.path.join(output_dir, f"_video_only_{profile}_{src_stem}.mp4")
+
+    # 决定 3 个 overlay 是否启用 (duration 太短就别画了)
+    use_opening = opening_end > 0 and os.path.exists(opening_png)
+    # 2026-06-29: 抖音完整版不加英文 CTA (CLAUDE.md 设计: douyin 无 CTA, 中文平台不放 SUBSCRIBE)
+    use_cta = (cta_dur > 0 and os.path.exists(cta_png)
+               and profile != "douyin")
+
+    if use_opening and use_cta:
+        # 3 input: video, opening, cta
+        step1_vf = (f"[0:v]{crop_vf},setpts=PTS-STARTPTS[bg];"
+                    f"[1:v]format=rgba[op];"
+                    f"[2:v]format=rgba[cta];"
+                    f"[bg][op]overlay=0:0:enable='between(t,0,{opening_end})'[v1];"
+                    f"[v1][cta]overlay=0:0:enable='between(t,{opening_end + middle_dur},{total_dur})'[vout]")
+        step1_inputs = ["-i", src_path, "-loop", "1", "-i", opening_png, "-loop", "1", "-i", cta_png]
+    elif use_opening:
+        step1_vf = (f"[0:v]{crop_vf},setpts=PTS-STARTPTS[bg];"
+                    f"[1:v]format=rgba[op];"
+                    f"[bg][op]overlay=0:0:enable='between(t,0,{opening_end})'[vout]")
+        step1_inputs = ["-i", src_path, "-loop", "1", "-i", opening_png]
+    elif use_cta:
+        step1_vf = (f"[0:v]{crop_vf},setpts=PTS-STARTPTS[bg];"
+                    f"[1:v]format=rgba[cta];"
+                    f"[bg][cta]overlay=0:0:enable='between(t,{opening_end + middle_dur},{total_dur})'[vout]")
+        step1_inputs = ["-i", src_path, "-loop", "1", "-i", cta_png]
+    else:
+        # 无 overlay, 只 crop+scale+pad
+        step1_vf = f"[0:v]{crop_vf},setpts=PTS-STARTPTS[vout]"
+        step1_inputs = ["-i", src_path]
+
+    print(f"    [1/2] 视频 + overlay (无 audio) -> _video_only_{profile}_{src_stem}.mp4")
+    step1_cmd = [
         FFMPEG, "-y",
-        "-ss", str(skip), *t_opt,
-        "-i", src_path,
-        "-ss", str(skip), *t_opt,
-        "-i", audio_input,
-        "-filter_complex_script", vf_file,
+        "-ss", str(skip), "-t", f"{total_dur:.3f}",
+    ] + step1_inputs + [
+        "-filter_complex", step1_vf,
+        "-map", "[vout]",
         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-        "-pix_fmt", "yuv420p",
+        "-pix_fmt", "yuv420p", "-an",
+        "-t", f"{total_dur:.3f}",
+        video_only_path,
+    ]
+    r = subprocess.run(step1_cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=300)
+    if r.returncode != 0:
+        print(f"    [FFMPEG FAIL] step1: {r.stderr[-500:]}")
+        return None
+
+    # step2: 合并 audio (1 video input + 1 audio input, 简单安全)
+    print(f"    [2/2] 合并 audio + 编码")
+    audio_input = audio_src or src_path
+    step2_cmd = [
+        FFMPEG, "-y",
+        "-i", video_only_path,
+        "-ss", str(skip), "-t", f"{total_dur:.3f}",
+        "-i", audio_input,
+        "-map", "0:v", "-map", "1:a:0",
+        "-c:v", "copy",  # 视频流直接 copy (step1 已经编码好)
         "-c:a", "aac", "-b:a", "128k",
-        "-map", "0:v:0", "-map", "1:a:0",
         "-shortest",
         out_path,
     ]
-
     profile_label = "YouTube Shorts" if profile == "yt_shorts" else "抖音竖版"
     print(f"    [{profile_label}] {out_name}  crop_x={crop_x}  skip={skip:.1f}s"
           + (f"  dur={duration}s" if duration else "  full"))
-    r = subprocess.run(cmd, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", timeout=600)
+    r = subprocess.run(step2_cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=300)
 
     if r.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 10000:
-        print(f"    [OK] {Path(out_path).name} ({os.path.getsize(out_path)//1024//1024}MB)")
-        return out_path
+        size_mb = os.path.getsize(out_path) // 1024 // 1024
+        print(f"    [OK] {Path(out_path).name} ({size_mb}MB)")
+    else:
+        print(f"    [FFMPEG FAIL] step2 ret={r.returncode}")
+        print(f"    stderr: {r.stderr[-2000:]}")
+        return None
 
-    err = r.stderr[-300:] if r.stderr else ""
-    print(f"    [{profile_label}] 失败: {err}")
-    return None
+    # 清理 video_only 中间产物
+    try:
+        os.remove(video_only_path)
+    except OSError:
+        pass
+    return out_path

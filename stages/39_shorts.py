@@ -51,9 +51,21 @@ class ShortsStage:
             kp_file = ctx.output_dir / f"{stem}_cropped_keypoints.json"
 
         coach = cfg.get("shorts_coach", "")
+        if not coach:
+            # 2026-06-29 BUGFIX: 未传 --shorts-coach 时 coach="" → get_coach("") 被
+            # _resolve_coach_name step3 的 `"" in key` 恒真误解析成字典首个最长 key
+            # (小红豆) → 所有未指定教练的 Shorts 片头诗词都串成小红豆 (建玲踩过).
+            # 正解: 从输入文件名提取教练名 (建玲1.mp4 → 建玲).
+            from lib.coach_profiles import detect_coach_from_filename
+            coach = detect_coach_from_filename(ctx.input_path)
         duration = int(cfg.get("shorts_duration", 30))
         intro_seconds = cfg.get("shorts_intro_seconds", None)
-        audio_src = str(ctx.input_path)  # 用原片音频保音质
+        # 2026-06-29 BUGFIX: audio_src 必须用 src (final_path), 不是 ctx.input_path (source).
+        #   视频 src = final_path 含 intro(0-4s)+workout+outro, -ss 4 跳到 workout 起点.
+        #   若 audio_src=source (无 intro), -ss 4 会取到 workout t=4 → 音视频错位 4s,
+        #   且 source(194s) 从 t=4 只剩 190s → step2 -shortest 把视频截到 190s (丢尾 4s).
+        #   final_path 音频是 export 已响度标准化的分发级音质, 用它既对齐又保音质.
+        audio_src = str(src)
 
         # 检测宽屏 intro (用于 -ss 跳过)
         intro_p = ctx.output_dir / f"{stem}_intro.mp4"
