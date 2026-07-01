@@ -1,0 +1,16 @@
+# bg_swap 健身视频预设 — **已实测**: 网红丽丽 → 西安时代广场 (2026-07-01 定稿)
+# 适用: 静态机位 + 居中人物占满画面 + 可见脚 的健身/操课视频
+# CLI 显式值仍胜预设; 详见 docs/BG_SWAP.md
+bg_swap:
+  matte: true            # RVM 高精度抠像 (治本, 默认开)
+  feather: 11
+  erode: 4
+  despill: 0.0           # RVM alpha 干净无需 despill
+  color_match: 0.8       # 全身色温匹配保L (治贴纸感/色温断层)
+  light_wrap: 0.5        # 边缘光融合 (治硬切)
+  parallax: 0.02         # 视差纵深 ±2% (治人变地不变)
+  grounding: 0.18        # 接地感增强 (治脚地两层; 工具默认关, 健身视频推荐开)
+  shadow_strength: 0.0   # 人造阴影凸显两层 (6轮失败), 默认关
+  dynamic_bg: false      # 静态单帧最稳
+  follow_cam: false      # phaseCorrelate 把人当运镜=灾难, 关
+  bg_frame: null         # 中间帧; 暖粉脚下区用 CLI --bg-frame 挑冷帧 (如 1.65)

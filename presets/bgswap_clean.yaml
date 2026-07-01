@@ -1,0 +1,16 @@
+# bg_swap 最小基线预设 — 仅 RVM 抠像 + 换脸, 全部增强关
+# 适用: 未知视频的保守起点, 先确认抠像+换脸基线没问题再逐项开增强 (→ fitness/dance)
+# CLI 显式值仍胜预设; 详见 docs/BG_SWAP.md
+bg_swap:
+  matte: true
+  feather: 11
+  erode: 4
+  despill: 0.0
+  color_match: 0.0       # 关 (先看裸抠像)
+  light_wrap: 0.0        # 关
+  parallax: 0.0          # 关
+  grounding: 0.0         # 关
+  shadow_strength: 0.0
+  dynamic_bg: false
+  follow_cam: false
+  bg_frame: null

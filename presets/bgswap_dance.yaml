@@ -1,0 +1,17 @@
+# bg_swap 舞蹈视频预设 — **未实测, 起步模板, 需用真实素材验证调参** (2026-07-01)
+# 假设: 动作幅度大 (转体/位移多) → 视差略大; 全身入镜+可见脚 → 接地感开
+# 调参思路: 先 --preset clean 确认抠像, 再套本预设, 逐项看效果 (parallax 大易显假慎调)
+# CLI 显式值仍胜预设; 详见 docs/BG_SWAP.md
+bg_swap:
+  matte: true
+  feather: 11
+  erode: 4
+  despill: 0.0
+  color_match: 0.8
+  light_wrap: 0.5
+  parallax: 0.03         # 舞蹈动作幅度大, 视差略增 (幅度大易显假, 慎调)
+  grounding: 0.18
+  shadow_strength: 0.0
+  dynamic_bg: false
+  follow_cam: false
+  bg_frame: null
