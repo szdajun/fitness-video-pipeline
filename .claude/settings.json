@@ -1,10 +1,23 @@
 {
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "sk-b0ba831174e24c29959403c43d9bfc6e",
-    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro[1m]",
-    "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash"
+    "ANTHROPIC_AUTH_TOKEN": "sk-cp-lkvf0tmBSNwIKZyw25oq9UpRwEdZFLYP21HYU1mH_uxFlKpO4FpSUK5b7UWXvtq_CFlZc3Pgm3drievvoVaGiNEP8OIyluxcXo0zwHWftKMDXFuCbbIWjcM",
+    "ANTHROPIC_BASE_URL": "https://api.minimaxi.com/anthropic",
+    "MINIMAX_GROUP_ID": "2038812091439128983",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "MiniMax-M3.0",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "MiniMax-M3.0",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "MiniMax-M3.0"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "Startup|Resume|Compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/session_start.py"
+          }
+        ]
+      }
+    ]
   }
 }

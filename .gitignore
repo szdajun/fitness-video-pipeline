@@ -85,3 +85,5 @@ desktop.ini
 .env
 *.key
 *.pem
+# API token: .claude/glm.json 明文存凭证, 绝不入库
+.claude/glm.json

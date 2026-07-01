@@ -61,4 +61,8 @@ where = ["."]
 include = ["pipeline*", "stages*", "lib*"]
 
 [tool.setuptools.package-data]
-"*": ["*.yaml", "*.yml", "*.json"]
+"*" = ["*.yaml", "*.yml", "*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

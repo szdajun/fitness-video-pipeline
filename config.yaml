@@ -39,8 +39,15 @@ stages:
   danmaku: true            # 弹幕特效
   intensity_burst: true     # 爆燃大字
   qin_cold_open: false      # 秦腔开场（未调通，暂关）
+  shorts: false             # YouTube Shorts: 由 preset 按需开启
   export: true
   face_swap: true          # 美颜换脸
+
+# 片头片尾音乐 (2026-06-30 定稿)
+# 片头=截主体"完全终止落点"前最后4小节(截掉前4小节铺垫), 由 beat_flash 节拍对齐算落点(8小节完全终止),
+# 接缝(完全终止→主体开头新乐段)叠0.35s淡入淡出软化. 短+落到底+接缝顺, 三全其美.
+intro_outro:
+  intro_music_from_main: true
 
 pose_backend: yolo
 pose_model: yolov8m-pose
@@ -49,7 +56,8 @@ pose_gpu: true             # RTX 4070 CUDA 加速
 output:
   width: 1920
   height: 1080
-  encoder: auto
+  encoder: nvenc
+  prefer_gpu: true
   crf: 14
   deblock: "0:0"
   sharpen: 0.8
@@ -146,7 +154,7 @@ film_look:
 
 danmaku:
   enabled: true
-  font_size: 28
+  font_size: 56    # 2026-06-29: 28→56 翻倍 (用户反馈弹幕字太小)
   interval: 60
 
 face_beautify2:

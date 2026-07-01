@@ -13,6 +13,7 @@ stages:
   motion_heatmap: false
   sync_score: false
   pip: false
+  shorts: true              # 生成 YouTube Shorts 30s 竖版
 
 output:
   width: 1920
