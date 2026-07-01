@@ -41,10 +41,12 @@ COACH_PROFILES = {
         "hook": "暴汗燃脂",
         "workout": "力量燃脂操",
         "focus": "塑腰臀",
+        "shorts_focus": "暴汗燃脂",
+        "shorts_challenge": "瘦腰瘦腿挑战",
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "胭脂虎啸震四方\n踏步如风腰似浪\n刚柔并济铿锵行\n细柳营中第一将",
         "shorts_en_title": "FIERCE CARDIO",
-        "shorts_en_subtitle": "Power & Grace · 胭脂虎",
+        "shorts_en_subtitle": "FIERCE POWER",
     },
     "丽丽": {
         "nickname": "长安腰女",
@@ -53,10 +55,12 @@ COACH_PROFILES = {
         "hook": "长安腰女",
         "workout": "腰腹燃脂操",
         "focus": "打造S曲线",
+        "shorts_focus": "暴汗燃脂",
+        "shorts_challenge": "瘦腰瘦腿挑战",
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "腰若细柳随风摆\n腿如青莲步步开\n柔姿渐起刚骨架\n丽影无双入梦来",
         "shorts_en_title": "WAIST SHREDDER",
-        "shorts_en_subtitle": "S-Curve Sculpt · 长安腰女",
+        "shorts_en_subtitle": "WAIST SHREDDER",
     },
     "建玲": {
         "nickname": "三宝菩萨",
@@ -65,10 +69,12 @@ COACH_PROFILES = {
         "hook": "高效全身",
         "workout": "全身燃脂操",
         "focus": "产后恢复",
+        "shorts_focus": "产后瘦身",
+        "shorts_challenge": "宝妈瘦身挑战",
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "三宝菩萨气势足\n带操利落不含糊\n岁月不催容颜改\n细柳营中顶梁柱",
         "shorts_en_title": "30s FAT BURN",
-        "shorts_en_subtitle": "Power Mom · 三宝菩萨",
+        "shorts_en_subtitle": "MOM POWER",
     },
     "小红豆": {
         "nickname": "红线女",
@@ -80,7 +86,7 @@ COACH_PROFILES = {
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "红豆生来俏模样\n香汗淋漓透红妆\n娇喘微微惹人怜\n花枝乱颤舞霓裳",
         "shorts_en_title": "EASY CARDIO",
-        "shorts_en_subtitle": "Beginner Friendly · 红线女",
+        "shorts_en_subtitle": "Beginner Friendly ,  红线女",
     },
     "郭海军": {
         "nickname": "老兵不老",
@@ -89,14 +95,16 @@ COACH_PROFILES = {
         "hook": "老兵不老",
         "workout": "力量燃脂操",
         "focus": "刚劲塑形",
+        "shorts_focus": "暴汗燃脂",
+        "shorts_challenge": "全身塑形挑战",
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "老兵卸甲志不休\n铁骨铮铮弄潮头\n操场点兵威风在\n汗洒细柳写春秋",
         "shorts_en_title": "VETERAN POWER",
-        "shorts_en_subtitle": "Never Too Old · 老兵不老",
+        "shorts_en_subtitle": "VETERAN POWER",
     },
     "枫林红": {
         "nickname": "霸道总裁",
-        "judgment": "总裁一怒百媚生，气场全开霸气横，纤腰玉臂柔中劲，谁人不识枫林红\n鸳鸯袖中藏韬略，胭脂马上请长樱，细柳营中把令行，帅哥美女齐上阵",
+        "judgment": "总裁一怒百媚生，气场全开霸气横，纤腰玉臂柔中劲，谁人不识枫林红\n鸳鸯袖中藏韬略，胭脂马上请长樱，细柳营中把令行，独领风骚冠群英",
         "traits": ["气场强大", "动作利落干练", "霸气不失女人味"],
         "hook": "霸道总裁",
         "workout": "全身燃脂操",
@@ -104,7 +112,7 @@ COACH_PROFILES = {
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "总裁迈步气场开\n纤腰玉臂柔中来\n动若脱兔静若松\n枫林红透万千宅",
         "shorts_en_title": "CEO'S FAT BURN",
-        "shorts_en_subtitle": "High Energy · 霸道总裁",
+        "shorts_en_subtitle": "High Energy ,  霸道总裁",
     },
     "李刚": {
         "nickname": "托塔天王",
@@ -116,7 +124,7 @@ COACH_PROFILES = {
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "天王托塔镇四方\n铁骨铮铮气宇昂\n步履稳如泰山石\n带操一声万人唱",
         "shorts_en_title": "STRENGTH CARDIO",
-        "shorts_en_subtitle": "Full Body Power · 托塔天王",
+        "shorts_en_subtitle": "Full Body Power ,  托塔天王",
     },
     "小飞侠": {
         "nickname": "雷震子",
@@ -128,7 +136,7 @@ COACH_PROFILES = {
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "雷震双翼踏乐生\n节拍入魂舞翩跹\n举手投足皆韵律\n风雷一现万巷传",
         "shorts_en_title": "THUNDER BEAT",
-        "shorts_en_subtitle": "Full Body Burn · 雷震子",
+        "shorts_en_subtitle": "Full Body Burn ,  雷震子",
     },
     "张杰": {
         "nickname": "神行太保",
@@ -140,7 +148,7 @@ COACH_PROFILES = {
         "title_tpl": "【{nickname}】{name}{workout} | {focus}耐力燃脂 | {channel}",
         "shorts_poem": "天高云淡路远\n帅哥美女争先\n遥见一骑如烟\n细柳营中张哥",
         "shorts_en_title": "ENDURANCE BURN",
-        "shorts_en_subtitle": "Marathon Spirit · 神行太保",
+        "shorts_en_subtitle": "Marathon Spirit ,  神行太保",
     },
     "彩娥": {
         "nickname": "孤勇者",
@@ -152,7 +160,7 @@ COACH_PROFILES = {
         "title_tpl": "【{nickname}】{name}{workout} | {focus}跟练 | {channel}",
         "shorts_poem": "挥袖踏歌领众行\n汗沾罗袖亦娉婷\n一身勇毅承风雨\n独护庭前两稚青",
         "shorts_en_title": "FEARLESS CARDIO",
-        "shorts_en_subtitle": "Courage & Sweat · 孤勇者",
+        "shorts_en_subtitle": "Courage & Sweat ,  孤勇者",
     },
 }
 
@@ -204,10 +212,15 @@ def _resolve_coach_name(name: str) -> str:
     """
     # 1. 用完整 detect 流程 (含文件名清理)
     detected = detect_coach_from_filename(name)
-    if detected in COACH_PROFILES:
+    if detected and detected in COACH_PROFILES:
         return detected
     # 2. 退化: 直接在 stem 上找最长 key 包含
     stem = _clean_input_name(name)
+    # 2026-06-29 BUGFIX: stem 为空 (空名/纯数字文件名) 时, `key.startswith("")` 和
+    # `"" in key` 恒真 → 误返回字典首个最长 key (小红豆), 导致 get_coach("") 串词
+    # (ShortsStage 未传 --shorts-coach 时片头诗词串成小红豆). 空 stem 不匹配任何教练.
+    if not stem:
+        return stem
     if stem in COACH_PROFILES:
         return stem
     if key := _match_coach_key(stem):
@@ -287,7 +300,7 @@ def get_shorts_en(name: str) -> dict:
         name: 教练名或文件名。
 
     Returns:
-        {"title": "30s FAT BURN 🔥", "subtitle": "3-Mommy Coach · 三宝妈"}
+        {"title": "30s FAT BURN 🔥", "subtitle": "3-Mommy Coach ,  三宝妈"}
     """
     coach = get_coach(name)
     title = coach.get("shorts_en_title", DEFAULT_SHORTS_EN["title"])
@@ -347,7 +360,7 @@ def generate_douyin_description(name: str) -> str:
     poem_short = "，".join(poem_lines[:2]) if poem_lines else ""
     return (
         f"{nickname}{coach['name']}带操！{poem_short}。"
-        "汉细柳营故地·时代广场，每天跟练暴汗燃脂，零基础也能跳！"
+        "汉细柳营故地, 时代广场，每天跟练暴汗燃脂，零基础也能跳！"
         f"#胭脂虎健身团 #{nickname} #燃脂操 #跟练 #健身"
     )
 
@@ -367,7 +380,7 @@ def generate_description(coach: dict, config: dict, duration: str = "") -> str:
     """
     channel = config.get("channel", DEFAULT_CHANNEL)
     intensity = config.get("intensity", "中等强度")
-    audience = config.get("audience", "所有水平 / 新手友好")
+    audience = config.get("audience", "所有水平, 新手友好")
     tags = config.get("tags", [])
 
     lines = []
@@ -379,7 +392,7 @@ def generate_description(coach: dict, config: dict, duration: str = "") -> str:
     lines.append("")
     lines.append("本期亮点：")
     lines.append(f"  - {coach['nickname']}{coach['name']}教练({coach['hook']})领操")
-    lines.append(f"  - 风格：{'·'.join(coach['traits'][:3])}")
+    lines.append(f"  - 风格：{', '.join(coach['traits'][:3])}")
     lines.append(f"  - 强度：{intensity}")
     lines.append(f"  - 适合：{audience}")
     lines.append("")

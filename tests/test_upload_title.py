@@ -53,11 +53,26 @@ class TestShortTitle:
         assert "#Shorts" in title
         assert "郭海军" in title
 
-    def test_short_no_nickname_prefix(self):
-        """短视频不强制 nickname 前缀 (历史格式)"""
+    def test_short_contains_xiliuying(self):
         title = build_title("郭海军", "", "short")
-        # 短链可以保留简单格式
         assert "细柳营" in title
+
+    @pytest.mark.parametrize("coach", ["郭海军", "艳青", "丽丽", "建玲"])
+    def test_short_title_v2_format_2026_06_27(self, coach):
+        """2026-06-27 钉死的 Shorts 标题格式:
+        【{nickname}】{coach}{N秒}{shorts_focus}操 | {shorts_challenge} | 细柳营健身 #Shorts
+        例: 【长安腰女】丽丽30秒暴汗燃脂操 | 瘦腰瘦腿挑战 | 细柳营健身 #Shorts
+
+        注意: 最后一段 '细柳营健身 #Shorts' 含空格, 不再 split (3 段).
+        """
+        title = build_title(coach, "2026-06-27", "short", duration_sec=30)
+        parts = title.split(" | ")
+        assert len(parts) == 3, f"{coach}: 应有 3 段, 实际: {title}"
+        assert parts[0].startswith("【"), f"缺【前缀: {parts[0]}"
+        assert "30秒" in parts[0], f"缺30秒时长: {parts[0]}"
+        assert "操" in parts[0], f"缺'操': {parts[0]}"
+        assert parts[1].endswith("挑战"), f"挑战短语缺'挑战'后缀: {parts[1]}"
+        assert parts[2] == "细柳营健身 #Shorts"
 
 
 class TestTitleStructure:
