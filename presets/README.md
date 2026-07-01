@@ -169,3 +169,25 @@ ken_burns:
 - 想要明显景别切换 → `dual_close_zoom: 1.15`，`dual_dwell: 0.3`
 - 想要平滑过渡 → `dual_close_zoom: 1.05`，`dual_dwell: 0.7`
 - 运动响应影响 pan 幅度和 zoom 调制，避免在低分辨率素材上放大抖动
+
+---
+
+## bgswap 预设 (独立工具 `tools/bg_swap.py`)
+
+> 与上面的主管线预设**不同**: 这些是 `tools/bg_swap.py` (网红视频换背景+换脸独立工具) 的预设, 文件名 `bgswap_*.yaml`, 顶层 `bg_swap:` 段 (flat dict). 详见 `docs/BG_SWAP.md`.
+
+| 预设 | 文件 | 适用 | 关键值 | 实测 |
+|------|------|------|--------|------|
+| `fitness` | `bgswap_fitness.yaml` | 静态机位 + 居中人物 + 可见脚 的健身/操课 | matte / color_match 0.8 / light_wrap 0.5 / parallax 0.02 / **grounding 0.18** / shadow 0 / 静态 | ✅ 丽丽→时代广场 |
+| `clean` | `bgswap_clean.yaml` | 未知视频保守起点 | 仅 matte, 全部增强 0 (先确认抠像+换脸基线) | — |
+| `dance` | `bgswap_dance.yaml` | 动作幅度大的舞蹈 | 同 fitness 但 parallax 0.03 | ✅ 网红跳舞1→时代广场 |
+
+**内置默认 vs 预设**: `--grounding` 内置默认 0 (opt-in 安全); `fitness`/`dance` 预设编码 `0.18` (验证值) → `--preset fitness` 即推荐开接地感. CLI 显式值仍胜预设.
+
+```bash
+python tools/bg_swap.py --video in.mp4 --bg bg.mp4 --coach 丽丽 -o out.mp4 --preset fitness
+python tools/bg_swap.py --preset fitness --help | grep grounding   # 显示默认 0.18
+```
+
+**自建预设**: 复制 `bgswap_clean.yaml` → 改名 `bgswap_<name>.yaml` → 调 `bg_swap:` 下 knobs → `--preset <name>`. 可调项: matte/feather/erode/despill/color_match/light_wrap/parallax/grounding/shadow_strength/dynamic_bg/follow_cam/bg_frame.
+

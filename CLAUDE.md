@@ -1,5 +1,17 @@
 # Fitness Video Pipeline
 
+## 🔖 会话开局协议（新会话第一步，必读）
+
+这是长期项目，会话常因 token 耗尽而重启。**每次开新会话，第一件事是恢复上下文，不要凭空猜：**
+
+1. **读 `HANDOFF.md`** — 当前迭代状态（正在做什么 / 上次停在哪 / 下一步 / 待用户确认）。这是**活文档**，每次会话结束前必须更新。
+2. **读 `docs/PROJECT_DESIGN.md`** — 架构与数据流总览（全局已清楚可跳过）。
+3. **跑 `git log --oneline -10` + `git status`** — 最近改动与未提交工作。
+4. **`memory/MEMORY.md`** — 已自动注入，看历史坑与决策（这些是背景，引用的文件/函数用前先验证还在）。
+5. 然后开工。**会话结束前更新 `HANDOFF.md`**（当前进度 / 下一步 / 待办 / 卡点），供下次衔接。
+
+> **权威顺序**：规则查 `CLAUDE.md`（本文件），架构查 `docs/PROJECT_DESIGN.md`，活状态查 `HANDOFF.md`，历史坑查 `memory/`。`docs/` 下带"重构"字样的文档是早期历史归档，**可能过时，不要作为依据**。
+
 ## Project Overview
 
 健身短视频处理流水线。将横拍健身视频转为竖版 (9:16)，自动完成人体比例调整、运镜效果和色彩调色。
@@ -204,9 +216,18 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 
 - `README.md` — 项目概述、快速开始、命令参考
 - `docs/manual.md` — 完整用户手册
-- `presets/README.md` — 预设风格详解
+- `docs/FACE_SWAP.md` — 换脸流水线经验总结
+- `docs/BG_SWAP.md` — 网红换背景+换脸独立工具经验总结 (`tools/bg_swap.py` + `tools/prefilter_person.py`, 预设 `bgswap_{fitness,clean,dance}.yaml`)
+- `presets/README.md` — 预设风格详解 (含 bgswap 预设段)
 - `requirements.txt` — Python 依赖
 - `pyproject.toml` — 项目打包配置
+
+## 独立工具 (`tools/`, 主管线零改动)
+
+- `tools/bg_swap.py` — 网红视频换背景 (默认西安时代广场) + 换脸. RVM 抠像 + only_lead 换脸 + 色温匹配 + 接地感 + 静态背景. `--preset fitness|clean|dance`. **经验查 `docs/BG_SWAP.md`**, 守门 `tests/test_bg_swap_defaults.py`. ffmpeg 走 `_resolve_ffmpeg()` (已知好路径 `C:/Users/18091/ffmpeg/ffmpeg.exe` 优先于 PATH, Winget 版有编码 bug).
+- `tools/prefilter_person.py` — 换背景前清洗: pose 逐帧判人物完整性, 剪掉出画/缺头缺脚片段. 配合 bg_swap 用.
+- `tools/student_closeup.py` — 学员特写 (认人+推近+暖调+节拍闪).
+- `tools/face_swap.py` — 换脸核心 (被 stages/37 和 bg_swap 复用).
 
 
 ## Post-2026-06-27 Pipeline Improvements (verified working on 丽丽2)
@@ -273,3 +294,31 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 
 保留为可选: 想跑抖音干净版 (无汉印无mascot无能量条) 可单独 `--preset douyin`.
 默认主流程是 `--preset youtube` → ShortsStage 自动出 抖音完整版 (含所有效果).
+
+
+## ~~2026-06-27 ShortsStage CTA 已知问题 (ffmpeg 8.1 bug)~~ 【已解决 2026-06-29】
+
+> **已解决**: `stages/render_short_overlay.py` 用 PIL 把片头(英文标题+副标+中文诗词)和 CTA(SUBSCRIBE+红分割线)渲染成 1080×1920 RGBA PNG, `short_vertical.py:make_vertical` 用 ffmpeg `overlay=0:0:enable='between(t,a,b)'` 合成 (**非 drawtext**, 不受 8.1 bug 影响). 艳青1 实测 yt_shorts: t=1.5s 片头黄字 22439px, t=28s CTA 黄字 21500px+红线 3456px, **overlay 正常渲染**. 下面是历史根因记录, 保留以防回退.
+
+ShortsStage 跑通 (cx 裁切, intro 跳过, 抖音完整版都 OK), 但 **YouTube Shorts 视频画面里没有 CTA 文字** (点赞 LIKE & SUBSCRIBE 关注 / 完整版 Full Workout on Channel / 新视频 New Videos Daily).
+
+**根因**: ffmpeg 8.1 drawtext filter chain parser bug:
+- `text='...UTF-8 中文...'` 单引号字符串内含多字节 UTF-8 字符后, parser 静默截断/失败
+- `alpha='if(lt(t,a), b, if(lt(t,c), d, ...))'` 嵌套 if() + 逗号 在 8.1 长 chain 里也解析失败
+- 失败的 drawtext ffmpeg 静默跳过, 不报错, 不画文字
+
+**已尝试的 fix (都没成功)**:
+- `_escape_ffmpeg_text` 加 `: ` `\` `'` `/` 转义
+- `textfile=` 重写 (FFMPEG 读 UTF-8 文件, 避开 string parser)
+- `C\:/` 路径 escape
+- `-filter_complex` 直接传字符串 (不用文件)
+- ASCII 化所有 subtitle 和 CTA 文案
+- `enable=between(t;0.5;3)` 用 `;` 替代 `,`
+
+**【已解决 2026-06-29】PIL 方案生效**: `stages/render_short_overlay.py` (`render_opening`/`render_cta`) 用 PIL 渲染文字到 RGBA PNG, `make_vertical` 用 ffmpeg `overlay` 滤镜合成, 避开 drawtext. opening/CTA 现在正常画 (黄字像素验证 >2000). **不要回退到 drawtext 链**, 会再触发 8.1 bug.
+
+**验证 overlay 渲染** (别靠日志 [OK], 靠像素): `ffmpeg -ss 1.5 -i shorts.mp4 -frames:v 1 f.png` 抽帧, 检测黄字 `(R>200)&(G>170)&(B<110)` 像素数 >2000 = 渲染了.
+
+**附带修复 (2026-06-29 同期)**: make_vertical 还有两个 bug 一并修了 (详见 memory `shorts-vertical-duration-audio-bug`):
+- douyin(duration=None) 被 fallback 成 30s → 改用完整时长 (douyin 现 194s)
+- audio_src 用 source 导致音视频错位 4s + 截短到 190s → 改用 final_path 对齐

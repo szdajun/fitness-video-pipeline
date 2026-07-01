@@ -282,6 +282,37 @@ upload_pair(
 # Manifest 自动写 records/upload_manifest.json
 ```
 
+## 独立工具 (standalone, 主管线零改动)
+
+除主管线外, `tools/` 下有独立 CLI 工具处理特殊需求:
+
+### bg_swap — 网红视频换背景 + 换脸
+
+把源视频里的人抠出 (RVM 高精度抠像) 合成到新背景 (默认西安时代广场) + 换教练脸. 详见 `docs/BG_SWAP.md`.
+
+```bash
+# 健身/操课 (fitness 预设, 含接地感 grounding 0.18)
+python tools/bg_swap.py --video 网红.mp4 --bg 时代广场背景.mp4 --coach 丽丽 \
+  --output output/bgswap/网红_丽丽_时代广场.mp4 --preset fitness
+
+# 舞蹈 (dance 预设, 视差略增)
+python tools/bg_swap.py --video dance.mp4 --bg 时代广场背景.mp4 --coach 丽丽 \
+  --output output/bgswap/dance_时代广场.mp4 --preset dance
+```
+
+预设 `presets/bgswap_*.yaml`: `fitness` (实测) / `clean` (基线) / `dance` (起步). 加新教练丢 `tools/{coach}.jpg` 即可 (首次自动 GFPGAN 增强).
+
+### prefilter_person — 换背景前清洗 (删人物不完整片段)
+
+换背景前先剪掉人物出画/缺头缺脚片段 (否则抠像残缺 + 贴纸感加重). 用 YOLOv8-pose 逐帧判完整性.
+
+```bash
+# 先预览 (只出 timeline, 不渲染)
+python tools/prefilter_person.py 网红跳舞1.mp4 --preview
+# 渲染清洗后视频 (逐帧精确, 保留音频)
+python tools/prefilter_person.py 网红跳舞1.mp4 -o 网红跳舞1_cleaned.mp4 --accurate
+```
+
 ## 常见问题
 
 **Q: 竖版视频抖动严重？**
