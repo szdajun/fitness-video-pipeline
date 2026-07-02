@@ -101,6 +101,27 @@
 
 **修复**: `_resolve_ffmpeg()` 解析顺序 = `--ffmpeg` CLI > `BG_FFMPEG` env > **已知好路径 (if exists)** > `shutil.which` PATH > 兜底. 已知好路径优先于 PATH; 换机器 (此路径不存在) 自动落到 PATH, 保证可移植.
 
+### 坑 9: 胳膊虚化 / 原背景渗出 = RVM 软抠像对细/快动胳膊低 alpha → pose core-matte 撑实 (治本, 2026-07-02)
+
+**症状**: 换背景后人物胳膊半透明、原背景从胳膊里渗出; 高举手 / 两臂圈起来时最明显. 用户报"总是出现人物胳膊虚化, 原背景渗出". 这是换脸成熟后 bg_swap **最后的硬骨头**.
+
+**根因 (实证, 非 bug 非 param)**: RVM 是**软抠像** (soft matting), 对**细 / 快动**结构 (胳膊) 系统性低 alpha — 胳膊核心区 (骨架包络内) mean α 仅 **0.52** (半透明, 正是渗出处), 不是 1.0. 这是 soft matting 固有特性 (MatAnyone arXiv:2501.14677 的"core-area supervision"、ViTMatte、Generative Video Matting 都为修它存在). 提 dsr (0.25→0.5) 只能缓解不能根治 (锐度+39% 但 alpha 仍不到 1.0).
+
+**修复 `_pose_core_matte` (core+edge matte split, VFX 标准技术)**:
+- **pose 骨架包络 = 硬 core matte** (撑实躯干/胳膊); **RVM alpha = 软 edge matte** (轮廓羽化). 二者并 = 既有硬核又有软边.
+- `mask = max(rvm_alpha, envelope × gate)`. **只抬不降** (安全): 包络只在 RVM 已感人体 (α>0.05) 邻域 dilate (核 ~0.25 肩宽) 激活 → 不会因 pose 误定位在干净背景里造"幻肢" (粘贴原背景像素).
+- **多人并集**: 多人场景取**所有检测到的人**的骨架并集, 不只 lead — 否则旁人仍渗出.
+- **臂圈洞正确处理**: 高举臂围成圈时, 圈内无骨架 → 包络不覆盖 → 保持背景 (**正确**, 圈里本就该是背景); 圈周胳膊本身被撑实 → 无边缘渗出.
+
+**验证 (像素级, 不靠视觉)**: 网红多人健身操 t=40-60s 裁片, 高举臂圈起来时刻 (clip f300, 源 t=50s) 窗口 285-315 帧均值 (`_temp/probe_core_matte.py`):
+- 核区 mean α: baseline(RVM) **0.520 → bolster 0.965** (半透明→撑实)
+- 核区渗出像素 (α<0.7): **15697 → 1260 (减 92%)**; f300 单帧 17358→1644 (减 90.5%)
+- alpha 差热力图 (probe_diff): 撑高**集中在胳膊/上半身**, 躯干内部不动 (max() 只抬 RVM 漏的, 不毁已正确的区)
+
+**CLI**: `--core-bolster 1.0` (**默认 1.0 开**; `--no-core-bolster` 关). 包络段直径按各人肩宽缩放 (臂 0.42 / 躯干 0.62 / 腿 0.46), `scale=core_bolster` 整体微调 (1.0=肩宽基准).
+
+**与 despill 区别**: despill (`despill_to_bg`) 治**色边** (粉地面→冷背景的红溢色), **治不了 alpha 虚化** (那是透明度问题不是颜色). core-matte 治 alpha; 两者互补, 都默认开. (旧任务"matte 路径 despill"被本方案取代 — despill 补不了胳膊虚化.)
+
 ## 关键架构决策
 
 | 决策 | 为什么 |
@@ -111,6 +132,7 @@
 | grounding 内置默认 0, 预设开 | 接地感是可选增强; builtin 默认关 (安全 opt-in), fitness/dance 预设编码 0.18 (验证值) — 预设系统优雅解决这个矛盾 |
 | color_match mean-shift 保 L 不 Reinhard | Reinhard 缩 L 方差把黑衣服拉灰; 保 L 只动 a/b 色温不毁对比度 |
 | 视差居中平滑不用 EMA | 因果 EMA 有 ~0.4s 相位延迟 (慢一拍); 居中平滑零延迟 |
+| core-matte 默认开 (max 抬不降) | RVM 软抠对细/快胳膊低 alpha 是固有非 bug; pose 骨架包络撑实 core + RVM 软边 = VFX core/edge split; max+gate 只抬不降零风险 (坑 9) |
 
 ## 配置速查
 
@@ -133,7 +155,8 @@ python tools/bg_swap.py --preset fitness --help | grep grounding
 ```
 必填: --video --bg --coach --output
 预设: --preset fitness|clean|dance
-抠像: [--matte (默认开)] [--no-matte] [--dsr 0.25 (RVM 内部降采样比; 720p 多人细胳膊推荐 **0.5** 修举手时胳膊虚化/两臂间绿光晕=alpha 边缘软渐变, 锐度+39%零速度代价; 1080p 单人 0.25 够)]
+抠像: [--matte (默认开)] [--no-matte] [--dsr 0.25 (RVM 内部降采样比; 1080p 单人 0.25 够, 720p 多人可 0.4-0.5 补锐度)]
+胳膊: [--core-bolster 1.0 (默认开, pose 骨架撑实 RVM 软抠漏的胳膊 core; **治虚化/渗出主力**, 见坑 9)] [--no-core-bolster]
 换脸: [--swap-all (多人: insightface 检到的脸都换同一张教练脸, 默认 only_lead 只换 pose 锁的领操人)]
 羽化: [--feather 11] [--erode 4] [--despill 0]
 增强: [--color-match 0.8] [--light-wrap 0.5] [--parallax 0.02]
@@ -163,9 +186,9 @@ python tools/bg_swap.py --video in.mp4 --bg bg.mp4 --coach 丽丽 -o out.mp4 --n
 # 脚下区暖粉挑冷背景帧 (--bg-frame 扫帧)
 python tools/bg_swap.py --video in.mp4 --bg bg.mp4 --coach 丽丽 -o out.mp4 --bg-frame 1.65
 
-# 多人视频: 所有人都换同一张脸 (--swap-all) + 720p 细胳膊提 dsr 修举手虚化/两臂间绿光晕
+# 多人视频: 所有人都换同一张脸 (--swap-all) + core-bolster 撑实高举臂/圈起来防渗出
 python tools/bg_swap.py --video 多人.mp4 --bg 时代广场背景.mp4 --coach 丽丽 \
-  -o output/bgswap/多人_丽丽_时代广场.mp4 --preset fitness --swap-all --dsr 0.5
+  -o output/bgswap/多人_丽丽_时代广场.mp4 --preset fitness --swap-all --core-bolster 1.0 --dsr 0.4
 ```
 
 **配套预处理** (`tools/prefilter_person.py`, 见下): 换背景前先剪掉人物不完整片段 (出画/缺头缺脚), 否则抠像残缺 + 贴纸感加重.
@@ -202,14 +225,15 @@ python tools/prefilter_person.py 网红跳舞1.mp4 -o 网红跳舞1_cleaned.mp4 
 6. **判缩放/zoom**: 只能靠相似变换 scale 分量 (`estimateAffinePartial2D` 的 scale, std<0.005=静止); **phaseCorrelate 测不了缩放 = 盲点**; 肩宽/alpha 面积代理被转体/冷启动污染不可信.
 7. **判接地/色温**: 像素 LAB delta / 阴影 layer 曲线 (函数级, 不被脚遮蔽污染); 单帧 band 采样会被脚遮蔽.
 8. **覆盖全身各区段** (躯干/大腿/小腿脚) 两边一致才下结论.
-9. **判抠像边缘缺陷** (胳膊虚化/两臂间绿晕): 靠 **alpha 梯度均值** (`dump_alpha.py` 0.2-0.8 带, 越高边缘越锐) + **逐像素 diff 热图** (`diff_old_new.py` 旧版 vs 新版, 看改动在**边缘细线**=治虚化/光晕 还是 **躯干内部块**=治凹陷洞); **analyze 对同一帧 full-frame vs crop 会自相矛盾** (full 报"有绿块+光晕" crop 报"干净") → 弃 analyze 信像素. 举手时"两臂间绿块"多为两臂内侧软光晕重叠 (dsr 提分辨率锐化边缘即治), 非封闭凹陷洞误判前景 (strict 测原图强绿在成品残留=0).
+9. **判抠像边缘缺陷** (胳膊虚化/两臂间绿晕): 靠 **alpha 梯度均值** (`dump_alpha.py` 0.2-0.8 带, 越高边缘越锐) + **逐像素 diff 热图** (旧版 vs 新版, 看改动在**边缘细线**=治虚化/光晕 还是 **躯干内部块**=治凹陷洞); **analyze 对同一帧 full-frame vs crop 会自相矛盾** (full 报"有绿块+光晕" crop 报"干净") → 弃 analyze 信像素. 举手胳膊虚化/渗出的**主力修复 = core-matte** (坑 9, pose 骨架撑实 core; 验证: 核区 mean α 0.52→0.97), dsr 提分辨率 (0.25→0.4) 只补锐度辅助.
 
 ## 测试清单
 
 ```
-tests/test_bg_swap_defaults.py  # 11 tests: matte 默认开 / grounding+shadow 内置 0 /
+tests/test_bg_swap_defaults.py  # 14 tests: matte 默认开 / grounding+shadow 内置 0 /
                                 # ffmpeg 可移植 / 无路径硬编码 / _grounding+loader 存在 /
-                                # 3 预设文件 + bg_swap 段 / fitness grounding 0.18 / clean 全关
+                                # 3 预设文件 + bg_swap 段 / fitness grounding 0.18 / clean 全关 /
+                                # core-bolster 默认开 + _pose_core_matte 存在 + pink_sat dest 回归
 ```
 
 Run: `python -m pytest tests/test_bg_swap_defaults.py -v`

@@ -87,6 +87,32 @@ def test_preset_loader_exists():
     assert re.search(r'^def load_bgswap_preset\(', _src(), re.M), "应有 def load_bgswap_preset("
 
 
+# ---- core-matte 撑实胳膊 (坑 9, 治 RVM 软抠对胳膊低 alpha 的虚化/渗出) ----
+
+def test_core_bolster_builtin_default_on():
+    """core-matte 默认开 (pose 骨架包络撑实 RVM 软抠漏的胳膊 core; 治虚化/渗出主力)"""
+    src = _src()
+    m = re.search(r'add_argument\(\s*["\']--core-bolster["\'].*?default=preset\.get\(\s*["\']core_bolster["\']\s*,\s*([\d.]+)\s*\)',
+                  src, re.S)
+    assert m, "找不到 --core-bolster 的 default=preset.get(...)"
+    assert float(m.group(1)) == 1.0, f"--core-bolster 内置默认应为 1.0 (开), 实际: {m.group(1)}"
+
+
+def test_pose_core_matte_function_exists():
+    """core+edge matte split 的 pose 骨架包络函数必须存在 (撑实胳膊 core)"""
+    assert re.search(r'^def _pose_core_matte\(', _src(), re.M), "应有 def _pose_core_matte("
+
+
+def test_pink_thresh_passthrough_dest():
+    """回归守门: render() 的 pink_sat 应读 args.pink_thresh_sat (正确 dest), 非 args.pink_sat.
+    2026-07-02 此 bug (plan B2 passthrough 拼错 dest) 让所有 bg_swap 渲染 AttributeError 崩."""
+    src = _src()
+    assert "pink_sat=args.pink_thresh_sat" in src, \
+        "pink_sat 应读 args.pink_thresh_sat (--pink-thresh-sat 的 dest)"
+    assert not re.search(r'pink_sat=args\.pink_sat\b', src), \
+        "pink_sat 不能读 args.pink_sat (裸名 dest 错, 会让 render 崩)"
+
+
 # ---- 预设文件 ----
 
 def test_preset_files_exist():

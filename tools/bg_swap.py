@@ -873,6 +873,79 @@ def _grounding(bg_frame, frame_sw, mask, h, w, ground_y=None, ao=0.18):
 
 
 # ============================================================
+# 4.65 pose core-matte 撑实 (治 RVM 软抠像对细/快动胳膊低 alpha → 胳膊虚化/原背景渗出)
+# ------------------------------------------------------------
+# 根因 (2026-07-02): RVM 是软抠像, 对**细 (胳膊) + 快动**结构系统性低估 alpha —— 整条
+# 胳膊 alpha 常只有 0.3-0.6 而非 1.0 → 合成时该区域半透明 + 新背景渗出. 这是 soft matting
+# 固有软肋, 非实现 bug; 新一代抠像 (MatAnyone "core-area supervision" / VideoMaMa) 存在
+# 的全部理由就是治这个 (详见 docs/BG_SWAP.md 坑 9 / memory bg-swap-arm-bleed-core-matte).
+# 本工具不换模型, 用 **VFX core+edge matte 拆分**后处理达到同等效果:
+#   pose 骨架包络 = 硬 core matte (保证身体/胳膊内部 alpha→1, 实心不透)
+#   RVM alpha     = 软 edge matte (管真实轮廓边)
+#   合成用 alpha_bolstered = max(alpha_rvm, envelope) → 包络覆盖处(含胳膊)强制高 alpha,
+#   消虚化/渗出; RVM 仍管包络外的轮廓. max() 只抬不降 → 不会损伤已有的好 alpha.
+# ============================================================
+def _pose_core_matte(persons, w, h, scale=1.0, conf=0.3):
+    """从 YOLOv8-pose 骨架建 core envelope (**所有检测到的人并集**; 多人场景全员撑实).
+    返回 (envelope float32 (h,w) 0-1, shoulder_w px [最大人体, 供 gate 核尺度]);
+    无有效骨架返回 (None, 0).
+
+    COCO-17 段: 臂(肩5,6→肘7,8→腕9,10) / 躯干(肩-肩, 肩-髋11,12, 髋-髋) /
+    腿(髋→膝13,14→踝15,16). **不含头** (头大 RVM 已准; 避干扰换脸区). **不含胳膊围成的
+    圈内洞** (洞里无骨架 → 包络不覆盖 → 保持背景, 正确; 圈起的胳膊本身被包络撑实 → 治渗出).
+    段直径按各人肩宽 scale: 臂 0.42 / 躯干 0.62 / 腿 0.46 (臂全覆盖上臂宽, 治虚化主目标).
+    scale 调整体厚度 (1.0=默认; 0=关; >1 更厚适合宽松长袖/远景细胳膊). 多人各建包络取 max 并集.
+    envelope 轻度 blur 平滑边界 (内部仍 1.0, 边缘软过渡与 RVM 软 alpha 接合不硬切)."""
+    if not persons:
+        return None, 0.0
+    canvas = np.zeros((h, w), dtype=np.float32)
+    max_sw = 0.0
+    seen = 0
+    for person in persons:
+        kp = np.asarray(person, dtype=np.float32)
+        if kp.ndim != 2 or kp.shape[0] < 13:
+            continue
+        valid = kp[:, 2] > conf
+        if int(valid.sum()) < 6:                       # 关键点太少, 骨架不可靠
+            continue
+        px = kp[:, 0] * w
+        py = kp[:, 1] * h
+        if valid[5] and valid[6]:
+            sw = float(np.hypot(px[5] - px[6], py[5] - py[6]))
+        else:
+            vi = np.where(valid)[0]
+            coords = np.stack([px[vi], py[vi]], axis=1)
+            sw = float(np.linalg.norm(coords[:, None] - coords[None], axis=-1).max()) * 0.45
+        if sw < 12:
+            continue
+        max_sw = max(max_sw, sw)
+
+        def seg(a, b, diam):
+            if not (valid[a] and valid[b]):
+                return
+            t = max(3, int(round(diam)))
+            cv2.line(canvas, (int(px[a]), int(py[a])), (int(px[b]), int(py[b])),
+                     1.0, t, cv2.LINE_AA)
+            r = max(2, t // 2)
+            cv2.circle(canvas, (int(px[a]), int(py[a])), r, 1.0, -1)
+            cv2.circle(canvas, (int(px[b]), int(py[b])), r, 1.0, -1)
+
+        for a, b in [(5, 7), (7, 9), (6, 8), (8, 10)]:           # 臂 (治虚化主目标)
+            seg(a, b, sw * 0.42 * scale)
+        for a, b in [(5, 6), (5, 11), (6, 12), (11, 12)]:        # 躯干
+            seg(a, b, sw * 0.62 * scale)
+        for a, b in [(11, 13), (13, 15), (12, 14), (14, 16)]:    # 腿
+            seg(a, b, sw * 0.46 * scale)
+        seen += 1
+    if seen == 0 or max_sw < 12:
+        return None, 0.0
+    # 轻度 blur 平滑包络边界 (核 ~4% 最大肩宽): 内部仍 1.0, 边缘软过渡
+    ksz = max(5, int(round(max_sw * 0.04))) | 1
+    env = cv2.GaussianBlur(canvas, (ksz, ksz), ksz / 6.0)
+    return np.clip(env, 0.0, 1.0), max_sw
+
+
+# ============================================================
 # 4.7 视差缩放曲线 (从 pose 预算, 居中平滑 = 零延迟, 治 EMA "慢一拍")
 # ============================================================
 def compute_parallax_scale(pose, total, w, parallax, fast_win=9, base_win=60, gain=0.4):
@@ -972,7 +1045,7 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
            punch=True, matte=None, traj_x=None, traj_y=None, shadow_strength=0.0,
            parallax=0.0, bg_scale_arr=None, color_match_t=0.8, light_wrap_s=0.5,
            foot_track=None, grounding_strength=0.0, pink_rg=20, pink_sat=40,
-           swap_all=False):
+           swap_all=False, core_bolster=0.0):
     w, h = info["width"], info["height"]
     fps = info["fps"]
     total = info["frames"]
@@ -1037,6 +1110,7 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
     fi = 0
     last_mask = None
     swap_ok = back_skip = no_pose = mask_miss = bg_loop = 0
+    core_ok = 0   # pose core-matte 撑实命中帧 (验证: 抽帧看胳膊 alpha, 不靠此计数)
     ground_samples = []      # foot_y 历史 → 固定接地基线 (影不随抬腿蹦)
     ground_y = None
     width_fast = width_slow = None   # 人表观宽度 EMA (快/慢) → 视差缩放驱动信号
@@ -1086,6 +1160,21 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
                                int(min(w, fcx + ew)), int(min(h, fcy + eh)))
             mask = build_mask(mask_raw, frame, feather, erode, punch=punch,
                               protect_bbox=protect, rg_thresh=pink_rg, sat_thresh=pink_sat)
+
+        # ②.5 pose core-matte 撑实 (2026-07-02, 治 RVM 软抠像对细/快动胳膊低 alpha → 胳膊
+        # 虚化/原背景渗出; 详见 _pose_core_matte 注释 + docs/BG_SWAP.md 坑 9):
+        # pose 骨架包络=硬 core, RVM alpha=软 edge; mask = max(rvm, env*gate).
+        # gate = RVM 已感人体 (alpha>0.05) 邻域 dilate (核~0.25 肩宽) → 包络只在真实人体附近
+        # 激活, 不会因 pose 误定位在干净背景里造"幻肢" (粘贴原背景). max() 只抬不降.
+        if core_bolster > 0 and mask is not None and persons:
+            env, sw = _pose_core_matte(persons, w, h, scale=core_bolster)
+            if env is not None:
+                gk = max(9, int(round(sw * 0.25))) | 1
+                gate = cv2.dilate((mask > 0.05).astype(np.uint8),
+                                  cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gk, gk)), 1)
+                mask = np.maximum(mask.astype(np.float32),
+                                  env * gate.astype(np.float32)).astype(np.float32)
+                core_ok += 1
 
         # 地面基线 (固定接地线 = 脚落地点的高分位 p92). 影锚定此线不随抬腿蹦 → 治"浮".
         # 全片站立时 foot_y 聚在高值(踩地), 跳起为低值(脚离地); p92 取站立线忽略跳起谷.
@@ -1217,7 +1306,7 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
             dt = time.time() - t0
             print(f"  [渲染] {fi}/{total} ({fi*100//total}%) "
                   f"{fi/max(dt,0.001):.1f}fps | 换脸{swap_ok} 背面跳{back_skip} "
-                  f"mask漏{mask_miss}", flush=True)
+                  f"mask漏{mask_miss} core撑实{core_ok}", flush=True)
 
     cap.release()
     if bg_cap is not None:
@@ -1228,7 +1317,7 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
         pass
     rc = proc.wait()
     stat = dict(swap_ok=swap_ok, back_skip=back_skip, no_pose=no_pose,
-                mask_miss=mask_miss, bg_loop=bg_loop, frames=fi)
+                mask_miss=mask_miss, bg_loop=bg_loop, core_ok=core_ok, frames=fi)
     if rc != 0 or not output.exists():
         print(f"  [渲染][FAIL] ffmpeg rc={rc}")
         return False, stat
@@ -1403,6 +1492,14 @@ def main():
                     help="RVM 内部降采样比 0.1-1.0 (默认0.25 快; **举手时胳膊虚/两臂间残留原图背景**"
                          "= dsr 太低 alpha 分辨不出细胳膊/凹陷洞, 调 0.4-0.5 锐化边缘+填准凹陷. "
                          "720p 多人细胳膊推荐 0.5; 1080p 单人全身 0.25 够. 越高越慢≈线性")
+    ap.add_argument("--core-bolster", type=float, default=preset.get("core_bolster", 1.0),
+                    help="pose core-matte 撑实强度, 治 RVM 胳膊虚化/原背景渗出 (2026-07-02). "
+                         "RVM 软抠像对细/快动胳膊系统性低 alpha → 半透明+渗出; pose 骨架建 core 包络, "
+                         "mask=max(rvm, 包络*gate) 把胳膊撑实. 1.0=默认(全覆盖上臂宽); 0=关; "
+                         ">1 更厚(宽松长袖/远景细胳膊). 只在包络∩RVM前景邻域生效(不造幻肢). "
+                         "根因+外部佐证(MatAnyone core-supervision)见 docs/BG_SWAP.md 坑 9.")
+    ap.add_argument("--no-core-bolster", action="store_true",
+                    help="关掉 pose core-matte 撑实 (回退纯 RVM alpha, 胳膊可能虚化/渗出)")
     ap.add_argument("--no-sharpen-bg", action="store_true", help="背景不做锐化")
     ap.add_argument("--debug-only", action="store_true",
                     help="只出 mask 检查图不渲染 (先核对抠像质量)")
@@ -1522,6 +1619,7 @@ def main():
     color_match_t = 0.0 if args.no_color_match else args.color_match
     light_wrap_s = 0.0 if args.no_light_wrap else args.light_wrap
     grounding_strength = 0.0 if args.no_grounding else args.grounding
+    core_bolster_val = 0.0 if args.no_core_bolster else args.core_bolster
     ok, stat = render(str(video), bg_aligned, pose, seg_model, swapper, app, src_face,
                       output, info, feather=args.feather, erode=args.erode,
                       despill=despill_val, do_faceswap=do_faceswap,
@@ -1531,7 +1629,8 @@ def main():
                       parallax=parallax_val, bg_scale_arr=bg_scale_arr,
                       color_match_t=color_match_t, light_wrap_s=light_wrap_s,
                       foot_track=foot_traj, grounding_strength=grounding_strength,
-                      pink_rg=args.pink_thresh_rg, pink_sat=args.pink_thresh_sat)
+                      pink_rg=args.pink_thresh_rg, pink_sat=args.pink_thresh_sat,
+                      core_bolster=core_bolster_val)
     if not ok:
         print(f"[FAIL] 渲染失败, 看 {dbg} 诊断. stat={stat}")
         return
@@ -1540,7 +1639,8 @@ def main():
     print(f"检查图: {dbg}")
     print(f"统计: 换脸成功 {stat['swap_ok']}/{stat['frames']} 帧, "
           f"背面跳过 {stat['back_skip']}, 无pose {stat['no_pose']}, "
-          f"mask漏检 {stat['mask_miss']}, 背景循环 {stat['bg_loop']}")
+          f"mask漏检 {stat['mask_miss']}, 背景循环 {stat['bg_loop']}, "
+          f"core撑实 {stat.get('core_ok', 0)}")
 
 
 if __name__ == "__main__":

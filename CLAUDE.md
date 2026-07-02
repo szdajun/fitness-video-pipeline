@@ -244,7 +244,7 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 
 ## 独立工具 (`tools/`, 主管线零改动)
 
-- `tools/bg_swap.py` — 网红视频换背景 (默认西安时代广场) + 换脸. RVM 抠像 + only_lead 换脸 + 色温匹配 + 接地感 + 静态背景. `--preset fitness|clean|dance`. **经验查 `docs/BG_SWAP.md`**, 守门 `tests/test_bg_swap_defaults.py`. ffmpeg 走 `_resolve_ffmpeg()` (已知好路径 `C:/Users/18091/ffmpeg/ffmpeg.exe` 优先于 PATH, Winget 版有编码 bug).
+- `tools/bg_swap.py` — 网红视频换背景 (默认西安时代广场) + 换脸. RVM 抠像 + only_lead 换脸 + 色温匹配 + 接地感 + 静态背景 + **pose core-matte 撑实胳膊 (治虚化/渗出, `--core-bolster` 默认开)**. `--preset fitness|clean|dance`. **经验查 `docs/BG_SWAP.md` (坑 9 = core-matte)**, 守门 `tests/test_bg_swap_defaults.py` (14 tests). ffmpeg 走 `_resolve_ffmpeg()` (已知好路径 `C:/Users/18091/ffmpeg/ffmpeg.exe` 优先于 PATH, Winget 版有编码 bug).
 - `tools/prefilter_person.py` — 换背景前清洗: pose 逐帧判人物完整性, 剪掉出画/缺头缺脚片段. 配合 bg_swap 用.
 - `tools/student_closeup.py` — 学员特写 (认人+推近+暖调+节拍闪).
 - `tools/face_swap.py` — 换脸核心 (被 stages/37 和 bg_swap 复用).
