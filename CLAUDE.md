@@ -211,12 +211,14 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 
 | 平台 | Preset | 格式 | 时长 | 上传 |
 |------|--------|------|------|------|
-| YouTube | `youtube` | 16:9 1920×1080 | 完整 | 预定 18:00 |
-| YouTube Shorts | `douyin` 30s cut | 9:16 1080×1920 | 30 秒 | 预定 18:30 |
+| YouTube | `youtube` | 16:9 1920×1080 | 完整 | **立即发布(public)** |
+| YouTube Shorts | `douyin` 30s cut | 9:16 1080×1920 | 30 秒 | **立即发布(public)** |
 | 抖音 | `douyin` | 9:16 1080×1920 | 完整 | 人工 |
 | ~~小红书~~ | — | — | — | **放弃** (3:4 无增量价值) |
 
 YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_shorts preset。
+
+**⚠ YT 上传必须"立即发布"**（`privacy=public`, `publish_at=None`）— scheduled/延迟发布（`publishAt`）的长视频近期全部**挂死在平台得不到处理**（HD processing 卡死）。代码 `upload_pair`/`tools/upload_youtube.py` 默认即立即，`upload_utils.upload_video` 对 `video_type=="long"` 强制 `publish_at=None`（即便传了也忽略+告警）。**别加 `--publish-at`/schedule**。详见 memory `yt-long-video-publish-immediately`。
 
 ### .gitignore 原则
 

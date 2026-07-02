@@ -118,6 +118,12 @@ def upload_video(video_path: str, title: str, description: str,
                  publish_at: str = None, thumbnail_path: str = None,
                  coach: str = None, video_type: str = "long"):
     """上传单个视频到 YouTube, 自动写 manifest"""
+    # 2026-07-02 用户新规: YT 宽幅长视频必须"立即发布", scheduled(publishAt)延迟发布会挂死在
+    # 平台得不到处理 (HD processing 卡死). 长视频即便调用方传了 publish_at 也强制立即发布.
+    if video_type == "long" and publish_at:
+        logger.warning("长视频强制立即发布 (忽略 publish_at=%s): scheduled 长视频会挂死在 YT 平台",
+                       publish_at)
+        publish_at = None
     sys.path.insert(0, YT_UPLOAD_PATH)
     try:
         from youtube_upload import upload_video as _upload
