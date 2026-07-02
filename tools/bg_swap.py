@@ -1166,6 +1166,8 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
         # pose 骨架包络=硬 core, RVM alpha=软 edge; mask = max(rvm, env*gate).
         # gate = RVM 已感人体 (alpha>0.05) 邻域 dilate (核~0.25 肩宽) → 包络只在真实人体附近
         # 激活, 不会因 pose 误定位在干净背景里造"幻肢" (粘贴原背景). max() 只抬不降.
+        # 注: env 实测仅覆盖画面~3% (骨架细带), 故 core-matte 只可能影响这 3% 区, 不是
+        # 全片"不干净"的来源 (2026-07-02 诊断澄清, env 覆盖统计见 _temp 实测).
         if core_bolster > 0 and mask is not None and persons:
             env, sw = _pose_core_matte(persons, w, h, scale=core_bolster)
             if env is not None:
@@ -1492,11 +1494,12 @@ def main():
                     help="RVM 内部降采样比 0.1-1.0 (默认0.25 快; **举手时胳膊虚/两臂间残留原图背景**"
                          "= dsr 太低 alpha 分辨不出细胳膊/凹陷洞, 调 0.4-0.5 锐化边缘+填准凹陷. "
                          "720p 多人细胳膊推荐 0.5; 1080p 单人全身 0.25 够. 越高越慢≈线性")
-    ap.add_argument("--core-bolster", type=float, default=preset.get("core_bolster", 1.0),
+    ap.add_argument("--core-bolster", type=float, default=preset.get("core_bolster", 0.0),
                     help="pose core-matte 撑实强度, 治 RVM 胳膊虚化/原背景渗出 (2026-07-02). "
-                         "RVM 软抠像对细/快动胳膊系统性低 alpha → 半透明+渗出; pose 骨架建 core 包络, "
-                         "mask=max(rvm, 包络*gate) 把胳膊撑实. 1.0=默认(全覆盖上臂宽); 0=关; "
-                         ">1 更厚(宽松长袖/远景细胳膊). 只在包络∩RVM前景邻域生效(不造幻肢). "
+                         "RVM 软抠对细/快动胳膊低 alpha → 半透明+渗出; pose 骨架建 core 包络, "
+                         "mask=max(rvm, 包络*gate) 把胳膊撑实. **默认 0=关** (2026-07-02 反转: v3 全片实测 "
+                         "骨架带每帧硬抬 alpha 让人物轮廓显脏, 用户'基本都这样', 弃用回 v2 软边); "
+                         "1.0=全覆盖上臂宽 (需治渗出时手动开, 接受边缘偏硬); >1 更厚. "
                          "根因+外部佐证(MatAnyone core-supervision)见 docs/BG_SWAP.md 坑 9.")
     ap.add_argument("--no-core-bolster", action="store_true",
                     help="关掉 pose core-matte 撑实 (回退纯 RVM alpha, 胳膊可能虚化/渗出)")

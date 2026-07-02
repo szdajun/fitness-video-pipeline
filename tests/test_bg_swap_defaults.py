@@ -89,13 +89,14 @@ def test_preset_loader_exists():
 
 # ---- core-matte 撑实胳膊 (坑 9, 治 RVM 软抠对胳膊低 alpha 的虚化/渗出) ----
 
-def test_core_bolster_builtin_default_on():
-    """core-matte 默认开 (pose 骨架包络撑实 RVM 软抠漏的胳膊 core; 治虚化/渗出主力)"""
+def test_core_bolster_builtin_default_off():
+    """core-matte 默认关 (2026-07-02 反转: v3 全片实测骨架带每帧硬抬 alpha 让轮廓显脏, 用户
+    '基本都这样'; 治渗出价值不抵边缘变脏, 弃用回 v2 软边. 需时手动 --core-bolster 1.0)"""
     src = _src()
     m = re.search(r'add_argument\(\s*["\']--core-bolster["\'].*?default=preset\.get\(\s*["\']core_bolster["\']\s*,\s*([\d.]+)\s*\)',
                   src, re.S)
     assert m, "找不到 --core-bolster 的 default=preset.get(...)"
-    assert float(m.group(1)) == 1.0, f"--core-bolster 内置默认应为 1.0 (开), 实际: {m.group(1)}"
+    assert float(m.group(1)) == 0.0, f"--core-bolster 内置默认应为 0.0 (关), 实际: {m.group(1)}"
 
 
 def test_pose_core_matte_function_exists():

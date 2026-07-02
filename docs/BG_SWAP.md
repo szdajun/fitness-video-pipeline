@@ -118,9 +118,9 @@
 - 核区渗出像素 (α<0.7): **15697 → 1260 (减 92%)**; f300 单帧 17358→1644 (减 90.5%)
 - alpha 差热力图 (probe_diff): 撑高**集中在胳膊/上半身**, 躯干内部不动 (max() 只抬 RVM 漏的, 不毁已正确的区)
 
-**CLI**: `--core-bolster 1.0` (**默认 1.0 开**; `--no-core-bolster` 关). 包络段直径按各人肩宽缩放 (臂 0.42 / 躯干 0.62 / 腿 0.46), `scale=core_bolster` 整体微调 (1.0=肩宽基准).
+**CLI**: `--core-bolster 1.0` (**默认 0 关**; 2026-07-02 反转). 包络段直径按各人肩宽缩放 (臂 0.42 / 躯干 0.62 / 腿 0.46), `scale=core_bolster` 整体微调 (1.0=肩宽基准). **为何默认关**: env 实测仅覆盖画面 ~3% (骨架细带), 单帧面积小但**每帧每人轮廓沿线都有** → 看动态视频骨架带硬抬 alpha 痕迹全片可见, 用户判 v3 "不干净/基本都这样" (v2 软边反而更净). 治渗出价值不抵变脏, 弃用回 v2 软边; 需治渗出手动 `--core-bolster 1.0` 并接受边缘偏硬.
 
-**与 despill 区别**: despill (`despill_to_bg`) 治**色边** (粉地面→冷背景的红溢色), **治不了 alpha 虚化** (那是透明度问题不是颜色). core-matte 治 alpha; 两者互补, 都默认开. (旧任务"matte 路径 despill"被本方案取代 — despill 补不了胳膊虚化.)
+**与 despill 区别**: despill (`despill_to_bg`) 治**色边** (粉地面→冷背景的红溢色), **治不了 alpha 虚化** (那是透明度问题不是颜色). core-matte 治 alpha; 两者互补. despill 默认开 (治色边无副作用), **core-matte 默认关** (2026-07-02 反转: 全片骨架带硬抬 alpha 显脏).
 
 ## 关键架构决策
 
@@ -132,7 +132,7 @@
 | grounding 内置默认 0, 预设开 | 接地感是可选增强; builtin 默认关 (安全 opt-in), fitness/dance 预设编码 0.18 (验证值) — 预设系统优雅解决这个矛盾 |
 | color_match mean-shift 保 L 不 Reinhard | Reinhard 缩 L 方差把黑衣服拉灰; 保 L 只动 a/b 色温不毁对比度 |
 | 视差居中平滑不用 EMA | 因果 EMA 有 ~0.4s 相位延迟 (慢一拍); 居中平滑零延迟 |
-| core-matte 默认开 (max 抬不降) | RVM 软抠对细/快胳膊低 alpha 是固有非 bug; pose 骨架包络撑实 core + RVM 软边 = VFX core/edge split; max+gate 只抬不降零风险 (坑 9) |
+| core-matte **默认关** (2026-07-02 反转) | 治渗出有效 (核区 α 0.52→0.97, 像素证) 但骨架带每帧硬抬 alpha → 人物轮廓显脏 ("基本都这样"); 治渗出不抵变脏, 弃用回 v2 软边; 需时手动 `--core-bolster 1.0` (坑 9) |
 
 ## 配置速查
 
@@ -156,7 +156,7 @@ python tools/bg_swap.py --preset fitness --help | grep grounding
 必填: --video --bg --coach --output
 预设: --preset fitness|clean|dance
 抠像: [--matte (默认开)] [--no-matte] [--dsr 0.25 (RVM 内部降采样比; 1080p 单人 0.25 够, 720p 多人可 0.4-0.5 补锐度)]
-胳膊: [--core-bolster 1.0 (默认开, pose 骨架撑实 RVM 软抠漏的胳膊 core; **治虚化/渗出主力**, 见坑 9)] [--no-core-bolster]
+胳膊: [--core-bolster 1.0 (默认关, 2026-07-02 反转; 需治虚化/渗出时手动开, 见坑 9)] [--no-core-bolster]
 换脸: [--swap-all (多人: insightface 检到的脸都换同一张教练脸, 默认 only_lead 只换 pose 锁的领操人)]
 羽化: [--feather 11] [--erode 4] [--despill 0]
 增强: [--color-match 0.8] [--light-wrap 0.5] [--parallax 0.02]
@@ -233,7 +233,7 @@ python tools/prefilter_person.py 网红跳舞1.mp4 -o 网红跳舞1_cleaned.mp4 
 tests/test_bg_swap_defaults.py  # 14 tests: matte 默认开 / grounding+shadow 内置 0 /
                                 # ffmpeg 可移植 / 无路径硬编码 / _grounding+loader 存在 /
                                 # 3 预设文件 + bg_swap 段 / fitness grounding 0.18 / clean 全关 /
-                                # core-bolster 默认开 + _pose_core_matte 存在 + pink_sat dest 回归
+                                # core-bolster 默认关 (2026-07-02 反转) + _pose_core_matte 存在 + pink_sat dest 回归
 ```
 
 Run: `python -m pytest tests/test_bg_swap_defaults.py -v`
