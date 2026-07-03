@@ -1128,7 +1128,8 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
            punch=True, matte=None, traj_x=None, traj_y=None, shadow_strength=0.0,
            parallax=0.0, bg_scale_arr=None, color_match_t=0.8, light_wrap_s=0.5,
            foot_track=None, grounding_strength=0.0, pink_rg=20, pink_sat=40,
-           swap_all=False, core_bolster=0.0, arm_grow=0):
+           swap_all=False, core_bolster=0.0, arm_grow=0, mask_thresh=0.0,
+           mask_mode='rvm', yolo_seg_model=None):
     w, h = info["width"], info["height"]
     fps = info["fps"]
     total = info["frames"]
@@ -1220,6 +1221,17 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
             # RVM 高精度 alpha: 真正 per-pixel 抠像, 凹谷(两腿间/腋下/指缝)干净分离
             # 背景, 根治 YOLO-seg 误纳粉地面漏色. 纯 alpha 合成, 不需 punch/protect.
             mask = matte.alpha(frame)
+            # 2026-07-03 mask_mode=intersect 治 RVM 远处半透真人鬼影 (新版 RVM 把远处真人
+            # 当前景画 = "3 人身后站一个不动的人"). 用 YOLO-seg person mask 与 RVM α
+            # 取交集: YOLO 边缘锐利剔除 RVM 远处半透区, RVM 内容保留填充 YOLO 内部.
+            # 单帧视觉验证: 交集 mask 鬼影完全消失, 3 真人完整保留, 边缘略锯齿 (RVM α 平滑).
+            if mask_mode == 'intersect':
+                if yolo_seg_model is None:
+                    raise ValueError("mask_mode=intersect 需要 yolo_seg_model (--yolo-seg-model / 加载 seg_model)")
+                yolo_mask = segment_person(yolo_seg_model, frame, lead_bbox=None, conf=0.3)
+                if yolo_mask is not None:
+                    mask = mask * yolo_mask  # RVM α × YOLO person mask (0/1)
+                # else: YOLO 漏检, fallback 纯 RVM (避免误删前景)
         else:
             # YOLO-seg 粗掩码 + build_mask(punch 打掉误纳粉背景 + 紧脸框 protect).
             # lead_bbox 选网红 instance; 漏检用上一帧兜底.
@@ -1397,8 +1409,14 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
         # 用原始 RVM alpha 合成. (_clean_alpha erode+feather 曾试治脚浮halo, 但导致
         # "人体忽然变薄"——erode/feather 缩边+虚化边缘, 叠加自然宽度变化转身帧显眼;
         # 且 halo_score 实测 erode 并未真正降 halo(浅残留非alpha边缘问题). 2026-06-30 回退.)
+        # 2026-07-03 加 mask_thresh 治 RVM 远处半透真人 (α 0.3-0.5 区被 render 当前景画
+        # = "鬼影"). 设 0.4-0.5 让远处降为背景; 设 0.0 = 维持 RVM 原 α (默认).
         if mask is not None and bg_frame is not None and bg_frame.shape[:2] == (h, w):
-            m3 = mask[:, :, None].astype(np.float32)
+            if mask_thresh > 0:
+                mask_use = np.where(mask > mask_thresh, mask, 0.0).astype(np.float32)
+            else:
+                mask_use = mask
+            m3 = mask_use[:, :, None].astype(np.float32)
             out = (frame_sw.astype(np.float32) * m3 +
                    bg_frame.astype(np.float32) * (1.0 - m3)).astype(np.uint8)
         else:
@@ -1651,6 +1669,17 @@ def main():
                          "替代旧 --arm-bolster (治了核心管没治环, 用户拍板). 详见 docs/BG_SWAP.md 坑 9.bis.")
     ap.add_argument("--no-arm-grow", action="store_true",
                     help="关掉 arm-grow (回退纯 RVM alpha)")
+    ap.add_argument("--mask-thresh", type=float, default=0.0,
+                    help="合成前 RVM α 阈值 (默认 0=原 α; 设 0.4-0.5 让 RVM 远处半透真人"
+                         "α 0.3-0.5 降为 0=背景, 治 2026-07-03 d_grow1 '鬼影' 问题 (新版 RVM"
+                         "把远处真人当前景画). 0.5=严格前景 only; 0.3=保留更多半透前景; "
+                         "0=不阈 (治 v3 core-matte 时代问题回退路径).")
+    ap.add_argument("--mask-mode", choices=['rvm', 'intersect'], default='rvm',
+                    help="合成 mask 来源 (默认 rvm=RVM α; intersect=RVM α × YOLO-seg person mask, "
+                         "治 2026-07-03 RVM 远处半透真人 '鬼影' 问题. intersect 加 --yolo-seg-model 加载 "
+                         "YOLOv8-seg. 单帧视觉验证: 鬼影完全消失, 3 真人完整保留.")
+    ap.add_argument("--yolo-seg-model", default='yolov8n-seg.pt',
+                    help="intersect 模式用的 YOLO-seg 模型路径 (默认 yolov8n-seg.pt, 6.7MB 轻量)")
     ap.add_argument("--no-sharpen-bg", action="store_true", help="背景不做锐化")
     ap.add_argument("--debug-only", action="store_true",
                     help="只出 mask 检查图不渲染 (先核对抠像质量)")
@@ -1741,6 +1770,21 @@ def main():
     if matte is None:
         print("[4/5] YOLOv8-seg 人体分割...")
         seg_model = load_seg_model()
+    # 2026-07-03 mask_mode=intersect 模式加载 yolov8-seg 二次确认 (治 RVM 远处半透真人鬼影)
+    yolo_seg_model = None
+    if args.mask_mode == 'intersect':
+        try:
+            from ultralytics import YOLO
+            # YOLO 强制 CPU: 避开与 RVM/buffalo_l/inswapper 三个 GPU 模型争 4GB onnxruntime
+            # arena (face-swap-cudnn-fix 已知三模型 HEURISTIC+4GB 才能跑). 4 模型同 GPU
+            # 加载 buffalo_l 1k3d68.onnx 'bad allocation' 已实测. yolov8n-seg 6.7MB
+            # CPU 推理 ~50ms/帧 (intersect 仅需 person mask, 不需高精度), 720×1280 单帧可接受.
+            yolo_seg_model = YOLO(args.yolo_seg_model)
+            yolo_seg_model.to('cpu')
+            print(f"[4/5] YOLO-seg 二次确认就绪: {args.yolo_seg_model} (CPU, mask_mode=intersect)")
+        except Exception as e:
+            print(f"[FAIL] --mask-mode intersect 需要 yolov8-seg ({args.yolo_seg_model}), 加载失败: {e}")
+            return
     dbg = tmp / f"{video.stem}_bgswap_debug.png"
     debug_sheet(str(video), pose, dbg, w, h, seg_model=seg_model, matte=matte,
                 feather=args.feather, erode=args.erode)
@@ -1782,7 +1826,9 @@ def main():
                       color_match_t=color_match_t, light_wrap_s=light_wrap_s,
                       foot_track=foot_traj, grounding_strength=grounding_strength,
                       pink_rg=args.pink_thresh_rg, pink_sat=args.pink_thresh_sat,
-                      core_bolster=core_bolster_val, arm_grow=arm_grow_val)
+                      core_bolster=core_bolster_val, arm_grow=arm_grow_val,
+                      mask_thresh=args.mask_thresh,
+                      mask_mode=args.mask_mode, yolo_seg_model=yolo_seg_model)
     if not ok:
         print(f"[FAIL] 渲染失败, 看 {dbg} 诊断. stat={stat}")
         return

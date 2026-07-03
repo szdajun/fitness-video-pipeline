@@ -182,6 +182,43 @@ def test_arm_grow_default_recommendation_grow_one():
         "help 应明确推荐 --arm-grow 1 (3px), 非 1.5 (那是旧 arm-bolster 的 scale 推荐)"
 
 
+def test_mask_mode_intersect_cli():
+    """--mask-mode intersect CLI 必须存在, 默认 rvm (不破坏既有调用).
+    intersect = RVM α × YOLO-seg person mask, 治 2026-07-03 RVM 远处半透真人 '鬼影' 问题
+    (新版 RVM 把远处真人当前景画 = "3 人身后站一个不动的人"). YOLO 强制 CPU 避开 4 模型
+    OOM (face-swap-cudnn-fix 三模型已用满 4GB onnx arena)."""
+    src = _src()
+    m = re.search(r'add_argument\(\s*["\']--mask-mode["\'].*?choices=\[([^\]]+)\].*?default=([\'"]\w+[\'"])',
+                  src, re.S)
+    assert m, "找不到 --mask-mode choices=... default=..."
+    choices = m.group(1)
+    assert "'rvm'" in choices and "'intersect'" in choices, \
+        f"--mask-mode 应有 'rvm'(默认) + 'intersect'(YOLO 二次确认), 实际 choices: {choices}"
+    assert "'rvm'" in m.group(2), f"--mask-mode 默认应是 'rvm' (不破坏既有调用), 实际: {m.group(2)}"
+
+
+def test_yolo_intersect_render_branch_exists():
+    """render() 必须有 mask_mode='intersect' 分支, 调 segment_person(yolo_seg_model, frame)
+    拿 person mask 与 RVM α 取交集. 治鬼影实测 1 帧 OK: 3 真人完整, 鬼影消失, 边缘略硬 (RVM α 平滑)."""
+    src = _src()
+    m = re.search(r'def render\([^)]*\).*?(?=\ndef )', src, re.S)
+    assert m, "找不到 render() 函数体"
+    body = m.group(0)
+    assert "mask_mode" in body, "render() 签名应有 mask_mode 参数"
+    assert "intersect" in body, "render() 应有 mask_mode=='intersect' 分支"
+    assert "segment_person" in body, "render() intersect 分支应调 segment_person (YOLO)"
+
+
+def test_yolo_model_forced_cpu():
+    """4 模型同进程 (RVM + buffalo_l + inswapper + YOLO) GPU 加载 buffalo_l 报 'bad allocation'
+    (实测 4 模型 4GB onnx arena 不够). YOLO-seg 强制 CPU, 避开与 3 GPU 模型争 arena.
+    yolov8n-seg 6.7MB CPU 推理 ~50ms/帧 (intersect 仅需 person mask, 不需高精度)."""
+    src = _src()
+    m = re.search(r'yolo_seg_model = YOLO\(args\.yolo_seg_model\).*?yolo_seg_model\.to\([\'"]cpu[\'"]\)',
+                  src, re.S)
+    assert m, "YOLO 必须 .to('cpu') 强制 CPU, 否则 4 模型同 GPU 加载 buffalo_l 'bad allocation' OOM"
+
+
 def test_arm_motion_weight_removed():
     """arm_motion_weight (motion 门控) 已删: 实测静止/快动帧 bolster 收益无差 (臂内部不碰轮廓,
     全帧满抬也不脏), motion weight 反把最需治的快动帧压低. 不能加回."""
