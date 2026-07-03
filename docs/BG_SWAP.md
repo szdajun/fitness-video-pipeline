@@ -165,6 +165,30 @@
 - in-place `np.maximum(mask, solid_smooth, out=mask)` 保留 (上次内存修复)
 - `gc.collect()` 每 100 帧保留
 
+---
+
+#### 坑 9.tris: RVM 远处半透真人 "鬼影" = YOLO-seg person mask 交集 (2026-07-03)
+
+**【症状】** d_grow1 production t=70s 视觉上"3 个真人身后都站着一个不动的人" (用户拍板). 像素诊断: 鬼影区 RVM α mean 0.315, **max=1.0** (RVM 满前景) = 不是"半透"是"实心". v2 旧版 (2026-07-01 跑) 同区 BGR 82/89/92 (水泥地) = v2 旧版 RVM 没检测到远处真人; d_grow1 新版 (2026-07-03 跑) 同区 BGR 45/48/50 (黑上衣) = 新版 RVM 检测到了. **RVM 在同源同帧两次跑结果不同 = RVM 模型输出本身不稳定** (memory `face-swap-other-faces-false-report` 已知: RVM 幻觉远处真人).
+
+**【治法】** 单 mask 阈值治不了 (max=1.0 > 任何阈值). 治本 = **用 YOLO-seg person mask 与 RVM α 取交集**:
+- YOLO 边缘锐利 (实例分割, 不基于 RVM) → RVM 远处"幻觉真人"被 YOLO 边界剔除
+- RVM α 内容丰富 (发丝/薄纱/边缘软) → YOLO mask 锯齿被 RVM α 平滑
+- 交集 = RVM 内容 + YOLO 边界 = 治软光晕 + 治远处幻觉
+
+**【单帧验证 (t=70s 75s smoke, 3 真人构图)】** (`_temp/ab_v2_vs_armbolster/mask_test_*_t70.png`):
+- RVM 单独合成: 鬼影存在 (中间真人右侧完整人形)
+- YOLO 单独合成: 鬼影消失, 3 真人边缘锯齿 (手/脚有截断)
+- **交集合成: 鬼影完全消失, 3 真人完整保留, 边缘略软 (RVM α 平滑 YOLO 锯齿)** ✅
+
+**【集成】** 4 模型同进程 (RVM + buffalo_l + inswapper + YOLO) **YOLO-seg 强制 CPU** (`yolo_seg_model.to('cpu')`) 避开与 3 GPU 模型争 4GB onnx arena (face-swap-cudnn-fix 已知 HEURISTIC+4GB 才能跑). 4 模型 GPU 加载实测 buffalo_l 1k3d68.onnx `bad allocation`. YOLO CPU 推理 yolov8n-seg 6.7MB ~50ms/帧, 720×1280 可接受, 75s smoke 实测 2.0fps (vs 不带 YOLO 2.4fps = 慢 17%).
+
+**CLI**: `--mask-mode rvm|intersect` (默认 rvm 维持现状, opt-in `intersect` 治鬼影). `--yolo-seg-model yolov8n-seg.pt` (默认, 6.7MB 轻量, 自动下载到 cwd).
+
+**验证** (75s smoke `_temp/smoke_intersect_v3.mp4`): 2250/2250 帧 0 崩, RSS 2347MB 平稳 (vs 之前 3 模型 2331MB, YOLO CPU 几乎不占内存), 2.0fps. t=70 抽帧 3 真人完整 + 鬼影消失. 完整 7488 帧生产未跑 (等用户拍板).
+
+**守门** `tests/test_bg_swap_defaults.py` +3 测试 (CLI mask_mode 存在/默认 rvm / render 签名 + intersect 分支 / YOLO 强制 CPU). 110 passed 零回归.
+
 
 
 ## 关键架构决策

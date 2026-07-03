@@ -80,6 +80,23 @@
 
 **d_grow1 三帧显著优于 armbolster 1.5 (4.67 vs 3.17)**, halo <0.5px 单色软边. 真实生产视频 (6990 帧) **D+grow1 视觉定稿成立** ✅.
 
+**【RVM 远处半透真人 "鬼影" 修复 (2026-07-03 用户拍板 "3 人身后站一个不动的人")】** ✅ **集成 YOLOv8-seg 二次确认**:
+- 单帧 t=70 视觉验证: 鬼影完全消失 + 3 真人完整保留 + 边缘略软 (RVM α 平滑 YOLO 锯齿)
+- 75s smoke 2250/2250 帧 0 崩, 2.0fps (vs 之前 2.4fps = 慢 17% YOLO CPU 推理)
+- 4 模型同进程 (RVM + buffalo_l + inswapper + YOLO) **YOLO 强制 CPU** 避 4GB onnx arena 抢
+- CLI `--mask-mode rvm|intersect` 默认 rvm 维持, `intersect` opt-in 治鬼影
+- 守门 +3 测试 (CLI 存在/默认 rvm / render intersect 分支 / YOLO CPU) → 110 passed 零回归
+- docs `BG_SWAP.md` 坑 9.tris + CLAUDE.md bg_swap 条同步
+- **完整 7488 帧生产未跑 (等用户拍板)**, 75s smoke 已验证不崩 + 治鬼影
+
+**【5 commit 落 main】**:
+- a677f6b fix(student_closeup): COCO2BLAZE 补肘腕膝
+- 4abd7cc feat(bg_swap): arm-grow 替代 arm-bolster
+- 6199e92 docs(bg_swap): arm-grow 同步
+- 7730275 fix(bg_swap): render 循环 memfix
+- c1ce910 docs(handoff): D+grow1 视觉定稿 + memfix + 卡点
+- (本轮新: YOLO 集成 + 守门 + docs)
+
 ---
 
 （早些 2026-07-03，**MatAnyone A/B 试点 = 阴性, 换模型死路, 真解=arm-only pose bolster**）：用户「还是要进一步提高抠像技术, 背景渗出肢体虚化没彻底解决, 找更好的办法发挥网红模特魅力」+「SAM模型如何」+「好的先试试」。**A/B 实测 MatAnyone v1 (CVPR2025) vs RVM**(像素级, 不靠肉眼): 源=用户指定 `Desktop/短视频素材/2026-06-01 03-39-35.mp4`(1080×1920, 677帧), 测段 t18-22.5s 高潮(pose 实测手臂速度峰值 **2.56肩宽/帧**), 指标=胳膊核心包络内 mean alpha(生产 `_pose_core_matte` 臂子集)。**关键发现**: 扫源视频发现 RVM 对胳膊最大覆盖率只 **94.5%**(典型80-85%)→ RVM 结构性低估胳膊, 非快动帧也低估。**结果(最佳95.1% seed, clip3 source f540-676 共136帧)**: RVM 高潮avg **0.740**/min **0.340** vs MatAnyone 高潮avg **0.766**(+0.03)/min **0.312(更差)**; 最差帧f622 RVM0.50/MA0.39/bolster1.00; MatAnyone 跑720p(RVM内部仅270×480, 分辨率优势仍不赢→非分辨率问题)。**根因**: 2.56肩宽/帧运动模糊胳膊无软抠模型能跟踪(MatAnyone 记忆传播峰值帧丢胳膊, 方差大好0.97坏0.31非"稳定core"); seed 被 RVM 上限锁94.5%。**结论: MatAnyone v1 不换, 换模型(MatAnyone2/SAM2Matting 同类软抠)是死路**。**真解=确定性 pose 胳膊核心强制 α→1** `max(rvm_alpha, arm_env)` → **已实现见上条 (arm-only bolster)**。**工程**: MatAnyone 装隔离 venv `F:/wkspace/matanyone_trial`(dry-run 71包+pandas3+imageio降级会毁主管线.venv; cchardet 需MSVC编译失败→`--no-deps`+仅运行依赖); `process_video(...,max_size=720)`避RAM爆; 首帧mask走RVM阈值化。试点脚本 `_temp/ab_*.py`, 可视化 `_temp/ab_out/ab_conclusion.png`。memory `matanyone-ab-test-negative`。
