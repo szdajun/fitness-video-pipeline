@@ -4,7 +4,74 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
-最后更新: 2026-07-02（**重启后收尾: 4 commit 落地上轮三批改动 + 后台重渲网红多人 core-matte 版**）：会话因 token 重启, 上轮(化名/core-matte/YT guard)代码已做完但未 commit, 工作树挂 7 文件。本轮**拆 4 commit 全落 main, 工作树干净**: ①`0b5cc2d fix(coach)` 小红豆化名红线女→大唐红线女(coach_profiles 三处); ②`1b06d72 feat(bg_swap)` pose core-matte 撑实胳膊(bg_swap.py + docs坑9 + tests 14绿 + CLAUDE bg_swap条 + HANDOFF); ③`fcd44c7 fix(upload)` YT长视频强制立即发布(upload_utils guard + CLAUDE平台表 预定18:00→立即发布); ④`1331f79 chore(coach)` 李刚换脸源照入库(3.3M png)。pre-commit hook 4次全 35 passed。**拆 commit 技巧**: CLAUDE.md 同含②(bg_swap条)③(平台表)两 hunk, 用工作树编辑法分离(Edit去掉平台表hunk→add commit②→恢复平台表hunk→add commit③); HANDOFF.md 顶部段混①②日志整体归②(活文档不拆hunk)。**随后启动后台重渲网红多人 core-matte 版**(HANDOFF记的"可选下一步"), task `btohbyr09`, ~70min@1.8fps: 源=桌面`短视频素材/网红多人健身操.mp4`(109M), 出`output/bgswap/网红多人_丽丽_时代广场_v3.mp4`, 参数**复刻v2定稿**(`--preset fitness --swap-all --dsr 0.5 --bg-crop-y 0.61`)+ `--core-bolster 1.0` 唯一新变量 → v2 vs v3 A/B 差异纯来自 core-matte。启动验证: RVM+buffalo_l+inswapper 三模型加载OK GPU 2251MiB 无OOM, 100/7488帧 core撑实100, 换脸100/背跳0/漏0。**v3 评估完成 → core-matte 默认反转 开→关**: 用户看 v3 全片判"不干净/基本都这样"(骨架带每帧硬抬 α 轮廓显脏, v2 软边更净), 选 **v2 定稿**. 已落 commit `6ad4507`(core default 1.0→0.0 + test/docs/CLAUDE) + `ec18246`(uv.lock OAuth). part B 查 v2 软边能否软化 = **不宜**(bg_swap.py:1284-1286 erode/feather 试过致人体变薄已回退). 详见下条 + memory `bg-swap-core-matte-arm-bleed`.
+最后更新: 2026-07-03（**arm-bolster 被用户拍板推翻 + 转入 D 方案（填洞+alpha门控外扩）根治渗出**）：
+
+**【关键推翻】用户看 `_armbolster.mp4` 报"胳膊周围几乎都渗出"**，截图实证。**我 ⑤ 段"像素 A/B 治渗出"是错的** — 我测的是核心管内部 (scale 1.5) 的 RVM α，用户看到的是**核心管外的过渡环** (scale 1.5→3.0, 也就是胳膊周围半透明过渡带)。**核心管撑实了，环没治**。**根因 = 测量区域错位 + 自我说服**。教训写 memory 备查。
+
+**【根因重测】** 用户截图后 7488 帧全扫 (`_temp/scan_arm_bleed.py`):
+- 核心管 (env scale 1.5) RVM α ≈ 0.5 (最差 0.434)
+- **过渡环 1 (scale 1.5→3.0) α 平均 0.413**，**99.8% 帧有 >2000 渗出像素**（环1 漏治 4392 px/帧）
+- 环1 像素只有 45% 是手臂色，**55% 是背景**（黑上衣+肤色 vs 浅棕路面）
+- frame 7093 双手平伸无运动模糊 RVM α 也只 0.4 → 病因非快动/模糊，**RVM 对细长肢体结构性低估**（与上轮 MatAnyone 试点的发现一致）
+
+**【A/B/C 方案模拟 (7488 帧采样 + 严格 halo 度量 = RVM 确信背景区被填)]** (`_temp/simulate_fix{2,3,4,5}.py`):
+- **A 盲加宽** `max(rvm, env(3.0))`: 治愈 86.5%, **halo 389%**（撑一漏撑四背景 = 灾难）
+- **B 颜色门控** (肤色/黑衣 box): halo 6176px ≈ A（**肤色撞路面色**，颜色门控不可靠）
+- **C alpha 阈值 + 模糊**: halo 16-39%, 治愈 37-59%（RVM α>0.15 区本身**斑驳**，模糊治不了孔洞）
+- **D alpha 阈值 + binary_fill_holes** (thr 0.08/0.12/0.15): halo 11-14%, 治愈 51-63%（填洞不外扩 → halo 低，但 RVM 在胳膊边缘的 α 也低 → 真实边缘填不到）
+- **D+grow2 (内 α>0.15 填洞 + 外 α>0.05 内 grow 2 次=6px)**: **治愈 99.8% + halo 3.0%** ✅ **唯一双达标方案**
+  - 关键: grow 用 RVM 自身 α>0.05 当 mask 门（背景 α<0.05 → 自动停，不会扩到背景）
+
+**【D 方案原理 (像素定案)】**:
+1. `inner = (rvm_α > 0.15) & pose_arm_zone` → 胳膊内真实像素（含斑驳孔洞）
+2. `solid = binary_fill_holes(inner)` → 治斑驳（不外扩 → halo 低）
+3. `outer = (rvm_α > 0.05) & pose_arm_zone` → RVM 感到前景的过渡区（背景 α<0.05 自动被剔）
+4. `solid_g = dilate(solid, 2 iter=6px) & outer` → 在 RVM 自信的前景内，把填好的核心外扩 6px 到真实边缘
+5. `solid_smooth = GaussianBlur(solid_g, 7×7)` → 抹羽边（避免硬切）
+6. `final = max(rvm_α, solid_smooth)` → 背景不抬（α 自然 0），胳膊填实
+- 这与 ② arm-only bolster 的核心差异: bolster 是"硬管强制 α=1"（不治环），D 是"在 RVM 自信的前景内 grow 找真实边缘"（治环 + 不撑背景）
+- 关键反直觉: **grow 必须用 RVM α 门控**，否则会扩到背景 (A 方案的错误)。D+grow 比 bolster 多 6px 外扩 = 治过渡环。
+
+**【D+grow 三参扫参定最优】** (n=7488 全帧):
+
+| grow | 治愈 | halo |
+|------|------|------|
+| **1 (3px)** | 99.8% | **2.5%** ✅ |
+| 2 (6px) | 99.8% | 3.0% |
+| 3 (9px) | 99.8% | 3.2% |
+
+**grow=1 最优** — 治愈打平，halo 最低（外扩少→撑背景少）。**选 `--arm-grow 1` (3px)**。`_temp/simulate_fix5.py` 主数据，D+grow1 同框架（grep 后 `iters=2`→`iters=1`）。
+
+**【D 方案工程细节】**:
+- 复用现有 `_pose_arm_core_matte` (env scale 1.5) 作为 `pose_arm_zone` — 已有现成, 不需重画
+- `from scipy.ndimage import binary_fill_holes` (主管线 .venv 已有 scipy, 2026-07-02 pyproject 加的)
+- 流水线加 1 步: per-frame 算 solid_g (小数组 < 100ms), 不破 1.8fps 速度
+- in-place `np.maximum(mask, solid_smooth, out=mask)` 保留（上次内存修复）
+- `gc.collect()` 每 100 帧保留
+
+**【未 commit 工作树】** (本轮因 ⑤ 段被推翻暂缓 commit):
+- `tools/bg_swap.py`（旧 arm-bolster 块需替换为 D+grow 块 + 保留 in-place/gc 修复 + 改名 CLI `--arm-bolster`→`--arm-grow`）
+- `tools/student_closeup.py`（COCO2BLAZE 映射修正 — **保留**，独立 bug 修复，单独 commit）
+- `tests/test_bg_swap_defaults.py`（+7 arm-bolster 测试 — **需改写为 D+grow 测试**，测核心管+过渡环两区，halo 度量 a<0.05）
+- `docs/BG_SWAP.md` 坑 9.bis（arm-only 段需改写为 D+grow 段 + 旧 arm-only 降为子方案/历史）
+- `CLAUDE.md` bg_swap 条（同步）
+- `HANDOFF.md`（本条）
+
+**【待用户拍板】**:
+1. 看完 `_armbolster.mp4` 拍板"必须治过渡环，不是核心管"已确认 ✅（截图）
+2. grow 1/2/3 扫参定 grow=1 最优 ✅
+3. **下一步**: 落地 D+grow1 代码 → 重渲 `_d_grow1.mp4` → 视觉拍板
+4. 满意后拆 2~3 commit（student_closeup 映射独立 / bg_swap D+grow / 守门+docs）
+
+---
+
+（早些 2026-07-03，**MatAnyone A/B 试点 = 阴性, 换模型死路, 真解=arm-only pose bolster**）：用户「还是要进一步提高抠像技术, 背景渗出肢体虚化没彻底解决, 找更好的办法发挥网红模特魅力」+「SAM模型如何」+「好的先试试」。**A/B 实测 MatAnyone v1 (CVPR2025) vs RVM**(像素级, 不靠肉眼): 源=用户指定 `Desktop/短视频素材/2026-06-01 03-39-35.mp4`(1080×1920, 677帧), 测段 t18-22.5s 高潮(pose 实测手臂速度峰值 **2.56肩宽/帧**), 指标=胳膊核心包络内 mean alpha(生产 `_pose_core_matte` 臂子集)。**关键发现**: 扫源视频发现 RVM 对胳膊最大覆盖率只 **94.5%**(典型80-85%)→ RVM 结构性低估胳膊, 非快动帧也低估。**结果(最佳95.1% seed, clip3 source f540-676 共136帧)**: RVM 高潮avg **0.740**/min **0.340** vs MatAnyone 高潮avg **0.766**(+0.03)/min **0.312(更差)**; 最差帧f622 RVM0.50/MA0.39/bolster1.00; MatAnyone 跑720p(RVM内部仅270×480, 分辨率优势仍不赢→非分辨率问题)。**根因**: 2.56肩宽/帧运动模糊胳膊无软抠模型能跟踪(MatAnyone 记忆传播峰值帧丢胳膊, 方差大好0.97坏0.31非"稳定core"); seed 被 RVM 上限锁94.5%。**结论: MatAnyone v1 不换, 换模型(MatAnyone2/SAM2Matting 同类软抠)是死路**。**真解=确定性 pose 胳膊核心强制 α→1** `max(rvm_alpha, arm_env)` → **已实现见上条 (arm-only bolster)**。**工程**: MatAnyone 装隔离 venv `F:/wkspace/matanyone_trial`(dry-run 71包+pandas3+imageio降级会毁主管线.venv; cchardet 需MSVC编译失败→`--no-deps`+仅运行依赖); `process_video(...,max_size=720)`避RAM爆; 首帧mask走RVM阈值化。试点脚本 `_temp/ab_*.py`, 可视化 `_temp/ab_out/ab_conclusion.png`。memory `matanyone-ab-test-negative`。
+
+（早些 2026-07-03，**彩娥2 处理→无源照自美化源→主管线→YT 上传 public**）：用户「再处理一个彩娥2的新视频，没有美颜照，你看如何处置」+「有白发，头发不整齐能处理吗」。**① 无源照解法(自美化源路线, 李刚2 先例再现)**：彩娥 tools/ 无源照 → 从**彩娥1 final** 探测最大正脸帧 insightface buffalo_l **det_size=(320,320)**(640 漏远景小脸<80px), yaw_metric 选最正 → **f1248 (50px 正脸, score0.616, yaw0.06)** → 裁肖像 240×336 → `ensure_source_photo(force=True)` GFPGAN 全强度增强 → `tools/彩娥_gfpgan.png`(**增强后 insightface 直测 score=0.845 非0脸, 避 [[face-swap-gfpgan-ruins-photo]] 坑**)。**② 白发/乱发不影响换脸(回应用户)**：inswapper_128 只换脸(五官+脸型)**不传头发**, 输出头发=彩娥2视频本身; GFPGAN增强也只修脸不染发; 想美发不在换脸范围(pipeline无美发stage, skin_smooth永久关)。**③ 主管线 `--preset youtube --shorts-coach 彩娥`**(detached, 1483.7s)：face_swap **swap=1610/1610(back=0, 无pose=0) 100%全换脸**, final 抽帧肉眼无换脸失败痕迹。产物 `output/2026-07-02/彩娥2_final_16x9_1920x1080.mp4`(127M) + `_yt_shorts.mp4`(51M) + `_douyin.mp4`(94M待人工) + `_full_16x9.mp4`(108M不上传)。**④ ✅ YT 上传 public 立即发布**：long=`S0uYiJ-d2Ds`(127M<200M 未触发wrapped-200) / short=`qlwKOIfEf3k`(49M)。标题 long「【孤勇者】彩娥勇气燃脂操|勇气燃脂跟练|细柳营健身」/ short「【孤勇者】彩娥30秒勇气燃脂操|勇气燃脂挑战|细柳营健身 #Shorts」(自动从 coach_profiles 孤勇者/勇气燃脂 取)。manifest 两笔已写。抖音 94M 待人工。**已写 memory `face-swap-no-source-self-beautify`**。**小 bug(不阻塞)**：上传 launcher 首跑 SyntaxError(`"tools\upload_youtube.py"` 漏 r 前缀, `\u` 当 unicode escape), 加 r 修复。
+
+（早些 2026-07-02, **枫林红2+3 合并→主管线→face_swap 根因修复→YT 上传 public**）：用户「新视频枫林红2+3 合起来处理」。① 合并 `source_videos/枫林红2_3_merged.mp4`；② 主管线 `--preset youtube --shorts-coach 枫林红`。**face_swap 根因(核心)**: 首跑 final 无换脸 → 排查发现 `tools/flh_face_gfpgan.png`(1024² GFPGAN 增强照) insightface 640+320 双检 **0 脸**(**GFPGAN 过度增强会毁脸照**, 生成假脸细节 detector 反测不到), 却占 find_coach_face 最高优先级 `_face_gfpgan.png` 挡住可用源照。**删该坏照** → 回落 `tools/枫林红_face.jpg`(=枫林红1 用的源, 用户"原来成功换过脸的", 213×348 score0.857)。用户另给"高清原图"要超分: GFPGAN修脸+x2 Lanczos+USM → `枫林红_face.png`(426×696 脸284px score0.868)。③ 重跑 face_swap→下游: **3095帧 swap 100%/back:0**, export NVENC 零崩, 产物 final_16x9(226M)+yt_shorts(48M)+douyin(173M)。④ 抽帧 t30s 视觉验证领操人面部自然无瑕疵。⑤ **✅ YT 上传 public 立即发布**: long=`gdG062jelj0`(215M>200M 触发 wrapped-200, `_verify_uploaded_ytid` 守门纠正 Bt11N1zNct0→gdG062jelj0) / short=`uArbWvDzCBA`(46M 直传)。标题 long「【霸道总裁】枫林红高效有氧操\|高效有氧跟练\|细柳营健身」/ short「【霸道总裁】枫林红30秒高效有氧操\|高效有氧挑战\|细柳营健身 #Shorts」。manifest 两笔已写, 抖音 173M 待人工。**教训(已写 memory `face-swap-gfpgan-ruins-photo`)**: GFPGAN 增强可能毁脸照, find_coach_face 优先级 `_face_gfpgan.png` 不一定比原图可靠; vision API 判脸检测不可信(对 0 脸照报"reliably detectable")。**小 bug(不阻塞)**: manifest 增量写入漏记 face_swap→shorts(只到 watermark), 下次增量会重跑 face_swap, 不影响成品。
+
+（早些 2026-07-02，**重启后收尾: 4 commit 落地上轮三批改动 + 后台重渲网红多人 core-matte 版**）：会话因 token 重启, 上轮(化名/core-matte/YT guard)代码已做完但未 commit, 工作树挂 7 文件。本轮**拆 4 commit 全落 main, 工作树干净**: ①`0b5cc2d fix(coach)` 小红豆化名红线女→大唐红线女(coach_profiles 三处); ②`1b06d72 feat(bg_swap)` pose core-matte 撑实胳膊(bg_swap.py + docs坑9 + tests 14绿 + CLAUDE bg_swap条 + HANDOFF); ③`fcd44c7 fix(upload)` YT长视频强制立即发布(upload_utils guard + CLAUDE平台表 预定18:00→立即发布); ④`1331f79 chore(coach)` 李刚换脸源照入库(3.3M png)。pre-commit hook 4次全 35 passed。**拆 commit 技巧**: CLAUDE.md 同含②(bg_swap条)③(平台表)两 hunk, 用工作树编辑法分离(Edit去掉平台表hunk→add commit②→恢复平台表hunk→add commit③); HANDOFF.md 顶部段混①②日志整体归②(活文档不拆hunk)。**随后启动后台重渲网红多人 core-matte 版**(HANDOFF记的"可选下一步"), task `btohbyr09`, ~70min@1.8fps: 源=桌面`短视频素材/网红多人健身操.mp4`(109M), 出`output/bgswap/网红多人_丽丽_时代广场_v3.mp4`, 参数**复刻v2定稿**(`--preset fitness --swap-all --dsr 0.5 --bg-crop-y 0.61`)+ `--core-bolster 1.0` 唯一新变量 → v2 vs v3 A/B 差异纯来自 core-matte。启动验证: RVM+buffalo_l+inswapper 三模型加载OK GPU 2251MiB 无OOM, 100/7488帧 core撑实100, 换脸100/背跳0/漏0。**v3 评估完成 → core-matte 默认反转 开→关**: 用户看 v3 全片判"不干净/基本都这样"(骨架带每帧硬抬 α 轮廓显脏, v2 软边更净), 选 **v2 定稿**. 已落 commit `6ad4507`(core default 1.0→0.0 + test/docs/CLAUDE) + `ec18246`(uv.lock OAuth). part B 查 v2 软边能否软化 = **不宜**(bg_swap.py:1284-1286 erode/feather 试过致人体变薄已回退). 详见下条 + memory `bg-swap-core-matte-arm-bleed`.
 
 （2026-07-02 本轮续, **core-matte 默认反转 开→关 + v2 软边定稿确认 + part B 不宜软化**）：用户看 v3 全片(`output/bgswap/网红多人_丽丽_时代广场_v3.mp4`, `--core-bolster 1.0`)判"**不干净 / 基本都这样**" — v2 也有但"**轻很多**". 用户选 **3: v2 作定稿 + core 默认改回关 + 查 v2 软边能否软化**. **① core 反转已落 commit `6ad4507`**: `tools/bg_swap.py:1497` `--core-bolster` default **1.0→0.0** + help 反转说明; render ②.5 逻辑保持原样(gate 0.25 / >0.05 / global max)仅加诊断澄清注释; `tests/test_bg_swap_defaults.py::test_core_bolster_builtin_default_off` 断言 0.0(14 绿); `docs/BG_SWAP.md` 5 处默认开→关+理由(L121/123/135/159/236) + `CLAUDE.md` bg_swap 条同步. **② uv.lock 单独 commit `ec18246`**: 补 YT OAuth 依赖(google-api/auth + cryptography, a2227bc 漏 commit 的 lock). pre-commit hook 两次 35 passed. **③ core 反转根因(实证)**: env 实测仅覆盖画面 **~3%**(骨架细带), 单帧面积小但**每帧每人轮廓沿线都有** → 动态视频骨架带硬抬 α 痕迹**全片可见**, **静态抽帧难察觉**(一度抽 3 个 hstack 帧 t70/227/248 误判 v3 更好, 靠用户看动态视频纠正 → **教训: bg_swap 判动态全片缺陷必须看视频/逐帧, 不能靠几个静态帧**). **④ part B 查 v2 软边 = 不宜软化**: `tools/bg_swap.py:1284-1286` 已有教训 — `_clean_alpha(erode+feather)` 曾试治脚浮 halo → "**人体忽然变薄**"(erode/feather 缩边+虚化边缘, 叠加自然宽度变化在转身帧显眼) + halo_score 实测 erode 未真降 halo(浅残留非 α 边缘问题) → **2026-06-30 已回退**, 当前合成(L1287-1290 `out=frame*m3+bg*(1-m3)`)用 **raw RVM α 无后处理**. 即 v2 软边 = RVM 固有软抠, raw α 是当前最优. 同阴影 6 轮弃(memory `bg-swap-tool-influencer`)的模式: 有些"缺陷"是 soft matting 固有非 bug, 强修副作用 > 收益, 接受它. **工作树干净, 本轮收尾**. `output/bgswap/` 清理后留 4 个: `网红多人_丽丽_时代广场_v2.mp4`(313M, 多人定稿)+`_v3.mp4`(313M, 留作 core-matte 对比)+`网红_丽丽_时代广场_grounding.mp4`(单人定稿)+`网红跳舞1_时代广场.mp4`(dance 定稿); **删 dsr05(v1)+ 16 单人调试版**(camfollow/frontpuddle/grey_reinhard/heelshadow/laggy/noparallax/noshadow_parallax/precolormatch/preheelshadow/seam/seamfull/shadowfix/v7static/weakshadow/foottrack + 无后缀, 释放~450M, 用户"留最终文件做对比分析用其他删除"). memory `bg-swap-core-matte-arm-bleed`(反转决策 + part B 结论已补).
 

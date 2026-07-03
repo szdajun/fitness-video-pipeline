@@ -120,7 +120,52 @@
 
 **CLI**: `--core-bolster 1.0` (**默认 0 关**; 2026-07-02 反转). 包络段直径按各人肩宽缩放 (臂 0.42 / 躯干 0.62 / 腿 0.46), `scale=core_bolster` 整体微调 (1.0=肩宽基准). **为何默认关**: env 实测仅覆盖画面 ~3% (骨架细带), 单帧面积小但**每帧每人轮廓沿线都有** → 看动态视频骨架带硬抬 alpha 痕迹全片可见, 用户判 v3 "不干净/基本都这样" (v2 软边反而更净). 治渗出价值不抵变脏, 弃用回 v2 软边; 需治渗出手动 `--core-bolster 1.0` 并接受边缘偏硬.
 
-**与 despill 区别**: despill (`despill_to_bg`) 治**色边** (粉地面→冷背景的红溢色), **治不了 alpha 虚化** (那是透明度问题不是颜色). core-matte 治 alpha; 两者互补. despill 默认开 (治色边无副作用), **core-matte 默认关** (2026-07-02 反转: 全片骨架带硬抬 alpha 显脏).
+> **注 (2026-07-03 复盘)**: 后查 `--core-bolster` 当时**根本没生效** — `_pose_core_matte` 用 COCO-17 索引 (5/6/7/8/9/10) 读 blaze33 缓存 (11/12/13/14/15/16) = 错位画垃圾包络, 且 `student_closeup.detect_pose` 的 COCO2BLAZE 映射漏了肘/腕/膝 (缓存里这些关节全 vis=0). 用户嫌 v3 "脏" 部分是这双 bug 造的伪包络, 非 bolster 理念问题. 已修映射 + 另起 arm-only 版 (见下).
+
+#### 坑 9.bis: arm-grow = 治过渡环 (2026-07-03, 替代 arm-bolster; 用户拍板)
+
+**【arm-bolster 被推翻 (2026-07-03 下午)】** 上午定稿的 `--arm-bolster 1.5` (仅撑实核心管 env scale 1.5) 实测核心管 α 0.74→0.954 但用户看 _armbolster.mp4 报"**胳膊周围几乎都渗出**"截图实证. 根因 = **测量区域错位**: 我测的是核心管内部, 用户看到的是核心管**外**的过渡环 (scale 1.5→3.0, RVM α 0.3-0.7 半透明带). 7488 帧全扫: 核心管 RVM α ≈ 0.5 (最差 0.434), 过渡环 1 α 平均 **0.413**, **99.8% 帧有 >2000 渗出像素** (环1 漏治 4392 px/帧). frame 7093 双手平伸无运动模糊 RVM α 也只 0.4 → 病因非快动/模糊, **RVM 对细长肢体结构性低估** (与上轮 MatAnyone 试点的发现一致).
+
+**【教训 (关键)】** 别只测"内部管"好看就当治住了, 必须测用户能看到的过渡环. 判 bg_swap 缺陷靠**全 7488 帧扫参 + 过渡环 halo 度量 (a<0.05)**, 不靠静态帧/视觉/核心管距离. 同 [[bg-swap-core-matte-arm-bleed]] 测量方法学.
+
+**【A/B/C/D 方案模拟 (n=7488 + 严格 halo 度量 = RVM 确信背景区被填)】** (`_temp/simulate_fix{2,3,4,5}.py`):
+- **A 盲加宽** `max(rvm, env(3.0))`: 治愈 86.5%, **halo 389%** (撑一漏撑四背景 = 灾难) → 否
+- **B 颜色门控** (肤色/黑衣 box): halo 6176px ≈ A (**肤色撞路面色**, 颜色门控不可靠) → 否
+- **C alpha 阈值 + 模糊**: halo 16-39%, 治愈 37-59% (RVM α>0.15 区本身**斑驳**, 模糊治不了孔洞) → 否
+- **D alpha 阈值 + binary_fill_holes** (thr 0.15): halo 11%, 治愈 51% (填洞不外扩 → halo 低, 但 RVM 在胳膊边缘的 α 也低 → 真实边缘填不到) → 不够
+- **D+grow (内 α>0.15 填洞 + 外 α>0.05 内 grow)**: **唯一双达标**
+
+| grow | 治愈 | halo |
+|------|------|------|
+| **1 (3px)** | 99.8% | **2.5%** ✅ |
+| 2 (6px) | 99.8% | 3.0% |
+| 3 (9px) | 99.8% | 3.2% |
+
+**grow=1 最优** — 治愈打平, halo 最低 (外扩少→撑背景少). 模拟脚本: `_temp/simulate_fix5.py` (grow=2) + `_temp/simulate_fix5_grow{1,3}.py`.
+
+**【D+grow 原理 (像素定案)】**:
+1. `inner = (rvm_α > 0.15) & pose_arm_zone` → 胳膊内真实像素 (含斑驳孔洞)
+2. `solid = binary_fill_holes(inner)` → 治斑驳 (不外扩 → halo 低)
+3. `outer = (rvm_α > 0.05) & pose_arm_zone` → RVM 感到前景的过渡区 (背景 α<0.05 自动被剔, 防扩到背景)
+4. `solid_g = dilate(solid, N iter=3N px) & outer` → 在 RVM 自信的前景内, 把填好的核心外扩到真实边缘 (**关键反直觉: grow 必须用 RVM α 门控**, 否则扩到背景 = A 方案 389% halo 灾难)
+5. `solid_smooth = GaussianBlur(solid_g, 7×7)` → 抹羽边 (避免硬切)
+6. `final = max(rvm_α, solid_smooth)` in-place (配 render 循环 gc.collect 治长视频 RAM)
+
+**CLI**: `--arm-grow 1` (**默认 0 关**, opt-in). `--arm-bolster` 旧核心管版已弃用 (改用 `--arm-grow`). 守门 `tests/test_bg_swap_defaults.py` (7 测试: 默认关 / 函数存在 / blaze 索引 / 躯干门控 / 用 fill_holes / 推荐 grow=1 / motion weight 已删 / 映射含臂 / scipy import).
+
+**验证 (像素级)**:
+- 全 7488 帧扫描: 治愈 99.8% (35.9M 漏治像素治了 35.9M), halo 2.5% (1.0M 撑到背景), 扫描脚本 `_temp/scan_arm_bleed.py`.
+- 模拟脚本 `_temp/simulate_fix{2,3,4,5}.py` (A/B/C/D 四方案 + grow 1/2/3 扫参).
+- 视觉模型判定 (hstack v2 vs armbolster, 3 帧 t=70/227/248s): arm-bolster 把 v2 的 1.5-2/5 提到 3-3.5/5, 但指尖/手腕末端仍有冷色调泄露. 预期 D+grow1 提到 4-4.5/5 (治过渡环非核心管). 验证: 抽帧后用户拍板.
+
+**工程细节**:
+- 复用现有 `_pose_arm_core_matte` (env scale 1.5) 作为 `pose_arm_zone`, 不需重画
+- `from scipy.ndimage import binary_fill_holes` (.venv 已有, 2026-07-02 pyproject 加的)
+- 流水线加 1 步: per-frame 算 solid_g (小数组 < 100ms), 不破 1.8fps 速度
+- in-place `np.maximum(mask, solid_smooth, out=mask)` 保留 (上次内存修复)
+- `gc.collect()` 每 100 帧保留
+
+
 
 ## 关键架构决策
 
@@ -133,6 +178,7 @@
 | color_match mean-shift 保 L 不 Reinhard | Reinhard 缩 L 方差把黑衣服拉灰; 保 L 只动 a/b 色温不毁对比度 |
 | 视差居中平滑不用 EMA | 因果 EMA 有 ~0.4s 相位延迟 (慢一拍); 居中平滑零延迟 |
 | core-matte **默认关** (2026-07-02 反转) | 治渗出有效 (核区 α 0.52→0.97, 像素证) 但骨架带每帧硬抬 alpha → 人物轮廓显脏 ("基本都这样"); 治渗出不抵变脏, 弃用回 v2 软边; 需时手动 `--core-bolster 1.0` (坑 9) |
+| **arm-grow `--arm-grow 1`** (2026-07-03 替代 arm-bolster, 默认关) | 填洞(binary_fill_holes 治 RVM 胳膊内斑驳) + alpha门控 grow 3px (RVM a>0.05 内 grow 扩到真实边缘) + max(rvm, smoothed). 模拟 n=7488: 治愈 99.8% halo 2.5% (grow=2/3 略高). 替代旧 arm-bolster (治了核心管没治环, 用户拍板). 治虚化首选它非 core-bolster (坑 9.bis) |
 
 ## 配置速查
 
@@ -156,7 +202,8 @@ python tools/bg_swap.py --preset fitness --help | grep grounding
 必填: --video --bg --coach --output
 预设: --preset fitness|clean|dance
 抠像: [--matte (默认开)] [--no-matte] [--dsr 0.25 (RVM 内部降采样比; 1080p 单人 0.25 够, 720p 多人可 0.4-0.5 补锐度)]
-胳膊: [--core-bolster 1.0 (默认关, 2026-07-02 反转; 需治虚化/渗出时手动开, 见坑 9)] [--no-core-bolster]
+胳膊: [--arm-grow 1 (默认关; 治 RVM 胳膊过渡环虚化/渗出, 替代旧 --arm-bolster, 推荐 1=3px)] [--no-arm-grow]
+      [--core-bolster 1.0 (默认关, 旧全身版弃用; 双 bug 已修但建议用 --arm-grow)] [--no-core-bolster]
 换脸: [--swap-all (多人: insightface 检到的脸都换同一张教练脸, 默认 only_lead 只换 pose 锁的领操人)]
 羽化: [--feather 11] [--erode 4] [--despill 0]
 增强: [--color-match 0.8] [--light-wrap 0.5] [--parallax 0.02]
