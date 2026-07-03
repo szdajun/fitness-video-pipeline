@@ -104,6 +104,98 @@ def test_pose_core_matte_function_exists():
     assert re.search(r'^def _pose_core_matte\(', _src(), re.M), "应有 def _pose_core_matte("
 
 
+# ---- arm-grow (坑 9.bis, 2026-07-03, 替代 arm-bolster) ----
+# arm-bolster 只治核心管 (env scale 1.5), 用户看到的是核心管**外**的过渡环 (scale 1.5→3.0,
+# RVM α 0.3-0.7 半透明带, 99.8% 帧有 >2000 渗出像素). D+grow = (a) inner (a>0.15) 填洞治斑驳
+# + (b) 在 RVM 自信前景 (a>0.05) 内 grow N×3px 到真实边缘 + (c) max(rvm, smoothed). 模拟
+# n=7488: 治愈 99.8% halo 2.5% (grow=1, 3px). 关键: grow 必须用 RVM α 门控, 否则扩到背景
+# (A 方案 halo 389%).
+
+def test_arm_grow_builtin_default_off():
+    """--arm-grow 默认关 (opt-in). 治 RVM 对胳膊低 alpha 过渡环虚化时手动 --arm-grow 1."""
+    src = _src()
+    m = re.search(r'add_argument\(\s*["\']--arm-grow["\'].*?default=preset\.get\(\s*["\']arm_grow["\']\s*,\s*(\d+)\s*\)',
+                  src, re.S)
+    assert m, "找不到 --arm-grow 的 default=preset.get(...)"
+    assert int(m.group(1)) == 0, f"--arm-grow 内置默认应为 0 (关), 实际: {m.group(1)}"
+
+
+def test_pose_arm_core_matte_function_exists():
+    """arm pose 包络函数必须存在 (复用为 D+grow 的臂区范围)"""
+    assert re.search(r'^def _pose_arm_core_matte\(', _src(), re.M), \
+        "应有 def _pose_arm_core_matte( (臂区, blaze 索引)"
+
+
+def test_arm_core_matte_uses_blaze_indices():
+    """_pose_arm_core_matte 必须用 BlazePose-33 索引 (11/12肩 13/14肘 15/16腕),
+    非 COCO-17 (5/6/7/8/9/10). detect_pose 缓存格式是 blaze33; 用 COCO 索引读 = 错位画垃圾包络
+    (2026-07-03 发现旧版双 bug 之一, 导致 bolster 从没生效)."""
+    src = _src()
+    m = re.search(r'def _pose_arm_core_matte\(.*?(?=\ndef )', src, re.S)
+    assert m, "找不到 _pose_arm_core_matte 函数体"
+    body = m.group(0)
+    # 臂段连刃必须用 blaze 索引 11→13→15, 12→14→16 (肩→肘→腕)
+    assert "(11, 13)" in body and "(13, 15)" in body, \
+        "_pose_arm_core_matte 应画 blaze 臂段 (11,13) (13,15) (肩-肘, 肘-腕)"
+    assert "(12, 14)" in body and "(14, 16)" in body, "_pose_arm_core_matte 应画右臂 blaze 段"
+    # 不能误用 COCO 臂索引 (5,7)(7,9)(6,8)(8,10)
+    assert "(5, 7)" not in body and "(7, 9)" not in body, \
+        "_pose_arm_core_matte 不能用 COCO 索引 (5,7)(7,9) 读 blaze 数据 (错位)"
+
+
+def test_arm_core_matte_torso_guard():
+    """_pose_arm_core_matte 必须有按人躯干存在门控 (rvm_alpha + sho_thr): 多人源里背景路人
+    α≈0 自动跳过, 只撑前景主角. 无门控会把背景路人胳膊也撑实 (clip3 单人无影响但生产多人会脏)."""
+    src = _src()
+    m = re.search(r'def _pose_arm_core_matte\(.*?(?=\ndef )', src, re.S)
+    body = m.group(0)
+    assert "rvm_alpha" in body, "_pose_arm_core_matte 应接受 rvm_alpha 参数做躯干门控"
+    assert "sho_thr" in body, "_pose_arm_core_matte 应有 sho_thr (躯干 α 阈值) 门控"
+
+
+def test_arm_grow_uses_fill_holes():
+    """arm-grow 核心算法 = binary_fill_holes 治斑驳 + dilate(α>0.05 门控 grow). 不写 fill_holes
+    = 治不了 RVM 胳膊内斑驳孔洞 (C 方案 halo 16-39% 治愈 37-59% 就是因为没用 fill_holes).
+    binary_fill_holes 仅补内孔, 不外扩 → halo 天然低."""
+    src = _src()
+    m = re.search(r'if arm_grow > 0 and mask is not None and persons:.*?arm_ok \+= 1',
+                  src, re.S)
+    assert m, "找不到 arm_grow 应用块 (if arm_grow > 0 ...)"
+    block = m.group(0)
+    assert "binary_fill_holes" in block, \
+        "arm-grow 应有 binary_fill_holes 治胳膊 RVM α 斑驳孔洞 (不写=治不彻底)"
+    assert "cv2.dilate" in block, "arm-grow 应有 cv2.dilate grow 到真实边缘"
+    # 关键反直觉门控: solid_g & outer (RVM 感到前景的区) 不能缺, 否则扩到背景 (A 灾难)
+    assert "& outer" in block or "solid_g = solid_g &" in block.replace(" ", ""), \
+        "arm-grow 必须用 (RVM a>0.05) 门控防扩到背景 (否则 A 方案 halo 389%)"
+    # in-place 配合 gc 治长视频 RAM
+    assert "np.maximum(mask" in block and "out=mask" in block, \
+        "arm-grow 应 in-place np.maximum(..., out=mask) 配 render 循环 gc.collect 治长视频 RAM"
+
+
+def test_arm_grow_default_recommendation_grow_one():
+    """--arm-grow 默认 0 关, 推荐值 1 (3px) — 模拟 n=7488: grow=1 halo 2.5% 治愈 99.8% 最优
+    (grow=2 halo 3.0% / grow=3 halo 3.2%, 治愈都打平 99.8%). 不能再推荐 1.5 (那是旧
+    arm-bolster 的 scale 推荐, 不是 grow 次数)."""
+    src = _src()
+    assert re.search(r'推荐\s*1', src), \
+        "help 应明确推荐 --arm-grow 1 (3px), 非 1.5 (那是旧 arm-bolster 的 scale 推荐)"
+
+
+def test_arm_motion_weight_removed():
+    """arm_motion_weight (motion 门控) 已删: 实测静止/快动帧 bolster 收益无差 (臂内部不碰轮廓,
+    全帧满抬也不脏), motion weight 反把最需治的快动帧压低. 不能加回."""
+    assert not re.search(r'^def arm_motion_weight\(', _src(), re.M), \
+        "arm_motion_weight 应已删 (motion 门控无益反害), 不能加回"
+
+
+def test_arm_grow_imports_binary_fill_holes():
+    """binary_fill_holes 来自 scipy.ndimage; arm-grow 用到必须 import (否则 NameError 崩)."""
+    src = _src()
+    assert re.search(r'^from\s+scipy\.ndimage\s+import\s+binary_fill_holes', src, re.M), \
+        "缺少 from scipy.ndimage import binary_fill_holes (arm-grow 用到)"
+
+
 def test_pink_thresh_passthrough_dest():
     """回归守门: render() 的 pink_sat 应读 args.pink_thresh_sat (正确 dest), 非 args.pink_sat.
     2026-07-02 此 bug (plan B2 passthrough 拼错 dest) 让所有 bg_swap 渲染 AttributeError 崩."""
@@ -112,6 +204,22 @@ def test_pink_thresh_passthrough_dest():
         "pink_sat 应读 args.pink_thresh_sat (--pink-thresh-sat 的 dest)"
     assert not re.search(r'pink_sat=args\.pink_sat\b', src), \
         "pink_sat 不能读 args.pink_sat (裸名 dest 错, 会让 render 崩)"
+
+
+# ---- pose 缓存映射完整性 (arm bolster 的前置依赖) ----
+
+def test_coco2blaze_mapping_has_arm_joints():
+    """student_closeup.detect_pose 输出 blaze33 缓存 (bg_swap _pose_arm_core_matte 读它).
+    COCO2BLAZE 映射必须含肘(7/8→13/14)+腕(9/10→15/16)+膝(13/14→25/26).
+    2026-07-03 发现旧映射漏这些 → 缓存里肘/腕/膝全 vis=0 → arm bolster 抓不到胳膊关节失效.
+    不能回退到漏臂的映射."""
+    src = (ROOT / "tools" / "student_closeup.py").read_text(encoding="utf-8")
+    # COCO2BLAZE 字典必须存在且含臂+膝映射
+    m = re.search(r'COCO2BLAZE\s*=\s*\{([^}]*)\}', src, re.S)
+    assert m, "student_closeup 应有 COCO2BLAZE 映射字典"
+    mapping = m.group(1)
+    for pair in ("7: 13", "8: 14", "9: 15", "10: 16", "13: 25", "14: 26"):
+        assert pair in mapping, f"COCO2BLAZE 缺臂/膝映射 {pair} (旧版漏这些致 bolster 失效)"
 
 
 # ---- 预设文件 ----

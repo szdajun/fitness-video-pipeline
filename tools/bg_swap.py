@@ -49,6 +49,7 @@
 """
 
 import argparse
+import gc
 import os
 import shutil
 import subprocess
@@ -58,6 +59,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from scipy.ndimage import binary_fill_holes
 
 # 项目根入 sys.path → 能 import face_swap / lib / stages / student_closeup
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -946,6 +948,81 @@ def _pose_core_matte(persons, w, h, scale=1.0, conf=0.3):
 
 
 # ============================================================
+# 4.66 arm-only core-matte (2026-07-03, 治 RVM 软抠对快动胳膊低 alpha 的确定性解)
+# ------------------------------------------------------------
+# 背景: A/B 实测 (memory `matanyone-ab-test-negative`) 证 MatAnyone 等软抠模型治
+# 不了 2.56肩宽/帧运动模糊胳膊 (α 跌到 0.3-0.5). 唯一确定性解 = pose 骨架胳膊核心
+# 强制 α→1 (max(rvm, env)). 旧 `_pose_core_matte` + `--core-bolster` 全身版被弃用,
+# **且实测发现它在生产里根本没生效** — 缓存 blaze33 缺肘/腕 (映射漏) + 函数用 COCO
+# 索引读 blaze 数据 = 双重错位, 画的包络是垃圾 (用户当时嫌 v3 "脏" 即此, 非 bolster 理念问题).
+# 本函数 = arm-only + 正确 blaze 索引修双 bug:
+#   ① 仅臂段 (肩→肘→腕), 不抬躯干/腿 → 胳膊是内部条带不碰轮廓, 避 v3 全身包络越界显脏;
+#   ② 用 BlazePose-33 索引 (detect_pose 缓存格式): 11/12肩 13/14肘 15/16腕.
+# 合成 **max(rvm, env) 无逐像素 alpha 门控** (2026-07-03 clip3 像素实测定稿):
+#   - 旧 `--core-bolster` 用 `env × dilate(alpha>0.05)` 门控 → RVM 对快动胳膊给 α≈0 的那
+#     31% 像素被门关在门外, bolster 顶死 0.69 上不去. 治虚化的全部意义恰是填这些 α≈0 像素.
+#   - 去 alpha 门控改 max(rvm, env): 高潮 avg 0.74→0.954, min 0.395→0.654, **渗出 Δα=0**
+#     (臂包络细带永远落在人体轮廓内, 不会越界到干净背景).
+#   - 改按人**躯干存在门控** (双肩中点 rvm α>0.15): 多人源里背景路人 α≈0 自动跳过, 只撑前景.
+#   - **motion 门控已弃**: 实测静止/快动帧 bolster 收益无差 (臂内部不碰轮廓, 全帧满抬也不脏),
+#     motion weight 反而把快动帧 (最需治的) 压低 (arm_motion_weight 已删).
+# 直径 0.42×肩宽×scale (scale 默认 1.5 覆盖运动模糊; A/B: 1.0→2.5 高潮 avg 0.91→0.99 零渗出).
+# ============================================================
+def _pose_arm_core_matte(persons, w, h, rvm_alpha=None, scale=1.5, conf=0.3, sho_thr=0.15):
+    """胳膊核心包络 (**仅臂段**, 治 RVM 软抠对快动胳膊低 α). BlazePose-33 索引.
+    返回 (envelope float32 (h,w) 0-1, shoulder_w px); 无有效臂骨架返回 (None, 0).
+
+    合成端用 ``max(rvm_alpha, env)`` — 只抬不降零风险. 臂是内部条带不碰轮廓 → 不显脏
+    (避 v3 全身包络越界). 直径 0.42×肩宽×scale.
+    rvm_alpha 给定 → **按人躯干存在门控**: 双肩中点周围 rvm α 均值 < sho_thr 跳过其臂
+    (RVM 没抠到 = 背景路人, 不该撑实; 只撑前景主角). 单人源无影响."""
+    if not persons:
+        return None, 0.0
+    canvas = np.zeros((h, w), dtype=np.float32)
+    max_sw = 0.0
+    seen = 0
+    for person in persons:
+        kp = np.asarray(person, dtype=np.float32)
+        if kp.ndim != 2 or kp.shape[0] < 17:
+            continue
+        valid = kp[:, 2] > conf
+        if not (valid[11] and valid[12]):          # 需双肩定肩宽
+            continue
+        px = kp[:, 0] * w
+        py = kp[:, 1] * h
+        sw = float(np.hypot(px[11] - px[12], py[11] - py[12]))
+        if sw < 12:
+            continue
+        # 躯干存在门控: 双肩中点周围 rvm α (前景主角躯干 α 高; 路人/背景 α≈0 跳过)
+        if rvm_alpha is not None:
+            mx, my = (px[11] + px[12]) / 2.0, (py[11] + py[12]) / 2.0
+            r = max(8, int(sw * 0.5))
+            x0, y0 = max(0, int(mx - r)), max(0, int(my - r))
+            x1, y1 = min(w, int(mx + r)), min(h, int(my + r))
+            if x1 > x0 and y1 > y0 and rvm_alpha[y0:y1, x0:x1].mean() < sho_thr:
+                continue
+        max_sw = max(max_sw, sw)
+        t = max(3, int(round(sw * 0.42 * scale)))
+
+        def seg(a, b):
+            if valid[a] and valid[b]:
+                cv2.line(canvas, (int(px[a]), int(py[a])), (int(px[b]), int(py[b])),
+                         1.0, t, cv2.LINE_AA)
+                r = max(2, t // 2)
+                cv2.circle(canvas, (int(px[a]), int(py[a])), r, 1.0, -1)
+                cv2.circle(canvas, (int(px[b]), int(py[b])), r, 1.0, -1)
+
+        for a, b in [(11, 13), (13, 15), (12, 14), (14, 16)]:   # 肩-肘, 肘-腕 (左右)
+            seg(a, b)
+        seen += 1
+    if seen == 0 or max_sw < 12:
+        return None, 0.0
+    ksz = max(5, int(round(max_sw * 0.04))) | 1
+    env = cv2.GaussianBlur(canvas, (ksz, ksz), ksz / 6.0)
+    return np.clip(env, 0.0, 1.0), max_sw
+
+
+# ============================================================
 # 4.7 视差缩放曲线 (从 pose 预算, 居中平滑 = 零延迟, 治 EMA "慢一拍")
 # ============================================================
 def compute_parallax_scale(pose, total, w, parallax, fast_win=9, base_win=60, gain=0.4):
@@ -1045,7 +1122,7 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
            punch=True, matte=None, traj_x=None, traj_y=None, shadow_strength=0.0,
            parallax=0.0, bg_scale_arr=None, color_match_t=0.8, light_wrap_s=0.5,
            foot_track=None, grounding_strength=0.0, pink_rg=20, pink_sat=40,
-           swap_all=False, core_bolster=0.0):
+           swap_all=False, core_bolster=0.0, arm_grow=0):
     w, h = info["width"], info["height"]
     fps = info["fps"]
     total = info["frames"]
@@ -1111,6 +1188,7 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
     last_mask = None
     swap_ok = back_skip = no_pose = mask_miss = bg_loop = 0
     core_ok = 0   # pose core-matte 撑实命中帧 (验证: 抽帧看胳膊 alpha, 不靠此计数)
+    arm_ok = 0    # arm-only bolster 命中帧 (2026-07-03, 治快动胳膊虚化; 同上不靠此计数判断效果)
     ground_samples = []      # foot_y 历史 → 固定接地基线 (影不随抬腿蹦)
     ground_y = None
     width_fast = width_slow = None   # 人表观宽度 EMA (快/慢) → 视差缩放驱动信号
@@ -1177,6 +1255,35 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
                 mask = np.maximum(mask.astype(np.float32),
                                   env * gate.astype(np.float32)).astype(np.float32)
                 core_ok += 1
+
+        # ②.6 arm-grow (2026-07-03, 替代 arm-bolster; 治过渡环而非核心管).
+        # 原理: arm-bolster 只撑实核心管 (env scale 1.5), 但用户看到的渗出在核心管**外**
+        # 的过渡环 (scale 1.5→3.0, RVM α 0.3-0.7 半透明带) = 99.8% 帧有 >2000 渗出像素.
+        # D+grow = (a) inner (a>0.15) 填洞治斑驳 → (b) 在 RVM 自信前景 (a>0.05) 内 grow 3px/iter
+        # 到真实边缘 → (c) max(rvm, smoothed_solid). key insight: grow 必须用 RVM α 门控
+        # 否则扩到背景 (A 方案 halo 389%). 模拟 n=7488: 治愈 99.8% halo 2.5% (grow=1, 3px).
+        # 教训: 别只测核心管好看就当治住了, 必须测用户看到的过渡环. 详见 memory
+        # `bg-swap-core-matte-arm-bleed` + docs/BG_SWAP.md 坑 9.bis.
+        if arm_grow > 0 and mask is not None and persons:
+            env_zone, _sw = _pose_arm_core_matte(persons, w, h, rvm_alpha=mask,
+                                                 scale=1.5)   # 臂区范围, 与 bolster 旧版同
+            if env_zone is not None:
+                # (a) inner = RVM 在臂内感到前景的区域 (含斑驳孔洞)
+                inner = (mask > 0.15) & (env_zone > 0.5)
+                # (b) outer = RVM 感到前景的过渡区 (背景 a<0.05 自动被剔, 防扩到背景)
+                outer = (mask > 0.05) & (env_zone > 0.5)
+                if inner.any() and outer.any():
+                    # 填洞治斑驳 (不外扩 → halo 低)
+                    solid = binary_fill_holes(inner).astype(np.uint8)
+                    # 在 RVM 自信前景内 grow N×3px (grow=1=3px, 2=6px, 3=9px; 推荐 1)
+                    solid_g = cv2.dilate(solid, np.ones((3, 3), np.uint8),
+                                         iterations=int(arm_grow))
+                    solid_g = solid_g & outer.astype(np.uint8)   # 关键: RVM 门控防撑背景
+                    solid_smooth = cv2.GaussianBlur(
+                        solid_g.astype(np.float32), (7, 7), 7 / 6.0)
+                    mask = np.ascontiguousarray(mask, dtype=np.float32)
+                    np.maximum(mask, solid_smooth, out=mask)   # in-place, 配合 gc 治 RAM
+                    arm_ok += 1
 
         # 地面基线 (固定接地线 = 脚落地点的高分位 p92). 影锚定此线不随抬腿蹦 → 治"浮".
         # 全片站立时 foot_y 聚在高值(踩地), 跳起为低值(脚离地); p92 取站立线忽略跳起谷.
@@ -1305,10 +1412,13 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
             break
         fi += 1
         if fi % 100 == 0:
+            gc.collect()   # 长视频 (网红多人 7488 帧) arm-bolster/grounding 每帧大量临时
+                           # numpy 数组, Windows committed memory 不及时归还 → 82% 处 RAM 耗尽崩
+                           # (numpy._ArrayMemoryError 10.5MiB); 每 100 帧强制回收避累积.
             dt = time.time() - t0
             print(f"  [渲染] {fi}/{total} ({fi*100//total}%) "
                   f"{fi/max(dt,0.001):.1f}fps | 换脸{swap_ok} 背面跳{back_skip} "
-                  f"mask漏{mask_miss} core撑实{core_ok}", flush=True)
+                  f"mask漏{mask_miss} core撑实{core_ok} arm撑实{arm_ok}", flush=True)
 
     cap.release()
     if bg_cap is not None:
@@ -1319,7 +1429,8 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
         pass
     rc = proc.wait()
     stat = dict(swap_ok=swap_ok, back_skip=back_skip, no_pose=no_pose,
-                mask_miss=mask_miss, bg_loop=bg_loop, core_ok=core_ok, frames=fi)
+                mask_miss=mask_miss, bg_loop=bg_loop, core_ok=core_ok,
+                arm_ok=arm_ok, frames=fi)
     if rc != 0 or not output.exists():
         print(f"  [渲染][FAIL] ffmpeg rc={rc}")
         return False, stat
@@ -1503,6 +1614,13 @@ def main():
                          "根因+外部佐证(MatAnyone core-supervision)见 docs/BG_SWAP.md 坑 9.")
     ap.add_argument("--no-core-bolster", action="store_true",
                     help="关掉 pose core-matte 撑实 (回退纯 RVM alpha, 胳膊可能虚化/渗出)")
+    ap.add_argument("--arm-grow", type=int, default=preset.get("arm_grow", 0),
+                    help="arm 治渗出 (填洞+alpha 门控 grow), 治 RVM 对胳膊低 alpha 过渡环虚化. "
+                         "**默认 0=关** (opt-in). grow N = 核心管外扩 N×3px 到真实边缘 (在 RVM 自信前景内). "
+                         "推荐 1 (3px) — 模拟 n=7488 治愈 99.8% halo 2.5% (grow=2/3 略高 halo). "
+                         "替代旧 --arm-bolster (治了核心管没治环, 用户拍板). 详见 docs/BG_SWAP.md 坑 9.bis.")
+    ap.add_argument("--no-arm-grow", action="store_true",
+                    help="关掉 arm-grow (回退纯 RVM alpha)")
     ap.add_argument("--no-sharpen-bg", action="store_true", help="背景不做锐化")
     ap.add_argument("--debug-only", action="store_true",
                     help="只出 mask 检查图不渲染 (先核对抠像质量)")
@@ -1623,6 +1741,7 @@ def main():
     light_wrap_s = 0.0 if args.no_light_wrap else args.light_wrap
     grounding_strength = 0.0 if args.no_grounding else args.grounding
     core_bolster_val = 0.0 if args.no_core_bolster else args.core_bolster
+    arm_grow_val = 0 if args.no_arm_grow else args.arm_grow
     ok, stat = render(str(video), bg_aligned, pose, seg_model, swapper, app, src_face,
                       output, info, feather=args.feather, erode=args.erode,
                       despill=despill_val, do_faceswap=do_faceswap,
@@ -1633,7 +1752,7 @@ def main():
                       color_match_t=color_match_t, light_wrap_s=light_wrap_s,
                       foot_track=foot_traj, grounding_strength=grounding_strength,
                       pink_rg=args.pink_thresh_rg, pink_sat=args.pink_thresh_sat,
-                      core_bolster=core_bolster_val)
+                      core_bolster=core_bolster_val, arm_grow=arm_grow_val)
     if not ok:
         print(f"[FAIL] 渲染失败, 看 {dbg} 诊断. stat={stat}")
         return
@@ -1643,7 +1762,7 @@ def main():
     print(f"统计: 换脸成功 {stat['swap_ok']}/{stat['frames']} 帧, "
           f"背面跳过 {stat['back_skip']}, 无pose {stat['no_pose']}, "
           f"mask漏检 {stat['mask_miss']}, 背景循环 {stat['bg_loop']}, "
-          f"core撑实 {stat.get('core_ok', 0)}")
+          f"core撑实 {stat.get('core_ok', 0)}, arm撑实 {stat.get('arm_ok', 0)}")
 
 
 if __name__ == "__main__":
