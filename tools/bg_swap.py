@@ -59,6 +59,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import psutil
+import torch
 from scipy.ndimage import binary_fill_holes
 
 # 项目根入 sys.path → 能 import face_swap / lib / stages / student_closeup
@@ -72,6 +74,10 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+def _rss_mb():
+    """进程 RSS (MB), 诊断累积内存用."""
+    return psutil.Process().memory_info().rss / 1024 / 1024
 
 # ffmpeg 解析顺序: --ffmpeg CLI > BG_FFMPEG env > shutil.which(PATH) > 已知好路径 fallback.
 # **保留已知好路径兜底**: CLAUDE.md 记 Winget 版 ffmpeg 有编码兼容 bug 会生成损坏 mp4,
@@ -1410,11 +1416,35 @@ def render(video, bg_aligned, pose, seg_model, swapper, app, src_face,
         except (BrokenPipeError, OSError):
             print(f"  [渲染] pipe 断在第 {fi} 帧")
             break
+        # 显式 del 还帧级临时数组给 refcount=0 (Windows committed memory 不及时归还 → 累积 OOM).
+        # 2026-07-03 三次崩 (500/900/6200 帧) 都是 numpy 申请 1-10 MiB 失败; 治本得让大临时 refcount=0.
+        # 名单: 帧级大临时 (10.5 MiB/张) + 每帧新建的小数组 (persons, 持续在 kp 缓存里).
+        del frame_sw, out
+        if mask is not None:
+            try:
+                del m3
+            except NameError:
+                pass
+        if shadow_strength > 0:
+            try:
+                del bgf
+            except NameError:
+                pass
         fi += 1
-        if fi % 100 == 0:
-            gc.collect()   # 长视频 (网红多人 7488 帧) arm-bolster/grounding 每帧大量临时
-                           # numpy 数组, Windows committed memory 不及时归还 → 82% 处 RAM 耗尽崩
-                           # (numpy._ArrayMemoryError 10.5MiB); 每 100 帧强制回收避累积.
+        if fi % 30 == 0:   # 2026-07-03 30 帧 (旧 100 帧不够, 累积到 900 帧就崩)
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()   # onnxruntime arena 跟着释放
+            dt = time.time() - t0
+            rss_mb = _rss_mb()
+            print(f"  [渲染] {fi}/{total} ({fi*100//total}%) "
+                  f"{fi/max(dt,0.001):.1f}fps | 换脸{swap_ok} 背面跳{back_skip} "
+                  f"mask漏{mask_miss} core撑实{core_ok} arm撑实{arm_ok} "
+                  f"rss={rss_mb:.0f}MB", flush=True)
+        elif fi % 100 == 0:   # 兼容旧 100 帧进度 (silent, 不打 RSS)
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             dt = time.time() - t0
             print(f"  [渲染] {fi}/{total} ({fi*100//total}%) "
                   f"{fi/max(dt,0.001):.1f}fps | 换脸{swap_ok} 背面跳{back_skip} "
