@@ -4,6 +4,40 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-04（**bg_swap 多人/单人 验证 RVM 软抠天花板 → 暂停 → 立项自研 Matting Studio**）:
+
+**【RVM 软抠天花板确认 (2026-07-04 用户测试单人美女跳舞)】**:
+- 跑 `网红跳舞1.mp4` (10.2s 单人美女), 用 5 种参数 + 2 个旧 commit (114bb5a / 7480fb5) 测 = **8 种全都有 4 个"半透人形"鬼影**
+- **RVM mask 单独 alpha 合成 (无 face_swap 无 intersect)** 也有鬼影
+- RVM mask 强度图 (>0 显示) = 干净 1 个真人, 但 RVM mask **全 20.21% 像素 α>0** (真人 18.67% + 噪点 1.34%)
+- **黑色人形区 (x=100-200, y=300-700) RVM α mean=0.044, 2075 个像素 α>0.01** = RVM 软抠噪点散布背景
+- 结论: **RVM 软抠天花板 = bg_swap 路线不可治 (RVM 噪点 = 视觉读成"半透人形"非代码回归)**
+
+**【bg_swap 路线状态 2026-07-04】**:
+- 多人 3 人: 之前已暂停 (用户拍板 "3 人身后都站一个不动的人")
+- 单人美女跳舞: **本轮也确认不可治** (RVM 软抠天花板)
+- 整体: **bg_swap 工具暂停**, 代码 + 守门测试保留 (110 passed 零回归), 5 commit 落 main
+- 替代: **主管线 (stages/37_face_swap.py 换脸) 不换背景**, 或投资自研 Matting Studio
+
+**【自研 Matting Studio 立项 (2026-07-04 用户拍板)】**:
+- 详细设计: `docs/matting-studio-design.md` (Phase 0 ✅)
+- 8 模块架构 + 8 模型蓝图 (memory `cn-video-matting-software-architecture.md`)
+- 目标: 健身/网红短视频自动抠像 (单人 + 多人, 1080p 30fps, MP4 输出)
+- 模式: 开源 GitHub, Apache 2.0
+- 核心技术: RVM 主 + YOLOv8 治鬼影 + SAM2 互动修帧
+- 实施路线图: Phase 0 设计 ✅ → Phase 1 CLI 工具 (2-3 月) → Phase 2 GUI + SAM2 (2-3 月) → Phase 3 社区化
+- 总投入: 8-10 人月
+
+**【下一步 (用户拍板)】**:
+1. 写架构图 (mermaid, 估 1-2 小时) 落 `docs/architecture.md`
+2. 写算法细节 (`docs/algorithms.md`, RVM/YOLO/SAM2 论文级, 估 3-4 小时)
+3. 创建新 GitHub repo 脚手架 (估 0.5 小时)
+4. 开始 Phase 1 编码 (CLI 工具 2-3 月, 1 人)
+5. 暂不动 Matting Studio, 等以后
+6. 回到主管线继续其他任务
+
+---
+
 最后更新: 2026-07-03（**arm-bolster 被用户拍板推翻 + 转入 D 方案（填洞+alpha门控外扩）根治渗出**）：
 
 **【关键推翻】用户看 `_armbolster.mp4` 报"胳膊周围几乎都渗出"**，截图实证。**我 ⑤ 段"像素 A/B 治渗出"是错的** — 我测的是核心管内部 (scale 1.5) 的 RVM α，用户看到的是**核心管外的过渡环** (scale 1.5→3.0, 也就是胳膊周围半透明过渡带)。**核心管撑实了，环没治**。**根因 = 测量区域错位 + 自我说服**。教训写 memory 备查。
@@ -88,6 +122,16 @@
 - 守门 +3 测试 (CLI 存在/默认 rvm / render intersect 分支 / YOLO CPU) → 110 passed 零回归
 - docs `BG_SWAP.md` 坑 9.tris + CLAUDE.md bg_swap 条同步
 - **完整 7488 帧生产未跑 (等用户拍板)**, 75s smoke 已验证不崩 + 治鬼影
+
+**【120s production 跑通 (2026-07-03 23:36)】** ✅:
+- **关键发现**: 剪映 Pro (JianyingPro.exe 2 个进程 40276/33308) 占 GPU 显存 551 MiB + nvenc encoder 抢 → 之前 120s rvm production 早崩. `Stop-Process -Id <pid> -Force` 杀后 GPU 0 MiB
+- 重跑 120s intersect: **3600/3600 帧 0 崩**, 149MB, 02:00.00, h264 1280×720 30fps + aac
+- **5 帧 (t=10/30/60/90/110s) 视觉判定 intersect 稳定治鬼影** (vs d_grow1 5 帧都有鬼影): 3 真人 + 干净背景 + 无半透人形
+- 之前 vision agent 报 120s part1 "有半透复制人叠加鬼影" 是在剪映抢 GPU 状态下跑的 (有误)
+- 生产文件: `output/bgswap/网红多人_丽丽_时代广场_intersect_120s.mp4` (149MB)
+- **生产可用命令** (GPU 必须干净, 杀 JianyingPro): `python tools/bg_swap.py --video <input> --bg <bg> --coach 丽丽 --preset fitness --swap-all --dsr 0.5 --bg-crop-y 0.61 --arm-grow 1 --mask-mode intersect --no-grounding --no-color-match --no-light-wrap --output <output>.mp4`
+- **生产稳定上限**: 120s = 3600 帧 (240s+ 跑崩 3274 帧 OOM, 与本机 8.4GB RAM 可用相关). 240s+ 需分片 (`--start-frame`/`--end-frame` 治本待加)
+- **守门 110 passed 零回归 + 7 commit 落 main (a677f6b / 4abd7cc / 6199e92 / 7730275 / c1ce910 / a5cae7d / d65602e)**
 
 **【5 commit 落 main】**:
 - a677f6b fix(student_closeup): COCO2BLAZE 补肘腕膝
