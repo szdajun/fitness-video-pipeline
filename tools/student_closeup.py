@@ -78,17 +78,22 @@ def detect_pose(video_path, cache_path, device="cuda:0", model_name="yolov8m-pos
     # NOTE: 不手动 model.half() — ultralytics 内部 fuse_conv_and_bn 会 half/float dtype 冲突崩
     # (主流程 01_pose_detect.py 也只 to(device); FP16 由 predict(half=...) 内部处理)
 
-    COCO2BLAZE = {0: 0, 5: 11, 6: 12, 11: 23, 12: 24, 15: 27, 16: 28}
+    # COCO-17 → BlazePose-33 关节映射. **必须含臂(肘7/8→13/14, 腕9/10→15/16) +
+    # 膝(13/14→25/26)** — 旧版漏这些, 缓存里肘/腕/膝全是 vis=0, 导致 bg_swap
+    # `_pose_arm_core_matte` 抓不到胳膊关节, arm bolster 失效 (2026-07-03 修).
+    # BlazePose33 索引: 0鼻 11/12肩 13/14肘 15/16腕 23/24髋 25/26膝 27/28踝.
+    COCO2BLAZE = {0: 0, 5: 11, 6: 12, 7: 13, 8: 14, 9: 15, 10: 16,
+                  11: 23, 12: 24, 13: 25, 14: 26, 15: 27, 16: 28}
 
     def to_blaze33(coco):
         b = [[0.0, 0.0, 0.0] for _ in range(33)]
         for ci, bi in COCO2BLAZE.items():
             b[bi] = [float(coco[ci][0]) / w, float(coco[ci][1]) / h,
                      float(min(max(coco[ci][2], 0.0), 1.0))]
-        b[1] = b[0][:]
-        b[16] = b[11][:]; b[17] = b[12][:]
-        b[18] = b[11][:]; b[19] = b[12][:]
-        b[31] = b[23][:]; b[32] = b[24][:]
+        b[1] = b[0][:]                       # 鼻→左眼内 (兜底非0)
+        b[31] = b[23][:]; b[32] = b[24][:]   # 髋→足趾 (兜底)
+        # 注: 旧 b[16/17/18/19]=肩 的副本已删 — 它们会把肩坐标盖到腕槽 (blaze 16=右腕),
+        # 覆盖 COCO 10→blaze 16 的真腕数据, 使腕永远停在肩位置 (脏数据).
         return b
 
     keypoints = {}
