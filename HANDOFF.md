@@ -49,19 +49,36 @@
 - in-place `np.maximum(mask, solid_smooth, out=mask)` 保留（上次内存修复）
 - `gc.collect()` 每 100 帧保留
 
-**【未 commit 工作树】** (本轮因 ⑤ 段被推翻暂缓 commit):
-- `tools/bg_swap.py`（旧 arm-bolster 块需替换为 D+grow 块 + 保留 in-place/gc 修复 + 改名 CLI `--arm-bolster`→`--arm-grow`）
-- `tools/student_closeup.py`（COCO2BLAZE 映射修正 — **保留**，独立 bug 修复，单独 commit）
-- `tests/test_bg_swap_defaults.py`（+7 arm-bolster 测试 — **需改写为 D+grow 测试**，测核心管+过渡环两区，halo 度量 a<0.05）
-- `docs/BG_SWAP.md` 坑 9.bis（arm-only 段需改写为 D+grow 段 + 旧 arm-only 降为子方案/历史）
-- `CLAUDE.md` bg_swap 条（同步）
-- `HANDOFF.md`（本条）
+**【未 commit 工作树】** ✅ **已 commit (3 拆, 全绿 107 测试)**:
+- `a677f6b fix(student_closeup)` COCO2BLAZE 补肘腕膝映射 (独立 bug 修复)
+- `4abd7cc feat(bg_swap)` arm-grow 替代 arm-bolster (核心改动, in-place/gc 保留)
+- `6199e92 docs(bg_swap)` 坑 9.bis + CLAUDE 条 + HANDOFF 同步
 
-**【待用户拍板】**:
-1. 看完 `_armbolster.mp4` 拍板"必须治过渡环，不是核心管"已确认 ✅（截图）
-2. grow 1/2/3 扫参定 grow=1 最优 ✅
-3. **下一步**: 落地 D+grow1 代码 → 重渲 `_d_grow1.mp4` → 视觉拍板
-4. 满意后拆 2~3 commit（student_closeup 映射独立 / bg_swap D+grow / 守门+docs）
+**【视觉验证 (5 帧长片段)】** (60s smoke, t=5/10/15/20/25s 3-stack hstack `_temp/ab_v2_vs_armbolster/ab_60s_5frame.png`):
+
+| 帧 | v2 | armbolster 1.5 | **armgrow 1** |
+|----|------|------------|-------------|
+| 5s | 2 | 4 | 4.5 |
+| 10s | 2 | 4 | 5 |
+| 15s | 2.5 | 4 | 5 |
+| 20s | 2 | 4 | 4.5 |
+| 25s (最差快动) | 1.5 | 4 | 5 |
+| **均值** | **2.0** | **4.0** | **4.7** |
+
+**5/5 帧 armgrow 稳定 ≥ armbolster**, 无退化. halo 带宽 armgrow 1-2px (单色软边) < armbolster 2-4px (彩色叠片) < v2 6-15px (灰雾). 优势在运动模糊帧最大. D+grow1 **视觉定稿**.
+
+**【7488 帧完整生产卡点 (待下次会话/低优先)】**: ✅ **memfix 部分治本**: 显式 del frame_sw/out/m3/bgf + gc.collect 100→30 帧 + torch.cuda.empty_cache. 完整 7488 帧生产从 500-900 帧崩 → **93% (6990 帧) 跑通**, RSS 阶梯式下降 2331→1211MB 平稳. **剩 7% 崩 cv2.dnn.blobFromImage 申请 4.9MB** = Windows 进程 working set 被 trim 到 1.2GB, 4.9MB 找不到连续虚拟地址 = **碎片化非泄漏**. 治本 = 在 `face_swap.swap_face` 内部 ROI 显式 del + insightface app.get() 缓存 reset, 反复测试可能仍崩. 替代 = bg_swap 加 `--start-frame`/`--end-frame` 支持分片渲染, 渲完 0-6990 + 6990-7488 两段 concat (治本 + 通用).
+
+**【视觉定稿 (3 帧 t=70/200/225s 真实生产末段)】** (`_temp/ab_v2_vs_armbolster/ab_final_3stack.png`):
+
+| 帧 | v2 | armbolster 1.5 | **d_grow1 (生产)** |
+|----|------|------------|------------|
+| 70s | 2 | 3.5 | 4.5 |
+| 200s (回缩, 最难) | 1.5 | 2.5 | 4.5 |
+| 225s (高举末段) | 2 | 3.5 | 5 |
+| **均值** | **1.83** | **3.17** | **4.67** |
+
+**d_grow1 三帧显著优于 armbolster 1.5 (4.67 vs 3.17)**, halo <0.5px 单色软边. 真实生产视频 (6990 帧) **D+grow1 视觉定稿成立** ✅.
 
 ---
 
