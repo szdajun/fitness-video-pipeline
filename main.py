@@ -311,7 +311,14 @@ def run_single(args):
 
     if hasattr(args, 'output') and args.output:
         output_path = Path(args.output)
-        config["output_dir"] = str(output_path.parent)
+        # 用户原意: 输出路径 = F:/wpsace/.../output 为基础, 自动加日期子目录
+        import os, datetime
+        mtime = os.path.getmtime(input_path)
+        file_date = datetime.date.fromtimestamp(mtime).isoformat()
+        if output_path.parent.name in ('output', 'shorts_output'):
+            config["output_dir"] = str(output_path.parent / file_date)
+        else:
+            config["output_dir"] = str(output_path.parent)
         config["output_file"] = output_path.name
     elif hasattr(args, 'output_dir') and args.output_dir:
         # --output-dir 指定的目录作为基础，后面仍按原视频日期分子目录
