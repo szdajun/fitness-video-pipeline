@@ -105,8 +105,12 @@ class DanmakuStage:
         track_h = max(1, int(font_size * 1.4))  # 行高 > 字高, 异轨垂直不叠
         top, bottom = orig_h // 6, orig_h * 5 // 6
         num_tracks = max(1, (bottom - top) // track_h)
-        scroll_v = 3.9  # px/帧 (与下方 active 计算 1.3*orig_w / (orig_w/3) 一致)
-        gap_px = max(40, int(font_size * 0.6))  # 同轨前后弹幕安全间距
+        # 弹幕实际 lifetime 与下方计算一致: orig_w/3 帧 (每帧 ~3px, 1920 宽度 = 640 帧 = ~21秒横跨)
+        # 必须用真实 lifetime 算 track_free_at, 否则提前释放轨道 → 重叠回归 (2026-07-05 bug fix)
+        lifetime_frames = orig_w / 3
+        # 滑动速度 = orig_w / lifetime_frames = 3 px/帧
+        scroll_v = 3.0  # px/帧 (实际是 orig_w / lifetime_frames = orig_w / (orig_w / 3) ≈ 3)
+        gap_px = max(80, int(font_size * 1.2))  # 同轨前后弹幕安全间距 (加大防字碰)
         track_free_at = [0] * num_tracks  # 每轨最早可放新弹幕的帧号
         colors = [(255, 255, 100), (255, 150, 100), (100, 255, 200),
                   (255, 200, 255), (255, 255, 255)]
@@ -114,7 +118,8 @@ class DanmakuStage:
         for f in range(0, max_frames, interval):
             if f in beat_frames or random.random() < 0.3:
                 text = random.choice(PHRASES)
-                tw = pil_font.getbbox(text)[2] - pil_font.getbbox(text)[0]
+                bbox = pil_font.getbbox(text)
+                tw = bbox[2] - bbox[0]
                 # 选最早空闲的轨道; 全忙则跳过这条 (限流防拥挤, 宁少勿叠)
                 t = min(range(num_tracks), key=lambda i: track_free_at[i])
                 if track_free_at[t] > f:
@@ -122,7 +127,11 @@ class DanmakuStage:
                 y = top + t * track_h  # 锁到轨道顶, 同轨对齐异轨分行
                 color = random.choice(colors)
                 danmaku_list.append((text, f, y, color))
-                track_free_at[t] = f + int((tw + gap_px) / scroll_v)
+                # 算本条弹幕完全离开画面 + gap_px 所需的帧数, 才能放下一个不留重叠
+                # 出屏帧条件: x + tw <= 0 → progress=1+tw/orig_w → age >= lifetime * (1 + tw/orig_w)
+                # 再加 gap_px / scroll_v 的同轨尾间距
+                same_track_free_at_frame = f + int(lifetime_frames * (1 + tw / orig_w) + gap_px / scroll_v)
+                track_free_at[t] = same_track_free_at_frame
 
         out_path = ctx.output_dir / f"{Path(input_path).stem}_danmaku.mp4"
         tmpdir = Path(tempfile.mkdtemp(prefix="dm_"))
