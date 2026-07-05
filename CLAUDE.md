@@ -101,6 +101,33 @@ python main.py process "input.mp4" --no-stabilize --no-ken-burns --preview
 
 代码: `main.py:311-322` (`os.path.getmtime(input_path)` → `date.fromtimestamp(mtime)`)
 
+### 清理产物原则 (白名单, 钉死, 2026-07-06)
+
+**保留**: 每个视频的 3 件套
+- `*_final_16x9_1920x1080.mp4` (YT long, 含片头片尾)
+- `*_final_16x9_1920x1080_yt_shorts.mp4` (YT Shorts 30s)
+- `*_final_16x9_1920x1080_douyin.mp4` (抖音)
+
+**白名单命令** (✅ 安全):
+```bash
+cd output/<date_dir>
+find . -maxdepth 1 -type f \
+  ! -name "*_final_16x9_1920x1080.mp4" \
+  ! -name "*_final_16x9_1920x1080_yt_shorts.mp4" \
+  ! -name "*_final_16x9_1920x1080_douyin.mp4" \
+  -delete
+```
+
+**禁用** (❌ 2026-07-06 误删彩娥3 三件套):
+- 任何按视频名前缀删除: `find -name "彩娥3_*" -delete` ❌ (三件套也匹配!)
+- 任何按产品名前缀删除: `find -name "*_final_*" -delete` ❌ (没排除 shorts/douyin)
+- `rm -rf output/<date>/*` ❌ (没白名单)
+
+**为什么**:
+- 视频名前缀 = 产品 (三件套 + 中间产物都用同一前缀)
+- 用白名单"保留三件套, 删其他"是唯一安全方式
+- 用黑名单"删前缀" = 删完, 灾难
+
 ## 环境管理 (uv)
 
 Python **>=3.11**（3.9 已 EOL 2025-10）。用 **uv** 管 Python 版本 + 依赖，`uv.lock` 锁定可复现。
