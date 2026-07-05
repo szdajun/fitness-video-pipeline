@@ -71,7 +71,11 @@ class SmartCropStage:
             return
 
         # 2. 选输入视频 (从后往前找, 跟 04_ken_burns 一样的优先级)
-        input_path = (ctx.get("warped_path") or
+        # 2026-07-05: 加 mascot_path/face_swap_path (douyin preset 启用时, face_swap
+        # 在前 (main.py L402). 不加会绕过换脸结果, 跟 burst fix 84d39a2 同源)
+        input_path = (ctx.get("mascot_path") or
+                      ctx.get("face_swap_path") or
+                      ctx.get("warped_path") or
                       ctx.get("ken_burns_path") or
                       ctx.get("color_path") or
                       ctx.get("h2v_path") or
