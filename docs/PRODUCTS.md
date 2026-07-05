@@ -229,6 +229,8 @@ pre_deblock → pose → stabilize → h2v → body_warp → ken_burns → face_
 - **2026-07-02 段级裁切修复**：compute_crop_x_segments 治合并视频第二段领操人被裁出
 - **2026-07-05 preset 拆分**：youtube_long + douyin_long 替代旧 douyin.yaml，新增 youtube_long 关 shorts 显式 long-only
 - **2026-07-05 youtube_shorts 简化**：pip/mascot 关（西方平台不需要东方装饰）
+- **2026-07-05 三产品矩阵文档化**：docs/PRODUCTS.md (235 行) 写清"YouTube 主视频 + 抖音 + YouTube Shorts"的边界、来源 stage、上传策略
+- **2026-07-05 Matting Studio 设计文档归位**：docs/architecture.md / docs/algorithms.md / docs/ui-design.md 已在头部加 cross-link comment 标注是独立 Matting Studio 项目的"主管线镜像根"，主源在 `F:\wkspace\matting-studio\` 仓库 docs/。主管线不再维护这 3 文件内容
 
 ---
 

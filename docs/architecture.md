@@ -4,6 +4,12 @@
 > **状态**: Phase 0 设计产物 (2026-07-04)
 > **技术栈**: Python 3.11 + PyTorch + ONNX Runtime + OpenCV + PyQt6 + FFmpeg
 
+> **⚠ 跨项目文档镜像 (2026-07-05)**:
+> 本文档**仅作为主管线侧的 Matting Studio 设计根**。
+> Matting Studio 是独立项目 (`F:\wkspace\matting-studio\`, 23 commit + v0.1.0 / v1.0.0 两个 tag),
+> 本设计配套三件套在独立仓库 (`docs/architecture.md` / `docs/algorithms.md` / `docs/ui-design.md`)。
+> 主管线不再维护这些文件 (本文件是 ghost 副本, 不要再 commit 内容改动)。
+
 ---
 
 ## 1. 系统架构 (System Architecture)
