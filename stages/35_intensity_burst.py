@@ -23,7 +23,13 @@ class IntensityBurstStage:
         # 原顺序 (danmaku → energybar → highlight → beatflash → 原视频) 在 douyin preset 下
         # 容易全 None → fallback 到原始横屏视频, 完全绕过 smart_crop 的 9:16 输出
         # 现在即使 danmaku 没跑, 也能继续用 smart_crop 的裁切结果
+        # 2026-07-05 修复: face_swap 在 burst 之前跑 (main.py L402 vs L418), 但本链
+        # 缺 mascot_path/face_swap_path → burst 接力 watermark/danmaku 链会绕过换脸结果
+        # → final cos 跌回 source (embedding evidence). 加 mascot_path + face_swap_path
+        # 在 danmaku 之前, 让 burst 用换脸后的视频做 base
         input_path = (ctx.get("smart_crop_path") or
+                     ctx.get("mascot_path") or
+                     ctx.get("face_swap_path") or
                      ctx.get("danmaku_path") or
                      ctx.get("energybar_path") or
                      ctx.get("highlight_path") or
