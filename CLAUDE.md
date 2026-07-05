@@ -120,6 +120,7 @@ uv pip install torch --index-url https://download.pytorch.org/whl/cu121
 - **不要**直接 `python main.py`（pyenv shim 可能指向 3.9）；用 `uv run` 或 `.venv/Scripts/python`。
 - **不要**碰 `F:/wkspace/ComfyUI/venv/`（3.11.9，SAM2/bgswap 子进程用，独立环境，借用其权重 + custom_nodes）。本项目与 ComfyUI **子进程解耦，版本无需对齐**。
 - numpy 钉 `<2`（2.x 有 breaking，升前需验证）。`.venv/` 入 `.gitignore`，`uv.lock` **入 git**（可复现）。
+- **不要**把主管线产物（final/yt_shorts/douyin 等）放 `C:/Users/18091/Desktop/短视频素材/` 之类的 C 盘路径。**所有产物落在本项目 `output/{yyyy-mm-dd}/` 子目录**（CLAUDE §"输出目录原则" 详见）。C 盘桌面只放用户**自己传给**项目的源照（`tools/艳青美颜照.jpg` 之类）；**输出产物不允许 cp 到桌面**。违反这条会扩散产物位置、git 看不到、跨用户/跨机器混乱。
 
 ## Key Implementation Details
 
