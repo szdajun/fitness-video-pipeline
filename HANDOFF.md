@@ -49,6 +49,58 @@
 
 ---
 
+最后更新: 2026-07-06 06:40（**彩娥3 主管线处理 + 自美化源修复 + 误删恢复**）:
+
+**【本轮任务】**: 彩娥3.mp4 主管线处理
+- 输入 `source_videos/彩娥3.mp4` 174M, 81s, 1920×1080, 30fps (mtime 2026-07-06 01:33)
+
+**【自美化源路线 (memory face-swap-no-source-self-beautify)】**:
+- 抽帧 (每 30 帧) → 选最正脸 frame=690 t=23.0s, yaw=0.63° det_score=0.762
+- 裁肖像 78x94 (含肩) → GFPGAN 全强度增强 → 1024x1024
+- **insightface 直测 det_score=0.822 (非毁脸)**, 避 face-swap-gfpgan-ruins-photo 坑
+- 存 `tools/彩娥_gfpgan.png` (860KB)
+
+**【环境问题 + 修复 (2026-07-06 首次补装)】**:
+- C 盘 100% 满 (244.7G/244.8G), uv pip install gfpgan 失败 (torch 2.10 wheel 写不下 C 盘缓存)
+- 用户选: 清 CrashDumps 37M + Doubao 673M + Adobe 1.3G → 释放 ~4.7G, 升到 4.8G free
+- 用户关豆包后清完整 Doubao 目录
+- `uv pip install gfpgan basicsr facexlib` 成功 (gfpgan 1.3.8 / basicsr 1.4.2 / facexlib 0.3.0)
+- _load_gfpgan (走 stub) 加载 GFPGANv1.4.pth device=cuda OK
+
+**【主管线 (tested 弹幕修复 + 新增 gfpgan)】**:
+- 时序: 05:19 keypoints → 05:27 color/highlight/beatflash → 05:32 energybar (1.1G)
+        → 05:34 intro/outro → 05:40 watermark → 05:44 face_swap → 05:48 burst
+        → 05:53 danmaku → 05:54 export final (182M) → 05:55 shorts/yt_shorts → 05:56 douyin
+- stage times: color 990s / highlight 13s / energybar 530s / intro_outro 120s / watermark 660s
+        / face_swap 388s / intensity_burst 238s / danmaku 275s / export 119s / shorts 84s
+- 增量跳过了 keypoints (上次算过 42M)
+- 弹幕+爆燃+换脸 全齐 (验证抽帧 t35s: "越跳越健康!" 绿字 + "每天30分远离医院!" 黄字)
+
+**【失误 + 恢复 (2026-07-06)】** ⚠️:
+- 清中间产物时用了 `find -name "彩娥3_*" -delete` 这个**误删三件套**的命令 (彩娥3_final_*.mp4 也匹配 "彩娥3_*")
+- 后果: 彩娥3 三件套 + 全部中间产物 + manifest 全删, 仅剩郭海军1_2 三件套
+- 恢复: 重跑 process 完整流程 (~28min, 06:07~06:35), 重新生成全部产物
+- **教训 (写这里)**: 清中间产物**必须**用 `! -name "*_final_16x9_1920x1080.mp4" ! -name "*_final_16x9_1920x1080_yt_shorts.mp4" ! -name "*_final_16x9_1920x1080_douyin.mp4"` 这种**白名单**方式, 不能用 `彩娥3_*` 黑名单方式. 把"产品名前缀"当作中间产物删=灾难.
+
+**【最终产物】**:
+- `output/2026-07-06/彩娥3_final_16x9_1920x1080.mp4` 182M 06:33 (YT long, 含弹幕+爆燃+换脸)
+- `output/2026-07-06/彩娥3_final_16x9_1920x1080_yt_shorts.mp4` 58M 06:34 (YT Shorts)
+- `output/2026-07-06/彩娥3_final_16x9_1920x1080_douyin.mp4` 160M 06:35 (抖音)
+- `output/2026-07-06/郭海军1_2_merged_*` 三件套 (312M/50M/225M, 04:50~04:52)
+- output/2026-07-06/ 总: 943M (两套三件套)
+- 用户明早手工上传 (用户 2026-07-06 拍板)
+
+**【本轮 commits】**:
+- `c7d1811` chore(coach): 彩娥3+建玲 换脸源照 (实际只 commit 彩娥_gfpgan.png, 建玲早已在 6e4ee83)
+- 工作树干净
+
+**【YT 标题 (CLAUDE 钉死)】**:
+- 彩娥3 long: 【孤勇者】彩娥勇气燃脂操 | 勇气燃脂跟练 | 细柳营健身
+- 彩娥3 short: 【孤勇者】彩娥30秒勇气燃脂操 | 勇气燃脂挑战 | 细柳营健身 #Shorts
+  (从 coach_profiles 孤勇者/勇气燃脂 取, 同彩娥2 line 148)
+
+---
+
 最后更新: 2026-07-04（**bg_swap 多人/单人 验证 RVM 软抠天花板 → 暂停 → 立项自研 Matting Studio**）:
 
 **【RVM 软抠天花板确认 (2026-07-04 用户测试单人美女跳舞)】**:
