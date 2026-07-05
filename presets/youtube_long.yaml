@@ -1,0 +1,54 @@
+# YouTube 横屏长视频完整版（默认入口）
+# 设计: 16:9 1920x1080 长视频 + 完整装饰 (片头片尾 + 弹幕 + 爆燃大字 + 能量条 + 换脸)
+# 与 youtube_shorts 区别: 输出长视频 (完整时长) 而非 30s 竖版
+# 与 youtube.yaml 关系: youtube.yaml 是简版, youtube_long 是完整装饰版
+# 用法: python main.py process input.mp4 --preset youtube_long
+
+stages:
+  h2v_convert: false       # 源是 16:9, 不需要转 9:16
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  intro_outro: true        # 完整片头片尾 (频道 + 带操人 + 地点)
+  ken_burns: false
+  body_warp: false         # 主管线默认 false (CLAUDE 钉死)
+  pip: false               # YT 主视频不加 pip
+  mascot: false            # YT 主视频不加 mascot
+  danmaku: true
+  intensity_burst: true
+  face_swap: true          # 教练换脸 (按 coach_profiles 自动 fallback)
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+
+output:
+  width: 1920
+  height: 1080
+  formats: []              # 长视频不切短版
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+# YT 模板水印 (汉印居顶右, 见 watermark stage)
+watermark:
+  watermark_text: "细柳营·{nickname}"
+  watermark_position: top-right
+  watermark_size: 24
+  watermark_alpha: 0.7
+  show_date: true
+  show_seal: true
+
+# YT 长视频立即发布 (publish_at=None, CLAUDE 钉死)
+intro_outro:
+  channel_name: "细柳营健身"
+  cta_text: "点赞关注"
+  intro_duration: 4.0
+  outro_duration: 5.0
+  audio_fade_out: 3.0

@@ -97,7 +97,7 @@ def build_single_parser():
     p.add_argument("-o", "--output", help="输出视频路径")
     p.add_argument("--output-dir", help="输出目录（默认: output/视频日期/）")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
-    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts"],
+    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts", "youtube_long", "douyin_long"],
                    help="使用预设风格")
     p.add_argument("--preview", action="store_true", help="预览模式（只处理前3秒）")
     p.add_argument("--preview-seconds", type=int, default=3, help="预览秒数")
@@ -198,7 +198,7 @@ def build_batch_parser():
     p.add_argument("--segment", type=int, default=45, help="切割时长秒数 (默认45, 0=不切割)")
     p.add_argument("--no-segment", action="store_true", help="不切割")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
-    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts"],
+    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts", "youtube_long", "douyin_long"],
                    default=None, help="预设风格 (默认: sexy)")
     p.add_argument("--skip-stages", default="", help="跳过的 stage，逗号分隔")
     p.add_argument("--continue", action="store_true", dest="continue_mode",

@@ -1,0 +1,53 @@
+# 抖音 (Douyin) 9:16 长视频完整版
+# 设计: 9:16 1080x1920 长视频 (基于 youtube_long 截取), 抖音特化元素 (诗词 + 汉印 + 弹幕)
+# 与 douyin.yaml 区别: douyin 是 30s 短版 (少元素), douyin_long 是长视频完整版
+
+stages:
+  h2v_convert: false
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  intro_outro: false       # 抖音 (用户原话: 竖屏没有片头片尾)
+  ken_burns: false
+  body_warp: false
+  pip: false               # 抖音 (用户原话: 对流量没多大用处)
+  mascot: false            # 抖音 (用户原话: 对流量没多大用处)
+  danmaku: true
+  intensity_burst: true
+  face_swap: true          # 教练换脸
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+  skin_smooth: false
+
+# 抖音 9:16 竖版 (1080x1920)
+output:
+  width: 1080
+  height: 1920
+  formats: []
+
+# 抖音特化: 汉印 + 诗词 (竖版片头用 shorts_poem)
+watermark:
+  watermark_text: "细柳营·{nickname}"
+  watermark_position: top-right
+  watermark_size: 22
+  watermark_alpha: 0.7
+  show_date: true
+  show_seal: true
+
+# 抖音弹幕 (字号稍大, 9:16 视野宽)
+danmaku:
+  enabled: true
+  font_size: 44
+  interval: 60
+  stroke_width: 4
+
+color_grade:
+  brightness: 0
+  clahe: true
