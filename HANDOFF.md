@@ -4,6 +4,51 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-06（**弹幕从未进 final — 调换 stage 顺序 + 修 fallback 链根治 + commit 211937c**）:
+
+**【本轮根因: 弹幕从未叠加到 final】** (用户 2026-07-06 报 "字幕没有"):
+- 抽帧 t=20/30/50/60/100/120/140s 实证 final 视频**无任何弹幕文字** (汉印/标语/能量条之外全没).
+- 范围: 艳青1/3_4、小飞侠1_2、丽丽4_5_6、枫林红2_3、郭海军1_2 全部受影响 (2026-06-20 修复埋的坑).
+- **三处叠加根因**:
+  1. main.py:416-418 stage 顺序 danmaku → burst → export, 弹幕跑过但被 burst 接力跳过
+  2. stages/35_intensity_burst.py fallback 链 (84d39a2 钉死) mascot > face_swap > danmaku → burst 接力 face_swap (无弹幕) 输出
+  3. stages/07_export.py fallback 链 burst > danmaku → export 接力 burst (无弹幕) 输出
+- **修复 (3 处, commit 211937c)**:
+  1. main.py 调换顺序: `intensity_burst → danmaku` (L418→L416), 让 danmaku 接力 burst 输出
+  2. stages/34_danmaku.py fallback 链加 `burst_path` (在 mascot_path 之前), 让 danmaku 读 burst 输出画弹幕
+  3. stages/07_export.py fallback 链把 `danmaku_path` 提到 `burst_path` 之前, export 接力 danmaku 输出
+- **效果**: final = face_swap + 爆燃文字 + 弹幕 全部齐; 抽帧 t20s 实证"流汗就是燃脂!"绿色字 + "大哥太猛了!"白字 + "受不了"绿字 都在画面里
+- **守门**: `tests/test_burst_danmaku_fallback.py` 7 新测试 (主 fallback 链守门 + 验证 main.py 顺序不能回退) + 11 原 84d39a2 测试 (mascot 优先, 仍 100% 兼容) = 18 passed; 完整 136 passed 零回归
+- **保留钉死原则**: 84d39a2 的 `mascot_path > danmaku_path` 顺序 (face_swap 接力优先) 保留, test_burst_mascot_before_danmaku 仍 PASSED
+
+**【验证重跑 (2026-07-06 04:03 ~ 04:53, ~50min)】**:
+- 增量重跑 郭海军1_2 process, 03:48 keypoints 重新生成 → 04:03 color → 04:12 energybar → 04:25 watermark → 04:31 face_swap → 04:39 burst (`xxx_faceswap_burst.mp4`) → 04:47 danmaku (`xxx_faceswap_burst_danmaku.mp4` ← 接力 burst) → 04:50 export (`xxx_final_16x9_1920x1080.mp4` 311M) → 04:52 douyin
+- stage timing 实测: color 890s / energybar 544s / watermark 630s / face_swap 387s / burst 426s / danmaku 520s / export 190s / shorts 119s (合计 ~65min 串行)
+
+**【本会话所有改动】**:
+- `260970c` chore(coach): 艳青换脸源照替换 GFPGAN 增强坏照 (上轮修复)
+- `211937c` fix(stage_chain): 弹幕从未叠加到 final — 调换 burst/danmaku 顺序 + fallback 链修复
+
+**【产物清单 (本会话最终)】**:
+- output/2026-07-06/ 郭海军1_2_merged 三件套 (含弹幕+爆燃):
+  - `郭海军1_2_merged_final_16x9_1920x1080.mp4` 312M 04:50 ← YT long
+  - `郭海军1_2_merged_final_16x9_1920x1080_yt_shorts.mp4` 50M 04:51 ← YT Shorts
+  - `郭海军1_2_merged_final_16x9_1920x1080_douyin.mp4` 225M 04:52 ← 抖音
+- output/ 总大小: 17G → 0.4G (-16.6G, 4 轮清理)
+- 用户明早手工上传 (用户 2026-07-06 拍板 "今天小飞侠/艳青的都没上传, 我明天早上上传")
+
+**【YT 标题 (已钉, CLAUDE)】**:
+- 郭海军1+2 long: 【老兵不老】郭海军力量燃脂操 | 刚劲塑形跟练 | 细柳营健身
+- 郭海军1+2 short: 【老兵不老】郭海军30秒暴汗燃脂操 | 全身塑形挑战 | 细柳营健身 #Shorts
+
+**【未提交工作树】** (本轮 HANDOFF 更新)
+
+**【下一步候选】**:
+1. 下一个健身视频
+2. Matting Studio 升级 (per 上轮 HANDOFF line 32-37)
+
+---
+
 最后更新: 2026-07-04（**bg_swap 多人/单人 验证 RVM 软抠天花板 → 暂停 → 立项自研 Matting Studio**）:
 
 **【RVM 软抠天花板确认 (2026-07-04 用户测试单人美女跳舞)】**:
