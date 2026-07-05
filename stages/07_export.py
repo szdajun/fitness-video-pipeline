@@ -109,14 +109,19 @@ class ExportStage:
         # face_beautify2 优先于 face_beautify（InsightFace vs MediaPipe）
         # face_beautify 优先于 beatflash_path（美颜效果更强）
         # smart_crop 最优先: 输出已是裁好的 9:16 视频, 后面的装饰 stage 都基于它叠加
+        # 2026-07-06 弹幕进 final: 把 danmaku_path 提到 burst_path 之前.
+        # main.py 顺序 burst → danmaku → export (2026-07-06 调换), burst 接力 face_swap,
+        # danmaku 接力 burst 输出 (face_swap + 爆燃文字), 现在 export 接力 danmaku
+        # 输出 (弹幕 + 爆燃 + 换脸 全都有) → final 完整.
+        # 旧顺序 burst > danmaku: export 选 burst_path (无弹幕) → final 缺弹幕.
         processed_path = (ctx.get("smart_crop_path") or
                   ctx.get("rife_path") or
                   ctx.get("face_beautify2_path") or
                          ctx.get("face_beautify_path") or
                          ctx.get("bgm_path") or
                          ctx.get("pip_path") or
-                         ctx.get("burst_path") or
                          ctx.get("danmaku_path") or
+                         ctx.get("burst_path") or
                          ctx.get("mascot_path") or
                          ctx.get("watermark_path") or
                          ctx.get("energybar_path") or

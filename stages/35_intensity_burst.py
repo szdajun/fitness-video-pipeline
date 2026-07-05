@@ -26,7 +26,9 @@ class IntensityBurstStage:
         # 2026-07-05 修复: face_swap 在 burst 之前跑 (main.py L402 vs L418), 但本链
         # 缺 mascot_path/face_swap_path → burst 接力 watermark/danmaku 链会绕过换脸结果
         # → final cos 跌回 source (embedding evidence). 加 mascot_path + face_swap_path
-        # 在 danmaku 之前, 让 burst 用换脸后的视频做 base
+        # 在 danmaku 之前, 让 burst 用换脸后的视频作 base.
+        # 关键: mascot_path 是 face_swap 输出的别名 (CLAUDE 2026-06-29 + commit 84d39a2 钉死),
+        # 弹幕必须叠在 face_swap/mascot 之后的视频上, 不能放 face_swap 之前 (否则弹幕画原脸).
         input_path = (ctx.get("smart_crop_path") or
                      ctx.get("mascot_path") or
                      ctx.get("face_swap_path") or

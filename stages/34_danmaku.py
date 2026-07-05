@@ -65,9 +65,14 @@ class DanmakuStage:
         if not cfg.get("enabled", False):
             return
 
+        # 2026-07-06 弹幕进 final: 加 burst_path 在 mascot_path 之前.
+        # main.py 顺序 2026-07-06 调换 burst → danmaku, danmaku 接力 burst 输出 (face_swap + 爆燃文字)
+        # 弹幕画在 burst 文字上 → final 既有换脸 + 爆燃 + 弹幕. 旧 fallback 缺 burst_path 会
+        # 跳过 burst 接力到 watermark/energybar, 弹幕又叠加到无爆燃的视频上.
         input_path = (ctx.get("pip_path") or
                      ctx.get("filmlook_path") or
                      ctx.get("speedramp_path") or
+                     ctx.get("burst_path") or
                      ctx.get("mascot_path") or
                      ctx.get("watermark_path") or
                      ctx.get("energybar_path") or

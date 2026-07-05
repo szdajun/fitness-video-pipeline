@@ -413,10 +413,15 @@ def run_single(args):
                      enabled=stages_cfg.get("speed_ramp", False))
     engine.add_stage("smart_crop", SmartCropStage(),
                      enabled=stages_cfg.get("smart_crop", False))  # 2026-06-20: 抖音/竖版默认 false 但 douyin preset 已开启
-    engine.add_stage("danmaku", DanmakuStage(),
-                     enabled=stages_cfg.get("danmaku", False))
     engine.add_stage("intensity_burst", IntensityBurstStage(),
                      enabled=stages_cfg.get("intensity_burst", False))
+    # 2026-07-06 修复弹幕进 final: 调换 danmaku/burst 顺序, danmaku 在 burst 之后跑.
+    # 原顺序 danmaku → burst → export 弹幕被 burst 接力跳过 (burst fallback 链
+    # 钉死 mascot > danmaku, burst 用 face_swap 输出作 base, danmaku 输出被旁路).
+    # 新顺序 burst → danmaku → export: burst 接力 face_swap, danmaku 接力 burst 输出
+    # 把弹幕画到 burst 文字上, export 接力 danmaku 输出 → final 既有换脸 + 爆燃 + 弹幕.
+    engine.add_stage("danmaku", DanmakuStage(),
+                     enabled=stages_cfg.get("danmaku", False))
     engine.add_stage("film_look", FilmLookStage(),
                      enabled=stages_cfg.get("film_look", False))
     engine.add_stage("pip", PiPStage(),
