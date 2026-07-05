@@ -284,3 +284,75 @@
 - ffmpeg 必须用 `C:/Users/18091/ffmpeg/ffmpeg.exe`，不能用 Winget 版。
 - 教练名必须在文件名最前（`建玲1.mp4` ✓，`合并_建玲` ✗）。
 - 片头音乐已钉 config 默认（`intro_outro.intro_music_from_main: true`），新视频自动用截前留落点方案，无需手动设。
+
+---
+
+## 📦 派生项目: Matting Studio (2026-07-04 完成 v1.0.0)
+
+**【完整收尾 (Phase 0-8 文档 + Phase 8 暂停)】**
+
+### 项目位置
+- `F:\wkspace\matting-studio\` (独立仓库, 23 commit + 2 tag)
+- 父项目: `F:\wkspace\fitness-video-pipeline\` (本项目, 8 段主管线)
+- 共享 memory: cn-video-matting-software-architecture.md (含 matting-studio 完成段)
+
+### 完整产出
+- 23 commit + 2 tag (v0.1.0 + v1.0.0)
+- 123 tests pass 0 fail (6.73s, 8 slow 跳过)
+- ~3000 行代码 (核心 + 8 模块 + 7 QML + 4 脚本 + 1 CLI)
+- ~35 KB 文档 (PROJECT_README + CHANGELOG + UPGRADE + 4 设计)
+
+### 性能基准 (Phase 6.3 实测, PyTorch CPU, 856x462, 30 帧)
+- **PyTorch CPU (mobilenetv3): 13.91 FPS (71.9ms/帧)** ✅ 可生产
+- PyTorch CPU (resnet50): 3.96 FPS (252.7ms/帧) ⚠️ 慢
+- ONNX (mobilenetv3/resnet50): ❌ 失败 (RVM 官方 ONNX Expand 节点 bug)
+- PyTorch GPU (RTX 4070): 200-300 FPS (估) ⏳ 未验证
+
+### 完整文件 (F:\wkspace\matting-studio\)
+- README.md (项目入口)
+- PROJECT_README.md (完整项目状态 + 升级指南)
+- CHANGELOG.md (v1.0.0 完整版本历史)
+- LICENSE (Apache 2.0)
+- pyproject.toml (Python 3.10 + PyTorch 2.6 锁版)
+- .gitignore (models/rvm/*.onnx 不入 git, 14MB)
+- core/ (types + engine + config + helpers)
+- modules/ (8 Stage + sam2_repair + backend + ui/video_surface)
+- qml/ (Main + TitleBar + 5 组件)
+- presets/ (4 方案 YAML)
+- tests/ (123 测试)
+- tools/ (matting_cli.py)
+- scripts/ (install_deps.sh + rvm_to_onnx.py + rvm_export_onnx_fixed.py + bench_onnx_vs_pytorch.py)
+- models/ (.gitignore)
+- docs/ (4 设计 + UPGRADE.md)
+- .github/workflows/ (ci + release + docs)
+
+### 已知限制 (Phase 8+ 升级)
+1. **RVM 官方 ONNX 模型 Expand 节点 bug** - 30x 提速验证待 RVM 官方修
+2. **RVM master decoder GRU state dim** 与 PyTorch 2.6 不兼容
+3. **PyInstaller 6.x 嵌套 torch.onnx** - 完整 GUI 打包需 runtime hook
+4. **SAM2 修帧工作流占位** - Phase 9 完整推理 + QThread 异步
+5. **QML GUI partial** - Phase 5.2/6 完整集成 (VideoFrameSink + SAM2Canvas)
+
+### Phase 8+ 升级路线图 (等 RVM 官方修)
+- P0 Phase 8: RVM 官方修 ONNX → 完整 30x 提速验证
+- P1 Phase 9: SAM2 完整推理 + QThread 异步 (1-2 周)
+- P2 Phase 10: 完整 QML GUI 集成 (2-3 周)
+- P3 Phase 11: PyInstaller runtime hook 修嵌套 (1 周)
+- P4 Phase 12: GPU 性能基准 (1-2 天)
+- P5 Phase 13: v1.0.0 GitHub release (1 周)
+- P6 Phase 14: Web 端 TFLite + WebGPU (4-6 周)
+- P7 Phase 15: 移动端 iOS/Android (6-8 周)
+
+**总估时**: 18-25 周 (4-6 个月单人全职)
+
+### 与父项目关系
+- **共享 memory**: `cn-video-matting-software-architecture.md` (cn-video-matting-software-architecture.md) 
+  含 8 模块 + 8 模型 + 4 方案 + 升级路线图
+- **背景技术**: bg_swap 8 段主管线 RVM 实战经验 (D+grow 治胳膊 + YOLO 治鬼影 + SAM2 修帧)
+- **共享 D+grow 算法**: fitness-video-pipeline + matting-studio 都用
+- **共享 YOLOv8 治鬼影**: 集成到 matting-studio MattingStage
+
+### 升级协调
+1. 升级 matting-studio: `cd F:\wkspace\matting-studio; git pull; cat docs/UPGRADE.md`
+2. 升级 fitness-video-pipeline: 父项目继续主管线
+3. 共享: RVM 官方更新 (Phase 8) 同时影响两个项目
