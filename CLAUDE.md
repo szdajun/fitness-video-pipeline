@@ -89,6 +89,18 @@ python main.py process "input.mp4" --leg-lengthen 1.2 --waist-slim 0.85
 python main.py process "input.mp4" --no-stabilize --no-ken-burns --preview
 ```
 
+### `--output` 自动日期子目录 (钉死原则, 2026-07-05)
+
+`--output F:/wkspace/.../output/foo_final.mp4` 时:
+- **子目录 = 源文件 mtime 的 yyyy-mm-dd** (不是 today, 跑批时间)
+- 例: 源文件 mtime 2026-07-03 → 输出在 `output/2026-07-03/foo_final_16x9_1920x1080.mp4`
+- 例: 源文件 mtime 2026-07-05 → 输出在 `output/2026-07-05/`
+- 仅在父级是 `output` 或 `shorts_output` 时触发; 其他父级 (用户显式指定) 不动
+
+**意义**: 同视频多次跑 = 同一子目录 (而非按跑批时间散开); 合并视频也按合并后 mtime 走
+
+代码: `main.py:311-322` (`os.path.getmtime(input_path)` → `date.fromtimestamp(mtime)`)
+
 ## 环境管理 (uv)
 
 Python **>=3.11**（3.9 已 EOL 2025-10）。用 **uv** 管 Python 版本 + 依赖，`uv.lock` 锁定可复现。

@@ -205,6 +205,18 @@ pre_deblock → pose → stabilize → h2v → body_warp → ken_burns → face_
 5. ✅ `~/Desktop/短视频素材/{coach}_{date}_douyin.mp4` 桌面已有抖音副本
 6. ✅ 抖音产物体 desk 同步 OK（手工上传流程就绪）
 
+### 6.1 输出目录子目录原则（钉死 2026-07-05）
+
+`--output F:/wkspace/.../output/foo_final.mp4` 时, 自动加日期子目录 = **源文件 mtime 的 yyyy-mm-dd**:
+
+- 例: 源 mtime 2026-07-03 → `output/2026-07-03/foo_final_16x9_1920x1080.mp4`
+- 例: 源 mtime 2026-07-05 (合并视频) → `output/2026-07-05/`
+- 仅父级是 `output` / `shorts_output` 时触发; 用户显式指定其他父级不动
+- 意义: 同视频多次跑 = 同一子目录 (而非按跑批时间散开)
+- 代码: `main.py:311-322` (`os.path.getmtime(input_path)`)
+
+⚠ **不是 today/now** — 一些用户期望"今天的产物在今天的目录" 是不对的. 合并视频 (用 `merge_clips.py`) 也按合并后 mtime 走 (你刚合并就 = today). 旧视频 (源 mtime 早) 产物目录会"看起来过期", 但因为是同一个视频多次跑的产物, 旧目录是对的.
+
 ---
 
 ## 7. 与独立工具的边界
