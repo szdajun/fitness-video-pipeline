@@ -4,6 +4,46 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-07 00:00（**李刚1 主管线→三件套 全齐**）:
+
+**【本轮任务】**: 李刚1.mp4 主管线处理 (用户"继续处理李刚1视频").
+
+**【主管线 (tested 李刚 face_swap 已有源照)】** (23:10 ~ 23:59, 50min, exit 0):
+- 时序: 23:10 keypoints → 23:21 color/highlight/beatflash → 23:28 energybar (1.7G)
+        → 23:29 intro/outro → 23:37 watermark → 23:42 face_swap (289s, 命中 `tools/李刚_face_gfpgan.png` 3.3MB 自美化源)
+        → 23:48 burst → 23:54 danmaku → 23:57 export → 23:59 shorts/yt_shorts → 23:59 douyin
+- stage times: color 652s / energybar 425s / intro_outro 102s / watermark 471s
+        / face_swap 289s / intensity_burst 334s / danmaku 391s / export 154s / shorts 103s
+- **总耗时 3025.7s ≈ 50min** (略短于枫林红1+2 65min 因为视频更短 119s vs 151s)
+
+**【视觉验证 (t25/t50/t75s 抽帧)】** ✅:
+- 李刚1 男性领操人脸自然 (没被硬换) - 李刚源照就是他自己 GFPGAN 自美化版本, 换脸就是用美化版的脸替换原版
+- **旁人完全未触**: pose lead-only 锁脸生效, 周围十多人脸全部保留
+- **弹幕全齐**: "新手友好!"粉色 + "小蛮腰养成中!"黄色 + "牛仔裤松了!"橙色 + "996斤"绿色
+- **爆燃文字**: "牛仔裤松了"橙色显眼, 男士操配套
+- **汉印 + 昵称水印**: "细柳营·胭脂虎 / 2026-07-06" 完整
+- **能量条**: 右下绿条可见
+
+**【最终产物 (output/2026-07-06/)】**:
+- `李刚1_final_16x9_1920x1080.mp4` 259MB 23:57 (YT long, 128.1s, 含片头片尾+弹幕+爆燃+换脸)
+- `李刚1_final_16x9_1920x1080_yt_shorts.mp4` 52MB 23:57 (YT Shorts)
+- `李刚1_final_16x9_1920x1080_douyin.mp4` 214MB 23:59 (抖音, intro skip -ss 4s)
+- + 之前已存在: 郭海军1_2_merged + 彩娥3 + 枫林红1_2_merged 三件套 (output/2026-07-06/ 7.1G)
+- 用户待拍板上传 (按惯例手工传, 与枫林红+郭海军+彩娥同一批次)
+
+**【YT 标题 (CLAUDE 钉死 + coach_profiles 拿昵称/focus)】**:
+- 李刚1 long: 【胭脂虎】李刚力量塑形操 | 力量塑形跟练 | 细柳营健身
+- 李刚1 short: 【胭脂虎】李刚30秒力量塑形操 | 力量塑形挑战 | 细柳营健身 #Shorts
+
+**【本轮 commits】**: 无 (无代码/文档改动, 仅跑主管线产出)
+
+**【下一步候选】**:
+1. 用户拍板上传 → 跑 tools/upload_youtube.py (李刚1 long + short, public 立即发布; 抖音手工)
+2. 用户下一视频
+3. Matting Studio Phase 2 升级 (per 上轮 HANDOFF line 119-134)
+
+---
+
 最后更新: 2026-07-06 22:36（**枫林红1+2 合并→主管线→三件套 全齐 + 换脸源照入库**）:
 
 **【本轮任务】**: 枫林红1.mp4+枫林红2.mp4 合并处理 (用户"跑主管线，处理枫林红1，枫林红2两个视频，合并为一个文件进行处理").
