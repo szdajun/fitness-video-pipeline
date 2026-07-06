@@ -4,7 +4,59 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
-最后更新: 2026-07-06（**弹幕从未进 final — 调换 stage 顺序 + 修 fallback 链根治 + commit 211937c**）:
+最后更新: 2026-07-06 22:36（**枫林红1+2 合并→主管线→三件套 全齐 + 换脸源照入库**）:
+
+**【本轮任务】**: 枫林红1.mp4+枫林红2.mp4 合并处理 (用户"跑主管线，处理枫林红1，枫林红2两个视频，合并为一个文件进行处理").
+
+**【合并】**: `scripts/merge_clips.py --clips 枫林红1.mp4 枫林红2.mp4 --output 枫林红1_2_merged.mp4` (137MB, 4532 帧, 151.07s, 1920×1080, 30fps, 教练名在前).
+
+**【换脸源照入库 — 关键决策】**:
+- 用户原大头美颜照 `Desktop/短视频素材/枫林红大头美颜照.jpg` (11.5KB, 348×213) — cv2 能读 (PowerShell 上次 imread 失败是编码 bug 不影响 Python)
+- `find_coach_face` 优先级 1 命中 `tools/枫林红_gfpgan.png`: GFPGAN 全强度增强 213×348 → 119.5KB, **insightface 直测 score=0.864 (避 flh 坑)**
+- 原图 `tools/枫林红_face.jpg` 同时入库 (11.3KB, score=0.857), 作为 fallback
+- commit `0ebb2e4 chore(coach): 枫林红 换脸源照入库` (35 passed 零回归)
+- **用户"处理好的用来换脸的照片入库，以后直接用即可"** — 已 commit, 后续枫林红自动命中 gfpgan 首选
+
+**【主管线 (tested 弹幕修复 + 新增 gfpgan)】** (21:32~22:36, 65min, exit 0):
+- 时序: 21:32 keypoints → 21:47 color (903s) → 21:55 energybar (523s, 1.6GB) → 21:58 intro/outro
+        → 22:09 watermark (610s) → 22:15 face_swap (377s, swap 完成) → 22:22 burst
+        → 22:31 danmaku (519s) → 22:34 final export (203s) → 22:36 shorts/douyin
+- stage times: color 903s / energybar 523s / intro_outro 121s / watermark 610s
+        / face_swap 378s / intensity_burst 439s / danmaku 519s / export 203s / shorts 116s
+- 三段裁切: `[crop] 逐段 crop_x (2段, fps=30.00): [0-2195]=545 [2195-4532]=1282` (段2 领操人 cx 右移正确跟随)
+
+**【视觉验证 (t30/t60/t90s 抽帧)】** ✅:
+- 换脸成功: 领操人(中间黑衣短裙)脸部是用户美颜照的年轻女性(瓜子脸/眼大/肤白嫩),源中年阿姨的脸完全替换
+- 弹幕全齐: "姐妹身材太好了吧!" + "免疫JUP!" + "今天也要卷!" + "腹肌出来了!" + "运动是最好的药!"
+- 爆燃文字全齐: 橙色"腹肌出来了" + 绿色"运动是最好的药" + 蓝色"眉颈不酸了"
+- 汉印 + 昵称水印: "细柳营·胭脂虎 / 2026-07-06"
+- 能量条: 右侧绿条可见
+- 旁人脸未触: t60 周围多人脸不变 (pose lead-only 锁脸生效)
+
+**【最终产物 (output/2026-07-06/)】**:
+- `枫林红1_2_merged_final_16x9_1920x1080.mp4` 322MB 22:34 (YT long, 160.1s, 含片头片尾+弹幕+爆燃+换脸)
+- `枫林红1_2_merged_final_16x9_1920x1080_yt_shorts.mp4` 54MB 22:35 (YT Shorts)
+- `枫林红1_2_merged_final_16x9_1920x1080_douyin.mp4` 246MB 22:36 (抖音, 含 intro skip -ss 4s)
+- + 郭海军1_2_merged 三件套 (312M/50M/225M, 04:50~04:52) + 彩娥3 三件套 (182M/58M/160M, 06:33~06:35)
+- output/2026-07-06/ 总: 6.3G (三套三件套)
+- 用户待拍板上传 YT (按惯例明早手工传)
+
+**【YT 标题 (CLAUDE 钉死 + coach_profiles 拿昵称/focus)】**:
+- 枫林红1+2 long: 【霸道总裁】枫林红高效有氧操 | 高效有氧跟练 | 细柳营健身 (上轮 枫林红2+3 同标题)
+- 枫林红1+2 short: 【霸道总裁】枫林红30秒高效有氧操 | 高效有氧挑战 | 细柳营健身 #Shorts
+
+**【本轮 commits】**:
+- `0ebb2e4` chore(coach): 枫林红 换脸源照入库 (大头美颜照 0.857 + GFPGAN 增强 0.864)
+- 工作树干净
+
+**【下一步候选】**:
+1. 用户拍板上传 → 跑 tools/upload_youtube.py (long + short, public 立即发布, 抖音手工)
+2. 下一个健身视频
+3. Matting Studio Phase 2 升级 (per 上轮 HANDOFF line 119-134)
+
+---
+
+最后更新: 2026-07-06 04:53（**弹幕从未进 final — 调换 stage 顺序 + 修 fallback 链根治 + commit 211937c**）:
 
 **【本轮根因: 弹幕从未叠加到 final】** (用户 2026-07-06 报 "字幕没有"):
 - 抽帧 t=20/30/50/60/100/120/140s 实证 final 视频**无任何弹幕文字** (汉印/标语/能量条之外全没).
