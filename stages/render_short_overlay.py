@@ -139,10 +139,60 @@ def render_cta(out_png: str, size=(1080, 1920)):
     return out_png
 
 
+def render_preview(out_png: str, size=(1080, 1920), duration: float = 4.0):
+    """高燃预警 PNG (hook 段全程常驻, 不做渐显渐隐).
+
+    设计 (2026-07-07 高燃预览开场):
+      - 主标题 "🔥 高燃预警" 居中偏上, 橙红色 (警示色, 与 opening 黄/cta 黄区分)
+      - 副标 "先睹为快" 主标下方, 黄色
+      - 中部半透明黑底 提高可读性, 不挡领操人上半身动作
+      - 字号比 cta (70) 更大 (110), 突出 "燃"
+      - hook 与教练无关 (全教练统一), 不调 coach_profiles / get_shorts_poem
+    """
+    W, H = size
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    title_font = _load_font(FONT_BOLD, 110)
+    sub_font = _load_font(FONT_REG, 48)
+
+    def draw_centered(text, font, y_frac, fill, stroke_w=5, stroke=(0, 0, 0, 240)):
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        x = (W - tw) // 2
+        y = int(H * y_frac)
+        if stroke_w > 0:
+            for dx in range(-stroke_w, stroke_w + 1):
+                for dy in range(-stroke_w, stroke_w + 1):
+                    if dx * dx + dy * dy <= stroke_w * stroke_w:
+                        draw.text((x + dx, y + dy), text, font=font, fill=stroke)
+        draw.text((x, y), text, font=font, fill=fill)
+
+    # 中部半透明黑底 (不挡领操人上半身, 字幕区可读)
+    bg_top = int(H * 0.38)
+    bg_bot = int(H * 0.56)
+    overlay_bg = Image.new("RGBA", (W, bg_bot - bg_top), (0, 0, 0, 130))
+    img.paste(overlay_bg, (0, bg_top), overlay_bg)
+    draw = ImageDraw.Draw(img)
+
+    # 主标题: 橙红 (255,80,30) — 警示, 与 cta 黄/opening 黄 区分
+    draw_centered("🔥 高燃预警", title_font, 0.41,
+                  fill=(255, 80, 30, 255), stroke_w=5)
+    # 副标: 黄
+    draw_centered("先睹为快", sub_font, 0.51,
+                  fill=(255, 220, 0, 255), stroke_w=3)
+
+    img.save(out_png, "PNG")
+    print(f"  [preview] PIL 渲染: {os.path.basename(out_png)} ({W}x{H})")
+    return out_png
+
+
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "_test.png"
     coach = sys.argv[2] if len(sys.argv) > 2 else "艳青"
     if "cta" in out.lower():
         render_cta(out)
+    elif "preview" in out.lower() or "hook" in out.lower():
+        render_preview(out)
     else:
         render_opening(out, coach=coach)

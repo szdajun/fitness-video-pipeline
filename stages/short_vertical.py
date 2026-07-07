@@ -579,6 +579,113 @@ def _resolve_ffmpeg() -> str:
 FFMPEG = _resolve_ffmpeg()
 
 
+def compute_hook_window(
+    kp_dict: dict,
+    crop_segments: List[Tuple[int, int, int]],
+    fps: float,
+    total_dur: float,
+    hook_dur: float,
+    skip_sec: float = 0.0,
+    frame_w: int = DEFAULT_FRAME_W,
+    crop_w: int = DEFAULT_CROP_W,
+    padding: int = CROP_PADDING,
+    exclude_head_frac: float = 0.10,
+    exclude_tail_frac: float = 0.10,
+    min_total_dur: float = 10.0,
+) -> Optional[Tuple[float, int]]:
+    """选全片最燃的 hook_dur 秒窗做"高燃预览开场" (2026-07-07).
+
+    返回 (hook_start_sec, hook_crop_x) 或 None:
+      hook_start_sec: 正片相对时间 (0~total_dur), 给 step0 `-ss {skip+hook_start}` 用
+      hook_crop_x:    hook 窗口起点所在 crop_segment 的 crop_x (像素, 静态常量)
+
+    算法:
+      1. 逐帧领操人 (最大体型 person) motion = 相邻帧可见关键点 (conf>0.3) 位移均值
+         (复用 35_intensity_burst.py:58-78 的 motion 食谱, 但只取领操人, 非全 person 累加)
+      2. 滑动窗 (hook_dur*fps 帧) 在 [head_frac .. (1-tail_frac)-hook_dur] 扫,
+         取 mean motion 最大起点
+      3. 排除首尾各 10% (片头诗词区 + 片尾噪声孤峰, 如李刚1 的 105s)
+    滑动窗自身抗单帧尖刺 (105s 孤峰在 4s 窗=120 帧贡献 0.0036 可忽略), 不需额外 conf 过滤.
+    """
+    # 早返守卫
+    if not kp_dict or total_dur < min_total_dur or hook_dur <= 0:
+        return None
+    usable = total_dur * (1.0 - exclude_head_frac - exclude_tail_frac)
+    if hook_dur >= usable:
+        return None
+
+    fps = float(fps) or 30.0
+    n_wf = int(round(total_dur * fps))      # workout (正片相对) 帧数
+    win = max(1, int(round(hook_dur * fps)))
+    src0 = int(round(skip_sec * fps))       # 正片帧 0 对应的源帧
+
+    def _lead(persons):
+        """选最大体型 person (bbox 面积最大), 领操人启发式."""
+        best, best_sp = None, -1.0
+        for p in persons:
+            xs = [c[0] for c in p if len(c) >= 3 and c[2] > 0.3]
+            ys = [c[1] for c in p if len(c) >= 3 and c[2] > 0.3]
+            if len(xs) < 6:
+                continue
+            sp = (max(xs) - min(xs)) * (max(ys) - min(ys))
+            if sp > best_sp:
+                best_sp, best = sp, p
+        return best
+
+    # 逐 workout 帧 motion (源帧空间查 kp, 累积正片相对 motion)
+    motion = {}
+    prev_lead = None
+    for wf in range(n_wf):
+        src_f = src0 + wf
+        persons = kp_dict.get(src_f)
+        if persons is None:
+            persons = kp_dict.get(str(src_f))
+        if not persons:
+            prev_lead = None
+            continue
+        lead = _lead(persons)
+        if lead is None or prev_lead is None:
+            prev_lead = lead
+            continue
+        disp = [(b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
+                for a, b in zip(prev_lead, lead)
+                if len(a) >= 3 and len(b) >= 3 and a[2] > 0.3 and b[2] > 0.3]
+        if disp:
+            motion[wf] = sum(d ** 0.5 for d in disp) / len(disp)
+        prev_lead = lead
+
+    if not motion:
+        return None
+
+    # 滑动窗找最优起点 (排除首尾)
+    lo = int(exclude_head_frac * n_wf)
+    hi = int(total_dur * (1.0 - exclude_tail_frac) * fps) - win
+    best_sf, best_score = lo, -1.0
+    for sf in range(lo, max(lo, hi + 1)):
+        win_vals = [motion.get(f, 0.0) for f in range(sf, sf + win)]
+        if not win_vals:
+            continue
+        score = sum(win_vals) / len(win_vals)
+        if score > best_score:
+            best_score, best_sf = score, sf
+
+    hook_start_sec = round(best_sf / fps, 3)
+
+    # hook_crop_x = hook 起点源帧落在的 crop_segment 的 crop_x
+    src_at_hook = src0 + best_sf
+    hook_crop_x = (crop_segments[0][2] if crop_segments
+                   else (frame_w - crop_w) // 2)
+    for s, e, x in crop_segments:
+        if s <= src_at_hook <= e:
+            hook_crop_x = x
+            break
+    hook_crop_x = int(max(padding, min(frame_w - crop_w - padding, hook_crop_x)))
+
+    print(f"    [hook] 预览窗 {win / fps:.1f}s @ 正片 {hook_start_sec:.1f}s "
+          f"(crop_x={hook_crop_x}, mean motion={best_score:.4f})")
+    return (hook_start_sec, hook_crop_x)
+
+
 def make_vertical(src_path: str, output_dir: str, profile: str,
                   keypoints_file: Optional[str] = None,
                   duration: Optional[float] = 30,
@@ -590,6 +697,8 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
                   pip_src: Optional[str] = None,
                   pip_enabled: bool = True,
                   pip_target_w: int = 600,
+                  hook_enabled: bool = False,
+                  hook_dur: float = 4.0,
                   overwrite: bool = True) -> Optional[str]:
     """单入口生成 9:16 竖版 (抖音或 YouTube Shorts).
 
@@ -632,6 +741,8 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
     crop_x_expr = str(fallback_x)                        # ffmpeg crop 的 x 参数
     crop_segments: List[Tuple[int, int, int]] = []
     pip_rect: Optional[Tuple[int, int, int, int]] = None  # 画中画 (x,y,w,h) 竖屏坐标
+    kp_dict: dict = {}                                     # 关键点 (hook 窗口选择用)
+    hook_window: Optional[Tuple[float, int]] = None        # (hook_start_sec, hook_crop_x)
     if keypoints_file and os.path.exists(str(keypoints_file)):
         try:
             with open(keypoints_file, encoding="utf-8") as f:
@@ -710,13 +821,17 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
     #    段2 (3.5~cta_start): 视频, 无 overlay
     #    段3 (cta_start~end): 视频 + cta PNG 整段 overlay (无 enable 表达式)
     #    3 段 concat 起来, 音频从原片截取
-    from stages.render_short_overlay import render_opening, render_cta
+    from stages.render_short_overlay import render_opening, render_cta, render_preview
 
     opening_png = os.path.join(output_dir, f"_opening_overlay_{profile}_{src_stem}.png")
     render_opening(opening_png, coach=coach, duration=duration or 30.0)
 
     cta_png = os.path.join(output_dir, f"_cta_overlay_{profile}_{src_stem}.png")
     render_cta(cta_png)
+
+    hook_png = os.path.join(output_dir, f"_hook_overlay_{profile}_{src_stem}.png")
+    # 注: hook_window 在下面 (line 846) 才算出, render_preview 不能放这里 (此时仍 None → PNG 不生成)
+    #     真正的渲染移到 step0 块内 (hook_window 已就绪后)
 
     # 段时长计算 (实际编码时长)
     # 2026-06-29 BUGFIX: douyin (duration=None) 之前 fallback 30.0 → 抖音输出 30s 且字节与 yt_shorts 相同.
@@ -726,6 +841,16 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         total_dur = max(1.0, raw_total - skip - outro_dur) if raw_total > 0 else 30.0
     else:
         total_dur = float(duration)
+    # 高燃预览开场 (2026-07-07): 选全片最燃 hook_dur 秒窗, 拼到 yt_shorts 最前
+    # 只对 yt_shorts; douyin 完整版不加钩子 (时长长, 钩子占比小无意义)
+    if hook_enabled and profile == "yt_shorts" and kp_dict:
+        try:
+            hook_window = compute_hook_window(
+                kp_dict, crop_segments, fps=fps,
+                total_dur=total_dur, hook_dur=hook_dur, skip_sec=skip)
+        except Exception as he:
+            print(f"    [hook] 窗口计算失败, 跳过: {he}")
+            hook_window = None
     opening_end = min(6.5, total_dur - 4.0) if total_dur > 4.0 else 0.0  # 2026-06-29: 3.5→6.5 诗词多显3s 方便阅读
     cta_dur = min(4.0, total_dur - opening_end) if total_dur > opening_end + 4.0 else 0.0
     middle_dur = max(0.0, total_dur - opening_end - cta_dur)
@@ -853,23 +978,110 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         print(f"    [FFMPEG FAIL] step1: {r.stderr[-500:]}")
         return None
 
-    # step2: 合并 audio (1 video input + 1 audio input, 简单安全)
+    # ── hook 高燃预览 (2026-07-07): step0 编码静音预览 + step1.5 concat 到正片前 ──
+    # 预览段独立编码 (静音+字幕), 正片 step1 不动, concat demuxer -c copy 零重编码.
+    # 正片 step1vf 的 enable=between(t,...) 和 crop_x_expr 的 t 仍是正片相对时间,
+    # concat 只改输出 PTS 改不了 step1 已 baked 的像素 → 正片节奏零偏移.
+    final_video_path = video_only_path
+    hook_paths_to_clean = []
+    if hook_window:
+        hook_start, hook_crop_x = hook_window
+        # 渲染高燃预览字幕 PNG (此时 hook_window 已算出, 保证 step0 有图可叠)
+        render_preview(hook_png, duration=hook_dur)
+        hook_silent_path = os.path.join(
+            output_dir, f"_hook_silent_{profile}_{src_stem}.mp4")
+        hook_concat_list = os.path.join(
+            output_dir, f"_hook_concat_{profile}_{src_stem}.txt")
+        # step0: 从 src 取最燃窗 (正片内 hook_start), crop+scale+叠字幕 PNG, 静音
+        ss_hook = skip + hook_start
+        step0_cmd = [
+            FFMPEG, "-y",
+            "-ss", f"{ss_hook:.3f}", "-t", f"{hook_dur:.3f}",
+            "-i", src_path,
+            "-loop", "1", "-t", f"{hook_dur:.3f}", "-i", hook_png,
+            "-filter_complex",
+            f"[0:v]crop={DEFAULT_CROP_W}:1080:{hook_crop_x}:0,"
+            f"scale=1080:1920:flags=lanczos,setpts=PTS-STARTPTS[bg];"
+            f"[1:v]format=rgba[ol];[bg][ol]overlay=0:0[vout]",
+            "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-an",
+            "-t", f"{hook_dur:.3f}",
+            hook_silent_path,
+        ]
+        print(f"    [hook] step0 预览段 (静音+字幕 {hook_dur:.1f}s) "
+              f"-> {Path(hook_silent_path).name}")
+        r0 = subprocess.run(step0_cmd, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=300)
+        if r0.returncode != 0 or not os.path.exists(hook_silent_path):
+            print(f"    [hook] step0 失败, 回退无预览: {r0.stderr[-300:]}")
+            hook_window = None
+        else:
+            # step1.5: concat demuxer hook + 正片 (-c copy 零重编码, 两段参数一致)
+            video_only_final = os.path.join(
+                output_dir, f"_video_final_{profile}_{src_stem}.mp4")
+            # 2026-07-07: concat demuxer 路径必须绝对 + 正斜杠 (Windows 反斜杠被当转义符,
+            #  _temp\hook_test\_xxx 被 demuxer 解析成乱路径). 照 03_h2v_convert.py:222 既定模式.
+            with open(hook_concat_list, "w", encoding="utf-8", newline="\n") as cf:
+                cf.write(f"file '{Path(hook_silent_path).resolve().as_posix()}'\n")
+                cf.write(f"file '{Path(video_only_path).resolve().as_posix()}'\n")
+            step15_cmd = [
+                FFMPEG, "-y", "-f", "concat", "-safe", "0",
+                "-i", hook_concat_list, "-c", "copy", video_only_final,
+            ]
+            print(f"    [hook] step1.5 concat 预览+正片 "
+                  f"-> {Path(video_only_final).name}")
+            r15 = subprocess.run(step15_cmd, capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace", timeout=300)
+            if r15.returncode != 0 or not os.path.exists(video_only_final):
+                print(f"    [hook] concat 失败, 回退无预览: {r15.stderr[-300:]}")
+                hook_window = None
+            else:
+                final_video_path = video_only_final
+                hook_paths_to_clean = [hook_silent_path, video_only_final,
+                                       hook_concat_list]
+
+    # step2: 合并 audio
+    # hook on: anullsrc 真 4s 静音 + 主音频 concat → 预览段静音, 正片音频对齐正片画面, 零错位.
+    #   ⚠️ 2026-07-07: 旧用 adelay={ms}|{ms} 产生的 4s 前导静音被 AAC gapless 当 encoder_delay
+    #   side data 在解码时整体丢弃 → 默认解码只剩 30s 主音频无静音, 主音频从 t=0 越过预览播放
+    #   = 音视频错位 (违反"零错位"). anullsrc 是真实零样本, 不会被 gapless 剥 (李刚1 实测
+    #   0-4s mean -91dB 真·数字静音, 全片 silence_start=0/end=4.0 干净).
+    # hook off: 原逻辑 (-shortest)
     print(f"    [2/2] 合并 audio + 编码")
     audio_input = audio_src or src_path
-    step2_cmd = [
-        FFMPEG, "-y",
-        "-i", video_only_path,
-        "-ss", str(skip), "-t", f"{total_dur:.3f}",
-        "-i", audio_input,
-        "-map", "0:v", "-map", "1:a:0",
-        "-c:v", "copy",  # 视频流直接 copy (step1 已经编码好)
-        "-c:a", "aac", "-b:a", "128k",
-        "-shortest",
-        out_path,
-    ]
+    if hook_window:
+        step2_cmd = [
+            FFMPEG, "-y",
+            "-i", final_video_path,                               # 0: 视频 (hook+正片 concat, 34s)
+            "-ss", str(skip), "-t", f"{total_dur:.3f}",
+            "-i", audio_input,                                    # 1: 正片主音频 (skip..skip+total)
+            "-f", "lavfi", "-t", f"{hook_dur:.3f}",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",  # 2: 真 hook_dur 秒静音
+            "-filter_complex",
+            "[1:a]aresample=44100[a1];[2:a][a1]concat=n=2:v=0:a=1[a]",  # 静音+主音频拼接=hook_dur+total
+            "-map", "0:v", "-map", "[a]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "128k",
+            "-t", f"{hook_dur + total_dur:.3f}",
+            out_path,
+        ]
+    else:
+        step2_cmd = [
+            FFMPEG, "-y",
+            "-i", final_video_path,
+            "-ss", str(skip), "-t", f"{total_dur:.3f}",
+            "-i", audio_input,
+            "-map", "0:v", "-map", "1:a:0",
+            "-c:v", "copy",  # 视频流直接 copy (step1 已经编码好)
+            "-c:a", "aac", "-b:a", "128k",
+            "-shortest",
+            out_path,
+        ]
     profile_label = "YouTube Shorts" if profile == "yt_shorts" else "抖音竖版"
     print(f"    [{profile_label}] {out_name}  crop_x={crop_x}  skip={skip:.1f}s"
-          + (f"  dur={duration}s" if duration else "  full"))
+          + (f"  dur={duration}s" if duration else "  full")
+          + ("  +hook" if hook_window else ""))
     r = subprocess.run(step2_cmd, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=300)
 
@@ -881,9 +1093,10 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         print(f"    stderr: {r.stderr[-2000:]}")
         return None
 
-    # 清理 video_only 中间产物
-    try:
-        os.remove(video_only_path)
-    except OSError:
-        pass
+    # 清理中间产物 (video_only + hook 三件)
+    for _p in [video_only_path] + hook_paths_to_clean:
+        try:
+            os.remove(_p)
+        except OSError:
+            pass
     return out_path

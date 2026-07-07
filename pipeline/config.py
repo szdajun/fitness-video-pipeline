@@ -139,6 +139,7 @@ def _build_all_known_keys() -> set:
         "pip", "speed_ramp", "film_look", "danmaku", "intensity_burst",
         "qin_cold_open", "shorts",  # ShortsStage (YT Shorts/抖音竖版, 2026-07-02 补)
         "shorts_yt", "shorts_douyin", "shorts_pip",  # ShortsStage 开关 (shorts_pip 2026-07-07)
+        "shorts_hook", "shorts_hook_dur",  # hook 高燃预览开场 (2026-07-07)
         "shorts_duration", "shorts_coach", "shorts_intro_seconds",
     })
     # output section sub-keys

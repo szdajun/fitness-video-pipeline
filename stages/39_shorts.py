@@ -82,6 +82,11 @@ class ShortsStage:
                     pip_src = str(_cand)
                     break
 
+        # 2026-07-07 高燃预览开场: yt_shorts 最前拼全片最燃 ~4s (静音+字幕), 只 yt_shorts.
+        # 拉升 Shorts 前 3 秒完播率 → 平台推荐权重. 音频 adelay 延后 hook_dur 零错位.
+        hook_enabled = cfg.get("shorts_hook", False)
+        hook_dur = float(cfg.get("shorts_hook_dur", 4.0))
+
         # YouTube Shorts (默认开)
         if cfg.get("shorts_yt", True):
             result = make_vertical(
@@ -92,6 +97,7 @@ class ShortsStage:
                 audio_src=audio_src,
                 intro_path=intro_path, intro_seconds=intro_seconds,
                 pip_src=pip_src, pip_enabled=pip_enabled,
+                hook_enabled=hook_enabled, hook_dur=hook_dur,
             )
             if result:
                 ctx.set("shorts_path", result)

@@ -139,6 +139,12 @@ def build_single_parser():
                    default=None, help="竖屏画中画小窗 (诗词后右上全景 16:9, 默认开)")
     p.add_argument("--no-pip", dest="with_pip", action="store_false",
                    help="不生成竖屏画中画小窗")
+    p.add_argument("--with-hook", dest="with_hook", action="store_true",
+                   default=None, help="yt_shorts 高燃预览开场 (最前拼最燃~4s静音+字幕)")
+    p.add_argument("--no-hook", dest="with_hook", action="store_false",
+                   help="不生成高燃预览开场")
+    p.add_argument("--hook-duration", type=float, default=4.0,
+                   help="高燃预览时长(秒), 默认 4 (范围 3-5)")
 
     # 身体变形参数
     p.add_argument("--leg-lengthen", type=float, help="腿部拉长比例 (1.0-1.4)")
@@ -738,6 +744,8 @@ def _get_cli_overrides_dict(args):
         'shorts_duration': getattr(args, 'shorts_duration', 30),
         'shorts_coach': getattr(args, 'shorts_coach', ''),
         'with_pip': getattr(args, 'with_pip', None),
+        'with_hook': getattr(args, 'with_hook', None),
+        'hook_duration': getattr(args, 'hook_duration', 4.0),
         'full_video': getattr(args, 'full_video', False),
         'skeleton_overlay': getattr(args, 'skeleton_overlay', False),
         'auto_preset': getattr(args, 'auto_preset', False),
@@ -926,6 +934,13 @@ def _apply_cli_overrides_from_dict(config, overrides):
         config["stages"]["shorts_douyin"] = False
     if overrides.get('with_pip') is False:
         config["stages"]["shorts_pip"] = False
+    # 2026-07-07: hook 高燃预览开场 (默认关, opt-in via --with-hook)
+    if overrides.get('with_hook') is True:
+        config["stages"]["shorts_hook"] = True
+    elif overrides.get('with_hook') is False:
+        config["stages"]["shorts_hook"] = False
+    if overrides.get('hook_duration') is not None:
+        config["stages"]["shorts_hook_dur"] = float(overrides['hook_duration'])
     if overrides.get('shorts_duration') is not None:
         config["stages"]["shorts_duration"] = int(overrides['shorts_duration'])
     if overrides.get('shorts_coach'):
