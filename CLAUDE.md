@@ -182,7 +182,7 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 |-------|------|
 | `skin_smooth` | CPU 3.3h/次，换脸已覆盖面部美颜；健身出汗场景不需要全帧磨皮 |
 | `mascot` | 占用 1.4GB + 9min，健身视频不应有吉祥物遮挡 |
-| `pip` | 画中画干扰跟练，无意义 |
+| `pip` | **横屏**画中画 (31_pip) 干扰跟练，无意义。竖屏小窗 `shorts_pip` 见 §Post-2026-06-27 #9 |
 
 ### smart_crop v21 — 拼接视频自动分段
 
@@ -311,6 +311,7 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 --with-douyin / --no-douyin 生成抖音竖版完整版 (默认开)
 --shorts-duration <sec>    Shorts 时长 (默认 30)
 --shorts-coach <name>      教练名 (用于片头诗词 + 英文标题)
+--with-pip / --no-pip      竖屏画中画小窗 (诗词后右上全景 16:9, 默认开)
 ```
 
 ### 3. Face Swap 可靠性修复 (核心 - 解决 CUDNN 崩溃)
@@ -356,6 +357,16 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 
 保留为可选: 想跑抖音干净版 (无汉印无mascot无能量条) 可单独 `--preset douyin`.
 默认主流程是 `--preset youtube` → ShortsStage 自动出 抖音完整版 (含所有效果).
+
+### 9. 竖屏画中画小窗 (2026-07-07)
+
+竖屏 9:16 从 16:9 裁切, 只保留领操人那一竖条, 左右画面丢失. ShortsStage (`stages/39_shorts.py` → `short_vertical.make_vertical`) 在竖屏右上叠一个 **16:9 全景小窗** 补整体场景:
+- **内容源降级链**: `face_swap_path` (换脸·干净横屏, 无弹幕文字) > `final_path` (含文字) > source. 小窗无文字, 避免和主画面重复.
+- **时机**: 诗词片头 (`opening_end≈6.5s`) 结束后出现, 全程常驻到结尾. `enable='between(t,opening_end,total)'`.
+- **位置 (不写死)**: `compute_pip_rect` 用 pose keypoints 算领操人上半身 bbox 在竖屏分布, 右上贴边扫 y, 找最靠上且"领操人覆盖帧占比 <8%"的锚点 → 不挡领操人. 实测李刚1 → (576,24) 480×270.
+- **细白边 + 静音**, Shorts + 抖音都加. CLI `--with-pip`/`--no-pip` (默认开), config `stages.shorts_pip`.
+- 与横屏 `pip` (31_pip, 永久关) 区别: 横屏本身全景套小窗=冗余; 竖屏裁切丢画面, 小窗补全景=信息互补.
+- 守门: `tests/test_short_vertical_pip.py` (6 tests, compute_pip_rect 不变量). 验证靠像素 (抽帧检测小窗白边框), 不靠日志.
 
 
 ## ~~2026-06-27 ShortsStage CTA 已知问题 (ffmpeg 8.1 bug)~~ 【已解决 2026-06-29】

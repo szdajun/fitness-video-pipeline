@@ -313,6 +313,138 @@ def compute_crop_x_segments(kp_dict: dict,
     return segments, crop_x_expr
 
 
+# ── 1c. 画中画小窗位置 (竖屏右上, 避开领操人) ──────────
+# 2026-07-07: 竖屏 9:16 从 16:9 裁切, 左右画面丢失. 在竖屏右上放一个 16:9 全景小窗
+#   补整体场景. 小窗 = 换脸后横屏 (face_swap_path) 缩成 16:9, 诗词结束后全程常驻.
+#   位置不写死: pose keypoints 算领操人上半身 bbox 在竖屏的分布, 右上贴边扫 y, 找
+#   最小 y (最靠上) 使"领操人覆盖小窗的帧占比 < 阈值" → 不挡领操人.
+
+# 小窗避让用上半身关键点 (小窗在上方, 主要避让举手)
+_PIP_UPPER_KP_IDX = [0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 23, 24]
+
+
+def compute_pip_rect(kp_dict: dict,
+                     crop_segments: List[Tuple[int, int, int]],
+                     frame_w: int = DEFAULT_FRAME_W,
+                     frame_h: int = 1080,
+                     crop_w: int = DEFAULT_CROP_W,
+                     vert_w: int = 1080,
+                     vert_h: int = 1920,
+                     target_w: int = 480,
+                     margin: int = 24,
+                     overlap_thr: float = 0.08,
+                     area_frac: float = 0.05,
+                     y_step: int = 8) -> Tuple[int, int, int, int]:
+    """算画中画小窗在竖屏 (vert_w×vert_h) 的位置 (右上, 避开领操人).
+
+    16:9 小窗宽 target_w (高 = round(target_w×9/16)). x 贴右边; y 从上往下扫, 取最小
+    y0 使"领操人上半身 bbox 与小窗重叠 (重叠面积 > area_frac×小窗面积) 的帧占比 <
+    overlap_thr". 领操人 = 每帧最大体型人 (与 _per_frame_lead_cx 一致); bbox 用上半身
+    kp (头/肩/肘/腕/髋), 因小窗在上方主要避让举手.
+
+    坐标映射 (kp 归一化相对 frame_w×frame_h):
+        竖屏 x = (kp_x×frame_w - crop_x) × vert_w / crop_w
+        竖屏 y =  kp_y×frame_h            × vert_h / frame_h
+
+    Args:
+        kp_dict: {frame_idx: [person, ...]}, person=33×3 [x,y,conf] 归一化
+        crop_segments: [(start, end, crop_x_px), ...] 来自 compute_crop_x_segments
+        target_w: 小窗宽 (像素), 默认 480 (竖屏 1080 的 44%)
+        overlap_thr: 允许的领操人覆盖小窗帧占比上限 (默认 0.08)
+        area_frac: 重叠面积阈值占小窗面积比 (默认 0.05, 小于不算"挡住")
+
+    Returns:
+        (x, y, w, h) 竖屏像素坐标. 无 kp/crop_segments → fallback 固定右上.
+    """
+    pip_h = max(1, round(target_w * 9 / 16))
+    fallback = (vert_w - target_w - margin, margin, target_w, pip_h)
+    if not kp_dict or not crop_segments:
+        return fallback
+
+    nk = {}
+    for k, v in kp_dict.items():
+        try:
+            nk[int(k)] = v
+        except (ValueError, TypeError):
+            continue
+    if not nk:
+        return fallback
+
+    upper = _PIP_UPPER_KP_IDX
+    sx_v = vert_w / crop_w        # 横屏 crop 列 → 竖屏 x
+    sy_v = vert_h / frame_h       # 横屏 y → 竖屏 y
+
+    # 逐段逐帧算领操人上半身 bbox (竖屏像素). 段内 crop_x 固定.
+    boxes: List[Tuple[float, float, float, float]] = []
+    for (s, e, crop_x) in crop_segments:
+        for fi in range(s, e):
+            pose = nk.get(fi)
+            if not pose:
+                continue
+            best_size, best_box = -1.0, None
+            for person in pose:
+                if not person or len(person) < 29:
+                    continue
+                try:
+                    kps = np.array(person, dtype=np.float32)
+                except (ValueError, TypeError):
+                    continue
+                if kps.ndim != 2 or kps.shape[1] < 3:
+                    continue
+                vis = kps[:, 2] > 0.3
+                if vis.sum() < 4:
+                    continue
+                xs_all, ys_all = kps[vis, 0], kps[vis, 1]
+                size = float((xs_all.max() - xs_all.min()) *
+                             (ys_all.max() - ys_all.min()))
+                if size <= best_size:
+                    continue
+                # 上半身 bbox (小窗在上方, 避让举手为主); 上半身不可见 fallback 全身
+                up_mask = vis[upper]
+                chosen = kps[upper][up_mask] if up_mask.sum() >= 2 else kps[vis]
+                hx = chosen[:, 0] * frame_w
+                hy = chosen[:, 1] * frame_h
+                vx = (hx - crop_x) * sx_v
+                vy = hy * sy_v
+                best_box = (float(vx.min()), float(vy.min()),
+                            float(vx.max()), float(vy.max()))
+            if best_box is not None:
+                boxes.append(best_box)
+    if not boxes:
+        return fallback
+
+    x0 = vert_w - target_w - margin
+    min_overlap_area = area_frac * target_w * pip_h
+    y_lo, y_hi = margin, vert_h - pip_h - margin
+
+    # 扫 y0, 找最小 y0 使领操人覆盖小窗帧占比 < overlap_thr
+    chosen_y = y_hi  # 兜底: 尽量靠下避开举手
+    y0 = y_lo
+    while y0 <= y_hi:
+        overlap = 0
+        win_x1, win_y1 = x0 + target_w, y0 + pip_h
+        for (bx_min, by_min, bx_max, by_max) in boxes:
+            ox = (bx_max if bx_max < win_x1 else win_x1) - (bx_min if bx_min > x0 else x0)
+            if ox <= 0:
+                continue
+            oy = (by_max if by_max < win_y1 else win_y1) - (by_min if by_min > y0 else y0)
+            if oy > 0 and ox * oy > min_overlap_area:
+                overlap += 1
+        if overlap / len(boxes) < overlap_thr:
+            chosen_y = y0
+            break
+        y0 += y_step
+
+    # 整列都被占 (领操人频繁举手到右上): 缩小 target_w 重试一次
+    if chosen_y >= y_hi and target_w > 360:
+        return compute_pip_rect(
+            kp_dict, crop_segments, frame_w, frame_h, crop_w,
+            vert_w, vert_h, int(target_w * 0.8), margin,
+            overlap_thr, area_frac, y_step)
+
+    return (x0, chosen_y, target_w, pip_h)
+
+
 # ── 2. profile → overlay filters ────────────────────────
 
 # 沿用 39_shorts.py 成熟版滤镜链 (含诗词 + coach_profiles 映射 + 渐显渐隐).
@@ -455,6 +587,8 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
                   intro_path: Optional[str] = None,
                   outro_path: Optional[str] = None,
                   intro_seconds: Optional[float] = None,
+                  pip_src: Optional[str] = None,
+                  pip_enabled: bool = True,
                   overwrite: bool = True) -> Optional[str]:
     """单入口生成 9:16 竖版 (抖音或 YouTube Shorts).
 
@@ -476,6 +610,8 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         audio_src: 音频源 (默认同 src_path)
         intro_path: 宽屏 intro 视频路径, 用于探测 -ss 跳过时长
         intro_seconds: 显式 intro 时长, 优先于 intro_path
+        pip_src: 画中画源 (换脸后横屏 16:9). None=不加小窗. 诗词结束后全程常驻右上
+        pip_enabled: 是否启用画中画小窗 (默认 True)
         overwrite: True=覆盖已有产物
 
     Returns:
@@ -493,6 +629,7 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
     crop_x = fallback_x                                  # 用于日志/兜底
     crop_x_expr = str(fallback_x)                        # ffmpeg crop 的 x 参数
     crop_segments: List[Tuple[int, int, int]] = []
+    pip_rect: Optional[Tuple[int, int, int, int]] = None  # 画中画 (x,y,w,h) 竖屏坐标
     if keypoints_file and os.path.exists(str(keypoints_file)):
         try:
             with open(keypoints_file, encoding="utf-8") as f:
@@ -510,6 +647,14 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
                     print(f"    [crop] 逐段 crop_x ({len(crop_segments)}段, fps={fps:.2f}): {seg_log}")
             else:
                 print(f"    [crop] 无 kp 数据, fallback 居中 crop_x={crop_x}")
+            # 画中画小窗位置 (复用已解析的 kp_dict + crop_segments, 不重读文件)
+            if pip_enabled and pip_src and crop_segments:
+                try:
+                    pip_rect = compute_pip_rect(kp_dict, crop_segments)
+                    print(f"    [pip] 小窗 {pip_rect[2]}x{pip_rect[3]} "
+                          f"at ({pip_rect[0]},{pip_rect[1]}) 避开领操人")
+                except Exception as pe:
+                    print(f"    [pip] 位置计算失败, 跳过: {pe}")
         except Exception as e:
             print(f"    [crop] kp 解析失败, fallback 居中: {e}")
 
@@ -670,6 +815,22 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         # 无 overlay, 只 crop+scale+pad
         step1_vf = f"[0:v]{crop_vf},setpts=PTS-STARTPTS[vout]"
         step1_inputs = ["-i", src_path]
+
+    # 画中画小窗 (2026-07-07): 换脸后横屏缩 16:9, 诗词结束后全程常驻右上
+    if pip_enabled and pip_rect and pip_src and os.path.exists(str(pip_src)):
+        px, py, pw, ph = pip_rect
+        pip_idx = step1_inputs.count("-i")  # 新 input 的 0-based index
+        # 小窗滤镜: scale 到小窗尺寸 + 3px 白边框 (和主画面区分, 不抢眼)
+        pip_filter = (f"[{pip_idx}:v]scale={pw}:{ph}:flags=lanczos,setsar=1,"
+                      f"drawbox=w=iw:h=ih:color=white@0.9:t=3[pip];")
+        # 现有链路输出 [vout] 改名 [vpre], 追加 pip overlay (enable: opening 后到结尾)
+        step1_vf = (pip_filter
+                    + step1_vf.replace("[vout]", "[vpre]")
+                    + f";[vpre][pip]overlay={px}:{py}"
+                      f":enable='between(t,{opening_end:.3f},{total_dur:.3f})'[vout]")
+        # pip input 也要 -ss skip 对齐主视频 (否则小窗播的是片头部分, 与主画面错位)
+        step1_inputs = (step1_inputs + ["-ss", str(skip), "-t", f"{total_dur:.3f}",
+                                        "-i", str(pip_src)])
 
     print(f"    [1/2] 视频 + overlay (无 audio) -> _video_only_{profile}_{src_stem}.mp4")
     step1_cmd = [

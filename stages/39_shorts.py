@@ -71,6 +71,17 @@ class ShortsStage:
         intro_p = ctx.output_dir / f"{stem}_intro.mp4"
         intro_path = str(intro_p) if intro_p.exists() else None
 
+        # 2026-07-07 画中画小窗: 换脸后横屏缩 16:9 全景小窗, 诗词结束后全程常驻右上.
+        # 内容源降级链: face_swap_path (换脸·干净横屏) > final_path (含文字) > source.
+        pip_enabled = cfg.get("shorts_pip", True)
+        pip_src = None
+        if pip_enabled:
+            for _key in ("face_swap_path", "final_path"):
+                _cand = ctx.get(_key)
+                if _cand and os.path.exists(str(_cand)):
+                    pip_src = str(_cand)
+                    break
+
         # YouTube Shorts (默认开)
         if cfg.get("shorts_yt", True):
             result = make_vertical(
@@ -80,6 +91,7 @@ class ShortsStage:
                 duration=duration, coach=coach,
                 audio_src=audio_src,
                 intro_path=intro_path, intro_seconds=intro_seconds,
+                pip_src=pip_src, pip_enabled=pip_enabled,
             )
             if result:
                 ctx.set("shorts_path", result)
@@ -93,6 +105,7 @@ class ShortsStage:
                 duration=None, coach=coach,  # None=完整版
                 audio_src=audio_src,
                 intro_path=intro_path, intro_seconds=intro_seconds,
+                pip_src=pip_src, pip_enabled=pip_enabled,
             )
             if result:
                 ctx.set("douyin_vertical_path", result)

@@ -135,6 +135,10 @@ def build_single_parser():
                    help="Shorts 时长(秒), 默认 30")
     p.add_argument("--shorts-coach", type=str, default="",
                    help="教练名 (用于片头诗词 + 英文标题)")
+    p.add_argument("--with-pip", dest="with_pip", action="store_true",
+                   default=None, help="竖屏画中画小窗 (诗词后右上全景 16:9, 默认开)")
+    p.add_argument("--no-pip", dest="with_pip", action="store_false",
+                   help="不生成竖屏画中画小窗")
 
     # 身体变形参数
     p.add_argument("--leg-lengthen", type=float, help="腿部拉长比例 (1.0-1.4)")
@@ -733,6 +737,7 @@ def _get_cli_overrides_dict(args):
         'with_douyin': getattr(args, 'with_douyin', None),
         'shorts_duration': getattr(args, 'shorts_duration', 30),
         'shorts_coach': getattr(args, 'shorts_coach', ''),
+        'with_pip': getattr(args, 'with_pip', None),
         'full_video': getattr(args, 'full_video', False),
         'skeleton_overlay': getattr(args, 'skeleton_overlay', False),
         'auto_preset': getattr(args, 'auto_preset', False),
@@ -919,6 +924,8 @@ def _apply_cli_overrides_from_dict(config, overrides):
         config["stages"]["shorts_yt"] = False
     if overrides.get('with_douyin') is False:
         config["stages"]["shorts_douyin"] = False
+    if overrides.get('with_pip') is False:
+        config["stages"]["shorts_pip"] = False
     if overrides.get('shorts_duration') is not None:
         config["stages"]["shorts_duration"] = int(overrides['shorts_duration'])
     if overrides.get('shorts_coach'):

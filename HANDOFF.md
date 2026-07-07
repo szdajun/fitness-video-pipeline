@@ -4,6 +4,37 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-07（**竖屏画中画小窗 功能上线 — Shorts+抖音 右上 16:9 全景小窗**）:
+
+**【本轮任务】**: 竖屏画中画 (用户「画中画用于竖屏产品, 展现全横幅 16:9 画面, 竖屏主画面以领操人为主题范围很小」+「诗词结束后右上出现, 全程存在, 位置通过计算得到」+「换脸后视频更好, 看难度/有合适产物就用」).
+
+**【设计】**: 竖屏 9:16 从 16:9 裁切丢左右画面 → 右上叠 16:9 全景小窗补场景 (信息互补, 区别横屏 31_pip 冗余=永久关). 内容源降级链 `face_swap_path` (换脸·干净横屏无文字) > `final_path` > source. 时机: 诗词 `opening_end≈6.5s` 结束后全程常驻. 位置不写死: `compute_pip_rect` 用 pose kp 算领操人上半身 bbox 在竖屏分布, 右上贴边扫 y 找最靠上且"领操人覆盖帧 <8%"锚点.
+
+**【实现 (5 文件 + 1 测试)】**:
+- `stages/short_vertical.py`: + `compute_pip_rect` (位置计算, 复用 crop_segments+kp, 映射横屏归一化→竖屏像素); `make_vertical` +`pip_src/pip_enabled` 参数, step1_vf 加 pip overlay (`scale+drawbox 3px 白边+enable='between(opening_end,total)'`, pip input 带 `-ss skip` 对齐主画面)
+- `stages/39_shorts.py`: ShortsStage 从 ctx 取 face_swap_path (降级 final) 传 pip_src; 读 `cfg.shorts_pip`
+- `main.py`: +`--with-pip`/`--no-pip` (默认开) + overrides + `config["stages"]["shorts_pip"]`
+- `pipeline/config.py`: shorts_pip + shorts 开关家族 (shorts_yt/douyin/duration/coach/intro_seconds) 加 known keys (避 --no-pip warning)
+- `tests/test_short_vertical_pip.py`: 6 tests (compute_pip_rect 不变量: 无kp/无段 fallback / 16:9 / 边界 / 居中领操人→右上 / 多段不同 crop_x)
+
+**【验证 (李刚1, 像素非肉眼)】** ✅:
+- yt_shorts: `[pip] 小窗 480x270 at (576,24) 避开领操人`. 抽帧 t3(诗词中) 白边 0.00 (无小窗) / t10·t20 白边 0.76-0.78 (小窗出现+常驻)
+- douyin 完整版 217MB: 同位置. t3 白边 0.00 / t10·t60 白边 0.76-0.77
+- 领操人 cx≈540 居中 (crop_x=506), 上半身 y≈700-960 → 小窗 [576-1056, 24-294] 右上不挡
+- 全量 **142 passed** (136+6 新) 零回归
+- 产物在 `_temp/pip_test/` (yt_shorts 52MB + douyin 217MB + 抽帧 png, 不入 git, 供看效果)
+
+**【CLAUDE.md 同步】**: 永久关 Stage 表 pip 行澄清 (横屏 31_pip 关 vs 竖屏 shorts_pip 开) + Post-2026-06-27 加 #9 竖屏画中画 + CLI flag 表加 `--with-pip`
+
+**【待用户拍板】**:
+1. 看 `_temp/pip_test/` 带小窗的 yt_shorts/douyin 确认效果 (尺寸 480 够不够 / 白边 / 位置)
+2. 满意 → 功能默认开, 下次跑主管线所有新视频自动带小窗; 旧视频 (李刚1/枫林红/彩娥/郭海军) 要补小窗需重跑 shorts
+3. 调参: `compute_pip_rect` 的 `target_w=480` / `overlap_thr=0.08` / `margin=24` 都可调
+
+**【本轮 commits】**: 待 commit (功能+测试+文档)
+
+---
+
 最后更新: 2026-07-07 00:00（**李刚1 主管线→三件套 全齐**）:
 
 **【本轮任务】**: 李刚1.mp4 主管线处理 (用户"继续处理李刚1视频").
