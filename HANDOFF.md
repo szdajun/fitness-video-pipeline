@@ -4,6 +4,46 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-07 21:14（**艳青1+2 合并→主管线→三件套 全齐 — hook 默认开首次实战验证 6/6 过**）:
+
+**【本轮任务】**: 用户"有新视频艳青1，艳青2，合并后进行处理，验证一下新功能" (验证 hook 默认开).
+
+**【合并】**: `scripts/merge_clips.py --clips 艳青1.mp4 艳青2.mp4 --output 艳青1_2_merged.mp4` → `source_videos/艳青1_2_merged.mp4` (148.5MB, 5388 帧, 179.6s, 1920×1080, 30fps).
+
+**【主管线 (hook 默认开首跑)】** (`--preset youtube --shorts-coach 艳青`, 5211.5s ≈ 87min, exit 0):
+- stage times: pose 124s / color 1333s / highlight 14s / energy_bar 704s / intro_outro 144s / watermark 799s / face_swap 479s / burst 551s / danmaku 671s / export 225s / shorts 165s
+- **face_swap: swap 5293/5350 (99%), back:7, 人脸:0帧** — 艳青 换脸命中 `tools/yanqing_face.png` (memory face-swap-yanqing-gfpgan-bad 的修后美颜照), 仅 7 帧背面跳过
+- **磁盘考验 (F: 31G→8.7G 谷底→25G 收)**: color_grade 峰 18G / watermark 峰 17G / danmaku 峰 19G, 各自 try/finally 清理后恢复; 谷底 8.7G (danmaku encode 期) 未崩, export/shorts 轻量安然过. 长 179s 视频磁盘确紧张但 survive.
+
+**【最终产物 (output/2026-07-07/)】**:
+- `艳青1_2_merged_final_16x9_1920x1080.mp4` 381MB 21:11 (YT long, 含片头片尾+弹幕+爆燃+换脸)
+- `艳青1_2_merged_final_16x9_1920x1080_yt_shorts.mp4` 76MB 21:12 (YT Shorts, **含 hook**)
+- `艳青1_2_merged_final_16x9_1920x1080_douyin.mp4` 381MB 21:14 (抖音, 无 hook 隔离)
+- hook 隔离证据: `_hook_overlay_yt_shorts_*.png` 生成, **无** `_hook_overlay_douyin_*` ✓
+
+**【hook 默认开实战验证 (艳青1_2, 6/6 全过)】** ✅:
+1. hook 字幕 @2s: 橙红 25851px + 黄 2396px (高燃预警+先睹为快)
+2. opening 诗词 @5s: 黄 30999px (concat 后正片 t 语义正确)
+3. pip 白边框 @11.5s: 顶边横线 496px (600px 小窗, concat 未破坏 enable=between)
+4. 时长 **34.000s** (hook 4 + 正片 30)
+5. hook 段 0-4s 静音 mean -74.4 dB (anullsrc 真静音)
+6. **帧精确零错位**: hook 帧 270 == nohook@150 (nonzero=0 逐字节同帧), 邻帧 nohook@155 diff 51%
+- → **hook 默认开在真实主管线首跑验证通过** (非孤立 李刚1 test, 而是完整 87min 管线产物)
+
+**【YT 标题 (CLAUDE 钉死 + coach_profiles 胭脂虎)】**:
+- long: 【胭脂虎】艳青暴汗燃脂操 | 塑腰弯跟练 | 细柳营健身
+- short: 【胭脂虎】艳青30秒暴汗燃脂操 | 塑腰弯挑战 | 细柳营健身 #Shorts
+
+**【本轮 commits】**: 无 (纯跑管线, 代码已在上轮 afacaea/c2f3613 落地)
+
+**【待用户拍板】**: 上传艳青1_2 (long + short, public 立即发布; 抖音手工). 与之前批次 (郭海军/彩娥/枫林红/李刚1) 同等待传队列.
+
+**【下一步候选】**:
+1. 用户拍板上传艳青1_2 + 之前批次
+2. 下一个视频
+
+---
+
 最后更新: 2026-07-07（**高燃预览开场 hook 上线 — yt_shorts 前 N 秒拼全片最燃段(静音+字幕) + 正片零错位**）:
 
 **【本轮任务】**: 引流功能 — YT Shorts 完播率前 3 秒决定 70%, 旧版固定裁前 30s 开场慢热起步. 用户"开头黄金三秒也是个不错的想法, 可以试试" + 约束"音频对齐不要错位 / 避免音频切换太突兀 / 时长灵活可多".
