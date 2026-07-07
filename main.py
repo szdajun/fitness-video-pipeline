@@ -140,7 +140,7 @@ def build_single_parser():
     p.add_argument("--no-pip", dest="with_pip", action="store_false",
                    help="不生成竖屏画中画小窗")
     p.add_argument("--with-hook", dest="with_hook", action="store_true",
-                   default=None, help="yt_shorts 高燃预览开场 (最前拼最燃~4s静音+字幕)")
+                   default=None, help="yt_shorts 高燃预览开场 (最前拼最燃~4s静音+字幕, 默认开)")
     p.add_argument("--no-hook", dest="with_hook", action="store_false",
                    help="不生成高燃预览开场")
     p.add_argument("--hook-duration", type=float, default=4.0,

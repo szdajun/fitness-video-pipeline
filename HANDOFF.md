@@ -33,13 +33,13 @@
 
 **【默认值 / 调参】**:
 - `hook_dur=4.0` (--hook-duration 可配, 范围 3-5; 用户"可以多")
-- `shorts_hook` 默认 **False** (opt-in via `--with-hook` 或 config); 本次新功能, 稳定后可考虑改默认 True
+- `shorts_hook` 默认 **True** (2026-07-07 用户拍板"功能稳定后要默认开"已执行; 想关加 `--no-hook`); `hook_dur` 可调 (`--hook-duration` / config `shorts_hook_dur`, 默认 4 范围 3-5)
 - 字幕文案"🔥 高燃预警 / 先睹为快" (橙红+黄, 全教练统一, 不调 coach_profiles)
 
 **【待用户拍板】**:
 1. 功能默认关, 下次跑主管线时想带 hook 加 `--with-hook`; 旧视频 (李刚1/枫林红/彩娥/郭海军) 要补 hook 需重跑 shorts (per memory no-auto-rerun, 不主动重跑)
 2. hook_dur 是否调 (4s 默认, 用户说"可以多多也可以")
-3. 是否改默认开 (稳定后)
+3. ✅ 默认已改开 (用户 2026-07-07 拍板"功能稳定后要默认开, hook_dur 可调"; 39_shorts.py default False→True + main help 同步 + docs 同步, commit 本次)
 
 **【本轮 commits】**: `afacaea` feat(shorts): 高燃预览开场 hook — 6 文件 +469/-19, pre-commit 35 passed 零回归
 
