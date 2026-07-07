@@ -4,6 +4,51 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-07（**高燃预览开场 hook 上线 — yt_shorts 前 N 秒拼全片最燃段(静音+字幕) + 正片零错位**）:
+
+**【本轮任务】**: 引流功能 — YT Shorts 完播率前 3 秒决定 70%, 旧版固定裁前 30s 开场慢热起步. 用户"开头黄金三秒也是个不错的想法, 可以试试" + 约束"音频对齐不要错位 / 避免音频切换太突兀 / 时长灵活可多".
+
+**【设计】**: yt_shorts 前拼一段**全片最燃窗** (默认 4s, 静音 + "🔥 高燃预警"橙红字幕 + "先睹为快"黄副标), 正片音频**零错位**保留. douyin 完整版零改动 (隔离). 窗口=复用 `35_intensity_burst` 逐帧 motion 食谱 (conf>0.3 关键点位移均值), 滑动窗取 mean-motion 最大起点, 排除首尾各 10%, 自身抗单帧尖刺.
+
+**【实现 (5 文件 + 1 测试, commit afacaea)】**:
+- `stages/short_vertical.py`: + `compute_hook_window(kp, crop_segments, fps, total_dur, hook_dur, skip_sec)` → `(hook_start, hook_crop_x)` 或 None; `make_vertical` +`hook_enabled/hook_dur` 参数, hook on 时插 step0 (hook 静音段+字幕PNG, 静态 crop) → step1 (正片不变) → step1.5 (concat demuxer -c copy 零重编码) → step2 音频合并; hook off 原路径
+- `stages/render_short_overlay.py`: + `render_preview()` 🔥 高燃预警(橙红 255,80,30 110px bold) + 先睹为快(黄 48px), 中部半透明黑底 (y 38-56%)
+- `stages/39_shorts.py`: 读 `cfg.shorts_hook/shorts_hook_dur`, yt_shorts 传 hook_enabled (douyin 不传=隔离)
+- `main.py`: + `--with-hook/--no-hook` (默认关 opt-in) + `--hook-duration` (默认 4)
+- `pipeline/config.py`: shorts_hook + shorts_hook_dur 加 known keys
+- `tests/test_short_vertical_hook.py`: 10 测纯算法层 (高燃窗选择/尖刺不污染/首尾排除/crop 钳制/多段取对段/skip 映射/帧对齐/边界 None)
+
+**【⚠ 音频错位坑 (核心, memory adelay-silence-gapless-strip)】**:
+- step2 音频**不能用 `adelay={ms}`** — 它产生的前导静音被 AAC encoder 标记为 **gapless encoder_delay side data**, ffmpeg-based 解码器 (含 YouTube) 解码时整体丢弃 → 主音频从 t=0 越过预览播放 = **音视频错位**
+- 诊断证据 (旧版): 容器层 -c copy 0-4s raw 是真静音帧, 但 decode = 30s (不是 34s), 0-4s 测出 -13.8dB 响 = 静音被丢
+- **修复**: 改用 `anullsrc` lavfi 源产**真零样本静音** + `concat=n=2:v=0:a=1` 拼主音频 (anullsrc 不被 gapless 剥)
+
+**【验证 (李刚1, 像素非肉眼, 全 6 过)】** ✅:
+1. hook 字幕 @2s: 橙红(255,80,30)=25740px + 黄=2407px (高燃预警+先睹为快)
+2. opening 诗词 @5s: 黄=23181px (concat 后正片 t 语义正确)
+3. pip 白边框 @11.5s: 顶边横线 496px ≈ pip 宽 480 (concat -c copy 未破坏 enable=between)
+4. 时长 34.059s (hook 4 + 正片 30)
+5. hook 段 0-4s 静音 mean **-74.4 dB** (anullsrc 真静音, 解码后保留)
+6. **帧精确零错位**: hook 帧 271 == nohook 帧 150 (nonzero=**0** 逐字节同帧), 邻帧 nohook@155 diff 38% (证明确实匹配同帧非相似内容). → concat 把 main 放在 hook 帧 121 (≈ hook_dur·fps), 零错位
+
+**【默认值 / 调参】**:
+- `hook_dur=4.0` (--hook-duration 可配, 范围 3-5; 用户"可以多")
+- `shorts_hook` 默认 **False** (opt-in via `--with-hook` 或 config); 本次新功能, 稳定后可考虑改默认 True
+- 字幕文案"🔥 高燃预警 / 先睹为快" (橙红+黄, 全教练统一, 不调 coach_profiles)
+
+**【待用户拍板】**:
+1. 功能默认关, 下次跑主管线时想带 hook 加 `--with-hook`; 旧视频 (李刚1/枫林红/彩娥/郭海军) 要补 hook 需重跑 shorts (per memory no-auto-rerun, 不主动重跑)
+2. hook_dur 是否调 (4s 默认, 用户说"可以多多也可以")
+3. 是否改默认开 (稳定后)
+
+**【本轮 commits】**: `afacaea` feat(shorts): 高燃预览开场 hook — 6 文件 +469/-19, pre-commit 35 passed 零回归
+
+**【下一步候选】**:
+1. 用户下一个视频 / 拍板上传之前批次 (郭海军/彩娥/枫林红/李刚1 四套三件套待传)
+2. Matting Studio Phase 2 升级
+
+---
+
 最后更新: 2026-07-07（**竖屏画中画小窗 功能上线 — Shorts+抖音 右上 16:9 全景小窗**）:
 
 **【本轮任务】**: 竖屏画中画 (用户「画中画用于竖屏产品, 展现全横幅 16:9 画面, 竖屏主画面以领操人为主题范围很小」+「诗词结束后右上出现, 全程存在, 位置通过计算得到」+「换脸后视频更好, 看难度/有合适产物就用」).

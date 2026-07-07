@@ -312,6 +312,8 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 --shorts-duration <sec>    Shorts 时长 (默认 30)
 --shorts-coach <name>      教练名 (用于片头诗词 + 英文标题)
 --with-pip / --no-pip      竖屏画中画小窗 (诗词后右上全景 16:9, 默认开)
+--with-hook / --no-hook    yt_shorts 高燃预览开场 (前 N 秒拼全片最燃段+静音字幕, 默认关)
+--hook-duration <sec>      hook 时长 (默认 4, 范围 3-5)
 ```
 
 ### 3. Face Swap 可靠性修复 (核心 - 解决 CUDNN 崩溃)
@@ -367,6 +369,16 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 - **细白边 + 静音**, Shorts + 抖音都加. CLI `--with-pip`/`--no-pip` (默认开), config `stages.shorts_pip`.
 - 与横屏 `pip` (31_pip, 永久关) 区别: 横屏本身全景套小窗=冗余; 竖屏裁切丢画面, 小窗补全景=信息互补.
 - 守门: `tests/test_short_vertical_pip.py` (6 tests, compute_pip_rect 不变量). 验证靠像素 (抽帧检测小窗白边框), 不靠日志.
+
+### 10. 高燃预览开场 hook (2026-07-07)
+
+YouTube Shorts 完播率前 3 秒决定 70%, 但 ShortsStage 旧版固定裁前 30s — 开场是第 0 秒, 领操刚起步动作幅度小平淡. hook 在 **yt_shorts** (仅 Shorts, douyin 隔离零改动) 前拼一段**全片最燃窗** (默认 4s 静音 + "🔥 高燃预警"橙红字幕), 把"慢热起步"变"最燃动作直击":
+- **窗口选择** (`compute_hook_window`): 复用 `35_intensity_burst:58-78` 逐帧 motion 食谱 (conf>0.3 关键点位移均值), 滑动窗 (hook_dur×fps 帧) 取 mean-motion 最大起点, **排除首尾各 10%** (避片头诗词/片尾噪声), 滑动窗自身抗单帧尖刺. hook_crop_x = 窗口落段的 crop_x, 钳到 `[padding, w-crop_w-padding]`.
+- **4 步编码** (`make_vertical` hook_enabled=True): step0 (hook 静音段 + 字幕 PNG, 静态 crop) → step1 (正片不变, opening/cta/pip/crop 一字不改) → step1.5 (concat demuxer `-c copy` 零重编码) → step2 (音频合并). hook off 走原 step1→step2.
+- **⚠ 音频必须用 `anullsrc`+concat, 不能用 `adelay`** (memory `adelay-silence-gapless-strip`): `adelay={ms}` 产生的前导静音被 AAC gapless 当 encoder_delay side data, 解码时整体丢弃 → 主音频从 t=0 越过预览播放 = **音视频错位**. 容器层 -c copy 看不出 (raw 帧真静音), 必须 decode 后测才暴露. 修复 = `anullsrc` lavfi 源产真零样本静音 + `[2:a][a1]concat=n=2:v=0:a=1` 拼主音频.
+- **字幕**: `render_short_overlay.render_preview` → 🔥 高燃预警 (橙红 255,80,30, 110px bold, 与 opening 黄/CTA 黄区分) + 先睹为快 (黄 48px), 中部半透明黑底 (y 38-56%). 全教练统一, 不调 coach_profiles.
+- **为什么 concat demuxer 不破坏正片 t 语义**: concat 是流级拼接只改输出 PTS, step1 filter (pip `enable='between(t,...)` / crop_x_expr) 在 concat 前已把 t-based 效果 baked 成像素, demuxer 改不了 → 正片节奏零偏移. 像素证据 (李刚1): hook 帧 271 == nohook 帧 150 (nonzero=0 逐字节同帧).
+- CLI `--with-hook`/`--no-hook` (默认关 opt-in) + `--hook-duration` (默认 4); config `shorts_hook`/`shorts_hook_dur`. 守门 `tests/test_short_vertical_hook.py` (10 tests, 纯算法层).
 
 
 ## ~~2026-06-27 ShortsStage CTA 已知问题 (ffmpeg 8.1 bug)~~ 【已解决 2026-06-29】
