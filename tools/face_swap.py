@@ -338,6 +338,125 @@ def ensure_source_photo(source_path, coach_name, app=None, force=False, out_dir=
     return out_path
 
 
+def extract_source_from_video(video_path, keypoints_file, coach_name, out_dir="tools",
+                              app=None, top_k=15):
+    """无源照时, 从视频自动抽最大正脸帧 → GFPGAN 全强度增强 → 存 tools/{coach}_face.png 长期复用.
+
+    返回源照路径或 None. None = 无 keypoints / 无正脸 lead 帧 / GFPGAN 不可用 / 增强后检不到脸.
+
+    策略 (memory face-swap-no-source-self-beautify, 彩娥2/李刚2 验证; 用户要求"按原策略自动抽"):
+      1. pose keypoints 每帧 find_lead_person (cx 居中 + 体型最大) → get_lead_bbox_from_pose 算
+         lead 脸 ROI + 朝向; 算正脸分 = nose_conf × 肩宽 (大 + 正脸). 取 top_k 帧.
+      2. 实读 top_k 帧像素, ROI 外扩 1.3× 给 GFPGAN 上下文, _detect_with_fallback (det_size=320
+         降级抓小脸) 在 ROI 内确认有脸; 选 area × det_score 最大者.
+      3. GFPGAN 全强度增强该 ROI (修全身镜头里的小模糊脸) — enhance_source_photo 复用.
+      4. 复检增强后脸 ≠ 0 (避 flh 坑: GFPGAN 可能毁照到检不到, memory face-swap-gfpgan-ruins-photo).
+      5. 存 tools/{coach}_face.png → 下次 find_coach_face 命中 _face.png 长期复用.
+
+    为什么抽 ROI 不抽整帧: GFPGAN align 帧内最大脸, 群体健身帧最大脸可能是近处路人而非 lead;
+    ROI 锁定 lead → GFPGAN 必然修对脸. inswapper 只换脸不换发, 头发不影响.
+    """
+    if not keypoints_file or not os.path.exists(keypoints_file):
+        print("  [抽源] 无 keypoints, 跳过自动抽源")
+        return None
+    try:
+        import json as _json
+        with open(keypoints_file, encoding="utf-8") as f:
+            raw = _json.load(f)
+    except Exception as e:
+        print(f"  [抽源] keypoints 读取失败: {e}")
+        return None
+    kp = raw.get("keypoints", raw)
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"  [抽源] 视频打不开: {video_path}")
+        return None
+    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # 1. 每帧 lead 正脸分
+    candidates = []  # (frontal_score, fi, bbox)
+    for fi_str, persons in kp.items():
+        try:
+            fi = int(fi_str)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(persons, list):
+            continue
+        person = find_lead_person(persons, frame_w, frame_h)
+        if person is None or len(person) < 13:
+            continue
+        bbox, orient = get_lead_bbox_from_pose(person, frame_w, frame_h)
+        if orient == "back" or bbox is None:
+            continue
+        nose = person[0]
+        ls, rs = person[11], person[12]
+        if len(nose) < 3 or nose[2] < 0.4:           # 脸不可见/低置信 → 跳过
+            continue
+        if len(ls) < 3 or len(rs) < 3 or ls[2] < 0.3 or rs[2] < 0.3:
+            continue
+        shoulder_w = abs(ls[0] - rs[0]) * frame_w
+        frontal_score = nose[2] * shoulder_w          # 大 + 正脸
+        candidates.append((frontal_score, fi, bbox))
+    if not candidates:
+        print("  [抽源] 无正脸 lead 帧, 跳过")
+        cap.release()
+        return None
+    candidates.sort(key=lambda x: -x[0])
+    top = candidates[:top_k]
+
+    # 2. 实读 top_k 帧, ROI 内 insightface 确认脸, 选最优
+    if app is None:
+        app = get_face_analyser()
+    best = None  # (rank, fi, roi_bgr)
+    for frontal_score, fi, bbox in top:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            continue
+        x1, y1, x2, y2 = bbox
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        s = max(x2 - x1, y2 - y1)
+        half = max(80, int(s * 1.3 / 2))               # ROI 外扩 1.3×, 下限 80
+        rx1 = max(0, cx - half); ry1 = max(0, cy - half)
+        rx2 = min(frame_w, cx + half); ry2 = min(frame_h, cy + half)
+        roi = frame[ry1:ry2, rx1:rx2]
+        if roi.size == 0:
+            continue
+        faces = _detect_with_fallback(app, roi)
+        if not faces:
+            continue
+        f = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
+        area = (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+        rank = area * float(f.det_score)
+        if best is None or rank > best[0]:
+            best = (rank, fi, roi.copy())
+    cap.release()
+    if best is None:
+        print("  [抽源] 候选帧 ROI 内均检不到脸, 跳过")
+        return None
+
+    rank, fi, roi = best
+    print(f"  [抽源] 选定第 {fi} 帧 lead ROI (rank={rank:.0f}), GFPGAN 全强度增强...")
+    # 3. GFPGAN 全强度增强
+    model, cascade, device = _load_gfpgan()
+    if model is None:
+        print("  [抽源] GFPGAN 不可用, 跳过")
+        return None
+    enhanced = enhance_source_photo(roi, model, cascade, device)
+    # 4. 复检: 增强后必须还能检到脸 (避 flh 坑)
+    if not _detect_with_fallback(app, enhanced):
+        print("  [抽源] GFPGAN 增强后反而检不到脸 (flh 坑), 放弃自动抽源")
+        return None
+    # 5. 存盘长期复用
+    out_path = os.path.join(out_dir, f"{coach_name}_face.png")
+    _imwrite_unicode(out_path, enhanced)
+    eh, ew = enhanced.shape[:2]
+    print(f"  [抽源] OK → {os.path.basename(out_path)} ({ew}x{eh}), 长期复用")
+    return out_path
+
+
 def _detect_with_fallback(app, img):
     """insightface 检测 + det_size 降级 (640→320).
     640 在某些角度/遮挡照片漏检 (实测 yanqing 短发仰角图),

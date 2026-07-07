@@ -66,12 +66,31 @@ class FaceSwapStage:
             print(f"    跳过: 未识别教练")
             return
 
-        # 自适应查找: 有照片就换, 没照片就 skip
+        # 自适应查找: 有照片就换; 没照片自动从视频抽最大正脸帧 + GFPGAN 增强 (长期复用)
         tools_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tools"))
         source_face = find_coach_face(lead_name, tools_dir)
         if not source_face:
-            print(f"    跳过: 教练 '{lead_name}' 在 tools/ 下无照片 (可放 {lead_name}.png 启用换脸)")
-            return
+            # 2026-07-08: 无源照自动抽源 (memory face-swap-no-source-self-beautify, 彩娥2/李刚2 验证).
+            # 用户要求"没提供美颜照就按原策略自动抽+超分+长期复用". 失败回落 skip, 不阻塞管线.
+            print(f"    教练 '{lead_name}' tools/ 下无照片, 尝试自动抽源...")
+            kp_file = (ctx.get("keypoints_file") or ctx.get("keypoints_path")
+                       or str(ctx.output_dir / f"{ctx.input_path.stem}_keypoints.json"))
+            if not Path(kp_file).exists():
+                kp_file = None
+            sys.path.insert(0, tools_dir)
+            try:
+                from tools.face_swap import extract_source_from_video
+                source_face = extract_source_from_video(
+                    str(ctx.input_path), kp_file, lead_name, out_dir=tools_dir)
+            except Exception as _e:
+                print(f"    自动抽源失败: {_e}")
+                source_face = None
+            finally:
+                if tools_dir in sys.path:
+                    sys.path.remove(tools_dir)
+            if not source_face:
+                print(f"    跳过: 教练 '{lead_name}' 自动抽源未果 (可手动放 {lead_name}.png 启用换脸)")
+                return
 
         # 换脸目标: 优先显式指定 → mascot 输出 → 任意上游视频
         # (mascot 未开启时也能换脸, 不再硬依赖吉祥物; 下游仍读 mascot_path 接力)

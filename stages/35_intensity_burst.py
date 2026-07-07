@@ -29,10 +29,16 @@ class IntensityBurstStage:
         # 在 danmaku 之前, 让 burst 用换脸后的视频作 base.
         # 关键: mascot_path 是 face_swap 输出的别名 (CLAUDE 2026-06-29 + commit 84d39a2 钉死),
         # 弹幕必须叠在 face_swap/mascot 之后的视频上, 不能放 face_swap 之前 (否则弹幕画原脸).
+        # 2026-07-08 修复 (张杰1_2 丢汉印/时间戳): face_swap 跳过 (教练无源照) 时, mascot_path/
+        # face_swap_path 全 None → burst 跌穿到 energybar_path (watermark 之前) → 爆燃输出无汉印,
+        # 下游 danmaku/export 读 burst → final 丢汉印+时间戳. 加 watermark_path 在 energybar 之前,
+        # 保证 face_swap 缺席时 burst 也接力含汉印的视频. (danmaku/export 链早有 watermark_path,
+        # 仅 burst 漏了.) 像素证据: energybar_burst.mp4 (read energybar) vs 应读 energybar_watermark.
         input_path = (ctx.get("smart_crop_path") or
                      ctx.get("mascot_path") or
                      ctx.get("face_swap_path") or
                      ctx.get("danmaku_path") or
+                     ctx.get("watermark_path") or
                      ctx.get("energybar_path") or
                      ctx.get("highlight_path") or
                      ctx.get("beatflash_path") or

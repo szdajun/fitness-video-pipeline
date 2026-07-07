@@ -4,6 +4,84 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-08 01:48（**张杰1_2 final 修复重跑 + 新增"无源照自动抽源"功能 — 全元素 vision 验证通过 — 待用户拍板 YT 重传**）:
+
+**【本轮任务 (两条线)】**:
+1. 用户报张杰1_2 final (YT long pO5h9UXBtI0) **缺汉印/时间戳/爆燃文字** (弹幕正常) → 诊断根因 + 修复 + 重跑
+2. 用户"关于换脸，如果没有提供美颜照，那就按照原来的策略自己在视频中找个合适的照片进行超分处理，留下来长期使用" → 新功能: 无源照自动抽帧+GFPGAN超分+长期复用
+
+**【根因 — burst fallback 链缺 watermark_path】**:
+- `stages/35_intensity_burst.py` 旧链 `smart_crop/mascot/face_swap/danmaku → energybar` 漏了 `watermark_path`. 张杰无源照→face_swap 跳过→mascot_path/face_swap_path 全 None→burst **跌穿到 energybar_path**(watermark 之前, 无汉印)→下游 danmaku/export 读 burst→final 丢汉印+时间戳.
+- **修复**: 链中 `watermark_path` 放 `energybar_path` **之前** (L41). face_swap 缺席时 burst 也接力含汉印视频. 守门 `tests/test_burst_chain_watermark.py` (链顺序钉死).
+- 关键认知 (钉死): **每个 stage 的 fallback 链必须含 watermark_path** (汉印/时间戳在 watermark stage 加). burst 当时漏了, danmaku/export 早有.
+
+**【新功能 — 无源照自动抽源 `extract_source_from_video`】** (用户要求, memory face-swap-no-source-self-beautify 策略产品化):
+- `tools/face_swap.py` 新增: 无源照时, pose keypoints 每帧 find_lead_person→算 lead 脸 ROI+朝向, 正脸分(nose_conf×肩宽) top_k 帧 → 实读像素 ROI 外扩1.3× `_detect_with_fallback`(det_size=320) 确认有脸 → 选 area×det_score 最大 → GFPGAN 全强度增强 → 复检增强后脸≠0(避 flh 坑) → 存 `tools/{coach}_face.png` 长期复用.
+- `stages/37_face_swap.py` 接线: find_coach_face 失败时调 extract_source_from_video, 失败回落 skip 不阻塞.
+- **为什么抽 ROI 不抽整帧**: GFPGAN align 帧内最大脸, 群体健身帧最大脸可能是近处路人; ROI 锁 lead→GFPGAN 必修对脸.
+- 张杰实测: 抽第5帧 lead ROI(rank=2155)→GFPGAN→`tools/张杰_face.png` (208×208), **vision 确认男性正面清晰脸适合换脸源**. ensure_source_photo 再增强→`张杰_gfpgan.png`.
+
+**【张杰1_2 重跑 (exit 0, 4423s, 增量 burst→shorts)】**:
+- 删 6 个 stale 产物 (burst/danmaku/final/full/douyin/yt_shorts, **精确文件名** per 白名单原则), 保留上游 (energybar/watermark/keypoints/color/highlight/intro/outro)
+- face_swap **首次跑** (旧版跳过): 4747帧 swap=2526 背面跳过=2221(领操转身) 无pose=0, **无 CUDNN 崩** (arena kSameAsRequested 生效)
+- burst 输出名变 `..._faceswap_burst.mp4` (读 face_swap_path, 证 fix 触发, 非旧 energybar_burst)
+- stage: face_swap 3056s / burst 446s / danmaku 546s / export 201s / shorts 171s
+- 爆燃: **9 处峰值** (norm_i>0.7 候选 13 个, random/beat gate 过 9 个)
+
+**【产物 vision 验证 (全过, 非像素阈值 per memory danmaku-yuv420p-subsampling)】** ✅:
+- final@12s: 🔴汉印✓(左上红圆印) ⏰时间戳✓("2026-07-07") 弹幕✓("姐妹身材太好") 爆燃✗(非峰值帧)
+- final@95s: 🔴汉印✓ ⏰时间戳✓ 弹幕✓("别放弃!") 爆燃✗
+- **final@156s(帧4680, 峰值norm_i=1.139)**: 🔴汉印✓ ⏰时间戳✓ **🔥爆燃✓(中央红色大字"燃")** ← 三元素同帧全证
+- (burst中间产物@4680 也确认"燃"红字, 88%置信度)
+
+**【张杰三件套 (output/2026-07-07/, 01:25~01:48 重生)】**:
+- `张杰1_2_merged_final_16x9_1920x1080.mp4` 337MB (含汉印+时间戳+爆燃+弹幕+**换脸**[新增]+片头片尾)
+- `张杰1_2_merged_final_16x9_1920x1080_yt_shorts.mp4` 68MB (YT Shorts, 含hook)
+- `张杰1_2_merged_final_16x9_1920x1080_douyin.mp4` 317MB (抖音, 含hook)
+- `张杰1_2_merged_faceswap.mp4` 214MB (face_swap 中间产物, PIP源)
+
+**【未提交工作树】** (per 全局规则"commit 只在用户要求时"): burst fix + auto-source + guard test + 张杰源照. 待用户说提交再 commit.
+
+**【待用户拍板】** ⭐:
+1. **YT 重传**: 旧 pO5h9UXBtI0 (缺陷版: 丢汉印/时间戳/无换脸) 是否删→重传新 final? (per memory no-auto-rerun-after-fix, 不自作主张重传; 新 final 远优于旧版)
+2. 抖音新 douyin (含换脸) 用户手工传 (memory douyin-manual-upload)
+3. 本轮代码改动 (burst fix + auto-source) 是否要 commit
+
+**【下一步候选】**: 用户拍板 YT 重传 / 下一个视频 / Matting Studio.
+
+---
+
+最后更新: 2026-07-07 23:58（**张杰 YT 上传完成 (long+Shorts) — 抖音待用户手工**）:
+
+**【本轮任务】**: 用户"张杰的上传，抖音的我上传" → 上传张杰 YT long + Shorts, 抖音用户手工.
+
+**【阻塞→解决: YT OAuth token 过期 (invalid_grant)】**:
+- 上传首次崩 `google.auth.exceptions.RefreshError: ('invalid_grant: Token has been expired or revoked.')` (memory youtube-upload-large-file-wrong-videoid 记的坑, refresh token 失效)
+- ComfyUI `youtube_upload.py:get_authenticated_service` 缺陷: TOKEN_YANZHI 缺失时 fallback 到 TOKEN_FILE (可能别的账号), 且过期 token `creds.refresh()` 抛异常**不**落到浏览器重授权分支 → 直接崩
+- **解法 (不碰 ComfyUI 代码)**: 新建 `tools/reauth_youtube_fitness.py` 显式跑 `InstalledAppFlow.run_local_server(prompt='consent')` 存到 `TOKEN_YANZHI` (channel='fitness' 正确文件). 旧过期 token 改名 `.expired_Jul` 留证. 用户浏览器登录胭脂虎账号授权 → 新 token 落 Jul 7 23:55 → 重跑上传成功. **token 会再过期, 以后直接跑这个 reauth 脚本**.
+
+**【张杰 YT 上传结果 (public 立即发布, exit 0)】** ✅:
+- **long**: https://www.youtube.com/watch?v=pO5h9UXBtI0 (321MB, 【神行太保】张杰持久有氧操 | 持久有氧跟练 | 细柳营健身)
+  - verify 修正大文件误拿 videoid: youtube_upload 返回 8aFSdsV5ttg (search 误拿) → verify 双匹配 (标题+新鲜度) 修正为真实 **pO5h9UXBtI0** (第 2 次 search 命中). manifest 已记 pO5h9UXBtI0.
+- **short**: https://www.youtube.com/watch?v=T8KQzYlc3AI (66MB, 【神行太保】张杰30秒持久有氧操 | 持久有氧挑战 | 细柳营健身 #Shorts). manifest 已记.
+- 两视频均 public 立即发布 (per yt-long-video-publish-immediately).
+
+**【抖音 — 用户手工】** (用户"抖音的我上传"):
+- 文件: `output/2026-07-07/张杰1_2_merged_final_16x9_1920x1080_douyin.mp4` 322MB (含 hook + 片头诗词, 9:16 1080×1920, 2:42)
+- 不自动传抖音 (memory douyin-manual-upload: 自动传被平台检测封号, 用户决策)
+
+**【新增工具】**: `tools/reauth_youtube_fitness.py` (YT fitness token 过期重授权, 浏览器登录胭脂虎账号). 保留复用.
+
+**【下一步候选】**:
+1. 用户手工传抖音 (张杰 douyin 文件已就位)
+2. (可选) 艳青1_2 重跑 shorts+douyin 生成 4-bug 修复版重传 (用户已传旧 bug 版; 需用户拍板, 非 agent 自作主张 per no-auto-rerun)
+3. (可选) 张杰换脸源照 `tools/张杰.png` (想换脸时用户提供清晰照) → 重跑 face_swap+下游
+4. 下一个视频 / Matting Studio Phase 2 升级
+
+**【待用户拍板】**: 艳青1_2 是否要修复版重传.
+
+---
+
 最后更新: 2026-07-07 23:25（**4 bug 修复+张杰1_2 主管线完成+产物验证 4/4 过 — 待用户拍板上传**）:
 
 **【本轮任务】**: 用户上传艳青1_2 后报 4 问题 → 修复后跑张杰1_2 验证"文档问题是否解决".
