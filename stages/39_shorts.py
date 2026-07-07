@@ -82,9 +82,10 @@ class ShortsStage:
                     pip_src = str(_cand)
                     break
 
-        # 2026-07-07 高燃预览开场: yt_shorts 最前拼全片最燃 ~4s (静音+字幕), 只 yt_shorts.
-        # 拉升 Shorts 前 3 秒完播率 → 平台推荐权重. 音频 anullsrc 真静音+concat 零错位
-        # (⚠ 不用 adelay — 前导静音被 AAC gapless 当 encoder_delay 解码丢弃=错位, memory adelay-silence-gapless-strip).
+        # 2026-07-07 高燃预览开场: 竖版最前拼全片最燃 ~4s (静音+字幕). yt_shorts + douyin 都加
+        # (2026-07-07: 用户要抖音版也有爆燃预警). 拉升前 3 秒完播率 → 平台推荐权重.
+        # 音频 anullsrc 真静音+concat 零错位 (⚠ 不用 adelay — 前导静音被 AAC gapless 当
+        # encoder_delay 解码丢弃=错位, memory adelay-silence-gapless-strip).
         hook_enabled = cfg.get("shorts_hook", True)
         hook_dur = float(cfg.get("shorts_hook_dur", 4.0))
 
@@ -113,6 +114,7 @@ class ShortsStage:
                 audio_src=audio_src,
                 intro_path=intro_path, intro_seconds=intro_seconds,
                 pip_src=pip_src, pip_enabled=pip_enabled,
+                hook_enabled=hook_enabled, hook_dur=hook_dur,
             )
             if result:
                 ctx.set("douyin_vertical_path", result)

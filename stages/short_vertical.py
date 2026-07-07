@@ -402,8 +402,24 @@ def compute_pip_rect(kp_dict: dict,
                 # 上半身 bbox (小窗在上方, 避让举手为主); 上半身不可见 fallback 全身
                 up_mask = vis[upper]
                 chosen = kps[upper][up_mask] if up_mask.sum() >= 2 else kps[vis]
-                hx = chosen[:, 0] * frame_w
-                hy = chosen[:, 1] * frame_h
+                hx = np.asarray(chosen[:, 0] * frame_w, dtype=np.float32)
+                hy = np.asarray(chosen[:, 1] * frame_h, dtype=np.float32)
+                # 2026-07-07 背向补头: 脸 kp(0-6 鼻/眼/耳) 背向时低置信度被 vis 过滤 →
+                # bbox 丢头 → PIP 压在 (后) 脑上检测不到 (用户报"背向时挡头"). 脸不可见
+                # 但双肩(11,12)可见时, 从肩宽推断头位 (头在肩中点上方 ~1×肩宽, 横 ±0.5×
+                # 肩宽) 补进 bbox. 脸可见时用真实脸 kp, 不触发 (现有测试假人 conf=0.95 不受影响).
+                if vis[0:7].sum() < 2 and vis[11] and vis[12]:
+                    sh_x = kps[[11, 12], 0] * frame_w
+                    sh_y = kps[[11, 12], 1] * frame_h
+                    mid_x = float(sh_x.mean())
+                    mid_y = float(sh_y.mean())
+                    sw = float(abs(sh_x[0] - sh_x[1]))  # 肩宽 (frame px)
+                    if sw > 1.0:
+                        hx = np.concatenate(
+                            [hx, np.array([mid_x - sw * 0.5, mid_x + sw * 0.5],
+                                          dtype=np.float32)])
+                        hy = np.concatenate(
+                            [hy, np.array([mid_y - sw, mid_y], dtype=np.float32)])
                 vx = (hx - crop_x) * sx_v
                 vy = hy * sy_v
                 best_box = (float(vx.min()), float(vy.min()),
@@ -841,9 +857,9 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         total_dur = max(1.0, raw_total - skip - outro_dur) if raw_total > 0 else 30.0
     else:
         total_dur = float(duration)
-    # 高燃预览开场 (2026-07-07): 选全片最燃 hook_dur 秒窗, 拼到 yt_shorts 最前
-    # 只对 yt_shorts; douyin 完整版不加钩子 (时长长, 钩子占比小无意义)
-    if hook_enabled and profile == "yt_shorts" and kp_dict:
+    # 高燃预览开场 (2026-07-07): 选全片最燃 hook_dur 秒窗, 拼到竖版最前.
+    # yt_shorts + douyin 都加 (2026-07-07: 用户要抖音版也有爆燃预警片段).
+    if hook_enabled and profile in ("yt_shorts", "douyin") and kp_dict:
         try:
             hook_window = compute_hook_window(
                 kp_dict, crop_segments, fps=fps,
@@ -956,8 +972,15 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
                     + step1_vf.replace("[vout]", "[vpre]")
                     + f";[vpre][pip]overlay={px}:{py}"
                       f":enable='between(t,{opening_end:.3f},{total_dur:.3f})'[vout]")
-        # pip input 也要 -ss skip 对齐主视频 (否则小窗播的是片头部分, 与主画面错位)
-        step1_inputs = (step1_inputs + ["-ss", str(skip), "-t", f"{total_dur:.3f}",
+        # pip input seek: face_swap_path 无片头/片尾 (workout-only; 实测 179.6s vs
+        #   final 188.6s, 差正好 intro 4s + outro 5s). 不能套用主视频的 skip(=intro 4s) —
+        #   否则小窗多跳 4s → PIP 比主画面提前 4s (workout[T+skip] vs workout[T]),
+        #   即用户报的"画中画和主视频不同步". 仅当 pip_src 就是 src(final_path, 含片头) 时
+        #   才 -ss skip; face_swap_path(workout-only) seek 0. 两路都让 PIP t=0=workout[0]
+        #   对齐主画面.
+        pip_is_intro_src = os.path.realpath(str(pip_src)) == os.path.realpath(str(src_path))
+        pip_seek = skip if pip_is_intro_src else 0.0
+        step1_inputs = (step1_inputs + ["-ss", f"{pip_seek:.3f}", "-t", f"{total_dur:.3f}",
                                         "-i", str(pip_src)])
 
     print(f"    [1/2] 视频 + overlay (无 audio) -> _video_only_{profile}_{src_stem}.mp4")

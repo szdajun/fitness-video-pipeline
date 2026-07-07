@@ -70,3 +70,20 @@ class TestComputePipRect:
         x, y, w, h = compute_pip_rect(kp, segs)
         assert x + w <= 1080 and y + h <= 1920
         assert h == round(w * 9 / 16)
+
+    def test_back_facing_head_inferred_and_avoided(self):
+        """背向 (脸 kp 0-6 不可见) 双肩可见 → 从肩推断头; 头在右上角时 PIP 必须下移避让.
+
+        2026-07-07: 旧代码 bbox 用上半身 kp, 背向时脸 kp 被置信度过滤 → bbox 丢头 →
+        PIP 压 y=24 挡住 (后) 脑. 新代码脸不可见时从肩宽推断头位补进 bbox → PIP 下移.
+        """
+        def _back(cx=0.56, cy=0.25):
+            # cx=0.56 使推断头落在 PIP 横区 [456,1056] 内 (crop_w=608, sx_v=1.776)
+            kps = _make_person(cx=cx, cy=cy, scale=0.15)
+            for i in range(7):           # 抹掉脸 kp (背向看不到脸, conf=0)
+                kps[i] = [kps[i][0], kps[i][1], 0.0]
+            return kps
+        kp = {i: [_back()] for i in range(30)}
+        x, y, w, h = compute_pip_rect(kp, [(0, 30, 656)])
+        assert y > 24, f"背向时 PIP 应下移避让推断头, got y={y}"
+        assert x + w <= 1080 and y + h <= 1920

@@ -16,6 +16,8 @@ from PIL import Image, ImageDraw, ImageFont
 # 字体路径 (CLAUDE.md 钉死的中文字体)
 FONT_REG = r"C:/Windows/Fonts/msyh.ttc"
 FONT_BOLD = r"C:/Windows/Fonts/msyhbd.ttc"
+# 2026-07-07: msyhbd 无 🔥(U+1F525) 字形 → 渲染成方框(tofu). 用 Segoe UI Emoji 渲染 emoji.
+FONT_EMOJI = r"C:/Windows/Fonts/seguiemj.ttf"
 
 # 导入 coach_profiles 拿诗词和英文标题
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -154,6 +156,7 @@ def render_preview(out_png: str, size=(1080, 1920), duration: float = 4.0):
     draw = ImageDraw.Draw(img)
 
     title_font = _load_font(FONT_BOLD, 110)
+    emoji_font = _load_font(FONT_EMOJI, 104)  # 🔥 用 Segoe UI Emoji (msyhbd 无此字形→方框)
     sub_font = _load_font(FONT_REG, 48)
 
     def draw_centered(text, font, y_frac, fill, stroke_w=5, stroke=(0, 0, 0, 240)):
@@ -168,6 +171,26 @@ def render_preview(out_png: str, size=(1080, 1920), duration: float = 4.0):
                         draw.text((x + dx, y + dy), text, font=font, fill=stroke)
         draw.text((x, y), text, font=font, fill=fill)
 
+    def draw_emoji_cjk_centered(emoji, cjk, emoji_f, cjk_f, y_frac, fill,
+                                stroke_w=5, stroke=(0, 0, 0, 240), gap=14):
+        """🔥(emoji 字体) + CJK(粗体) 居中拼接. emoji 不加描边 (避免糊掉 seguiemj 彩色字形)."""
+        eb = draw.textbbox((0, 0), emoji, font=emoji_f)
+        cb = draw.textbbox((0, 0), cjk, font=cjk_f)
+        ew = eb[2] - eb[0]
+        cw = cb[2] - cb[0]
+        total = ew + gap + cw
+        x0 = (W - total) // 2
+        y = int(H * y_frac)
+        # emoji (无描边; 彩色字形由 seguiemj COLR/CPAL 表提供, fill 仅对单色字形生效)
+        draw.text((x0, y), emoji, font=emoji_f, fill=fill)
+        xc = x0 + ew + gap
+        if stroke_w > 0:
+            for dx in range(-stroke_w, stroke_w + 1):
+                for dy in range(-stroke_w, stroke_w + 1):
+                    if dx * dx + dy * dy <= stroke_w * stroke_w:
+                        draw.text((xc + dx, y + dy), cjk, font=cjk_f, fill=stroke)
+        draw.text((xc, y), cjk, font=cjk_f, fill=fill)
+
     # 中部半透明黑底 (不挡领操人上半身, 字幕区可读)
     bg_top = int(H * 0.38)
     bg_bot = int(H * 0.56)
@@ -175,9 +198,10 @@ def render_preview(out_png: str, size=(1080, 1920), duration: float = 4.0):
     img.paste(overlay_bg, (0, bg_top), overlay_bg)
     draw = ImageDraw.Draw(img)
 
-    # 主标题: 橙红 (255,80,30) — 警示, 与 cta 黄/opening 黄 区分
-    draw_centered("🔥 高燃预警", title_font, 0.41,
-                  fill=(255, 80, 30, 255), stroke_w=5)
+    # 主标题: 🔥(emoji 字体) + 高燃预警(粗体), 橙红 居中拼接.
+    # 2026-07-07: 🔥 用 seguiemj 单独渲染 (msyhbd 无此字形→方框); emoji 不加描边.
+    draw_emoji_cjk_centered("🔥", "高燃预警", emoji_font, title_font, 0.41,
+                            fill=(255, 80, 30, 255), stroke_w=5)
     # 副标: 黄
     draw_centered("先睹为快", sub_font, 0.51,
                   fill=(255, 220, 0, 255), stroke_w=3)
