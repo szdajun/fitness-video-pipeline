@@ -330,7 +330,7 @@ def compute_pip_rect(kp_dict: dict,
                      crop_w: int = DEFAULT_CROP_W,
                      vert_w: int = 1080,
                      vert_h: int = 1920,
-                     target_w: int = 480,
+                     target_w: int = 600,
                      margin: int = 24,
                      overlap_thr: float = 0.08,
                      area_frac: float = 0.05,
@@ -589,6 +589,7 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
                   intro_seconds: Optional[float] = None,
                   pip_src: Optional[str] = None,
                   pip_enabled: bool = True,
+                  pip_target_w: int = 600,
                   overwrite: bool = True) -> Optional[str]:
     """单入口生成 9:16 竖版 (抖音或 YouTube Shorts).
 
@@ -612,6 +613,7 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         intro_seconds: 显式 intro 时长, 优先于 intro_path
         pip_src: 画中画源 (换脸后横屏 16:9). None=不加小窗. 诗词结束后全程常驻右上
         pip_enabled: 是否启用画中画小窗 (默认 True)
+        pip_target_w: 小窗宽 (像素), 默认 600 (竖屏 1080 的 56%)
         overwrite: True=覆盖已有产物
 
     Returns:
@@ -650,7 +652,8 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
             # 画中画小窗位置 (复用已解析的 kp_dict + crop_segments, 不重读文件)
             if pip_enabled and pip_src and crop_segments:
                 try:
-                    pip_rect = compute_pip_rect(kp_dict, crop_segments)
+                    pip_rect = compute_pip_rect(kp_dict, crop_segments,
+                                                target_w=pip_target_w)
                     print(f"    [pip] 小窗 {pip_rect[2]}x{pip_rect[3]} "
                           f"at ({pip_rect[0]},{pip_rect[1]}) 避开领操人")
                 except Exception as pe:

@@ -61,7 +61,7 @@ class TestComputePipRect:
         x, y, w, h = compute_pip_rect(kp, [(0, 60, 656)])  # crop_x=656 居中
         assert x == 1080 - w - 24      # 右贴边
         assert y == 24                 # 顶部 (领操人上半身在 y≈788-1017, 不挡顶部)
-        assert w == 480 and h == 270
+        assert h == round(w * 9 / 16)  # 16:9 (尺寸随默认 target_w 变, 不硬编码)
 
     def test_multi_segment_uses_each_crop_x(self):
         """多段 crop (合并视频) 每段 crop_x 不同, 不崩, 仍在竖屏内."""

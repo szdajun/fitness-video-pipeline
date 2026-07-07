@@ -31,7 +31,9 @@
 2. 满意 → 功能默认开, 下次跑主管线所有新视频自动带小窗; 旧视频 (李刚1/枫林红/彩娥/郭海军) 要补小窗需重跑 shorts
 3. 调参: `compute_pip_rect` 的 `target_w=480` / `overlap_thr=0.08` / `margin=24` 都可调
 
-**【本轮 commits】**: 待 commit (功能+测试+文档)
+**【尺寸迭代 (2026-07-07 用户反馈"空白足够")】**: 默认 `target_w` 480→600 (占宽 44%→56%). `compute_pip_rect` 默认改 + `make_vertical +pip_target_w` 可传参 (方便以后调). 实测李刚1 小窗 **600x338@(456,24)**, y=24 仍靠上 (领操人中下不挡), 像素白边 0.76 同 480 版. test 去硬编码尺寸, 6 passed.
+
+**【本轮 commits】**: `1b1d96c` feat 竖屏画中画 (480 baseline) + 尺寸 tune 480→600
 
 ---
 
