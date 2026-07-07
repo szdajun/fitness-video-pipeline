@@ -75,6 +75,7 @@ class SmartCropStage:
         # 在前 (main.py L402). 不加会绕过换脸结果, 跟 burst fix 84d39a2 同源)
         input_path = (ctx.get("mascot_path") or
                       ctx.get("face_swap_path") or
+                      ctx.get("watermark_path") or
                       ctx.get("warped_path") or
                       ctx.get("ken_burns_path") or
                       ctx.get("color_path") or

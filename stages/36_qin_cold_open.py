@@ -29,6 +29,7 @@ class QinColdOpenStage:
                      ctx.get("pip_path") or
                      ctx.get("filmlook_path") or
                      ctx.get("mascot_path") or
+                     ctx.get("watermark_path") or
                      ctx.get("energybar_path") or
                      str(ctx.input_path))
         if not input_path or not path_exists(input_path):

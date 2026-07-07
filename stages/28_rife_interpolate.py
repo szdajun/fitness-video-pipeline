@@ -85,6 +85,7 @@ class RIFEInterpolateStage:
     def _input_path(self, ctx):
         return (ctx.get("face_beautify2_path") or
                 ctx.get("face_beautify_path") or
+                ctx.get("watermark_path") or
                 ctx.get("energybar_path") or
                 ctx.get("beatflash_path") or
                 ctx.get("highlight_path") or

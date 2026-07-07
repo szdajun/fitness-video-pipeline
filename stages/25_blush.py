@@ -27,6 +27,7 @@ class BlushStage:
             return
 
         input_path = (
+            ctx.get("watermark_path") or
             ctx.get("color_path") or
             ctx.get("skin_tone_filter_path") or
             ctx.get("denoise_path") or

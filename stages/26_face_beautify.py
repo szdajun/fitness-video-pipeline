@@ -162,7 +162,7 @@ class FaceBeautifyStage:
         cfg = ctx.config.get("face_beautify", {})
         if not cfg.get("enabled", False):
             ctx.set("face_beautify_path",
-                    ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+                    ctx.get("watermark_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
 
         eye_brighten = cfg.get("eye_brighten", 0.4)
@@ -173,10 +173,11 @@ class FaceBeautifyStage:
 
         if eye_brighten <= 0 and face_smooth <= 0 and face_fill_light <= 0:
             ctx.set("face_beautify_path",
-                    ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
+                    ctx.get("watermark_path") or ctx.get("energybar_path") or ctx.get("beatflash_path") or ctx.get("ken_burns_path"))
             return
 
-        input_path = (ctx.get("energybar_path") or
+        input_path = (ctx.get("watermark_path") or
+                      ctx.get("energybar_path") or
                       ctx.get("beatflash_path") or
                       ctx.get("ken_burns_path") or
                       ctx.get("color_path") or
