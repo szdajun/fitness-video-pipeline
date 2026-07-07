@@ -364,19 +364,22 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 
 竖屏 9:16 从 16:9 裁切, 只保留领操人那一竖条, 左右画面丢失. ShortsStage (`stages/39_shorts.py` → `short_vertical.make_vertical`) 在竖屏右上叠一个 **16:9 全景小窗** 补整体场景:
 - **内容源降级链**: `face_swap_path` (换脸·干净横屏, 无弹幕文字) > `final_path` (含文字) > source. 小窗无文字, 避免和主画面重复.
+- **⚠ PIP seek 对齐 (Bug4, 2026-07-07 钉死)**: `face_swap_path` 是 **workout-only** (stage 37 跑在 export 07 **之前**, export 才 concat intro/outro → face_swap_path 无片头无片尾; ffprobe 实测 179.6s vs final 188.6s 差正好 intro4+outro5). **PIP 输入 seek 不能套主视频的 `-ss skip`(=intro)** — 否则 face_swap 多跳 4s → PIP 比主画面提前 4s (workout[T+skip] vs workout[T]) = 用户报"画中画和主视频不同步". 正解 `short_vertical.py:make_vertical` PIP 块: `pip_seek = skip if (os.path.realpath(pip_src)==os.path.realpath(src_path)) else 0` — 仅当 pip_src 就是 final_path(含片头)才 skip, face_swap_path seek 0. 两路都让 PIP t=0=workout[0] 对齐主画面. 验证靠 MSE 对比 (艳青1_2: 对齐帧 1274 vs 错位帧 3412).
 - **时机**: 诗词片头 (`opening_end≈6.5s`) 结束后出现, 全程常驻到结尾. `enable='between(t,opening_end,total)'`.
 - **位置 (不写死)**: `compute_pip_rect` 用 pose keypoints 算领操人上半身 bbox 在竖屏分布, 右上贴边扫 y, 找最靠上且"领操人覆盖帧占比 <8%"的锚点 → 不挡领操人. 实测李刚1 → (576,24) 480×270.
+- **⚠ 背向补头 (Bug3, 2026-07-07)**: 背向时脸 kp(0-6 鼻/眼/耳)低置信度被 vis 过滤 → bbox 丢头 → PIP 压在(后)脑上检测不到 (用户报"背向时挡头"). `compute_pip_rect` 脸不可见但双肩(11,12)可见时, 从肩宽推断头位 (肩中点上方 ~1×肩宽, 横 ±0.5×肩宽) 补进 bbox. 脸可见时用真实脸 kp 不触发.
 - **细白边 + 静音**, Shorts + 抖音都加. CLI `--with-pip`/`--no-pip` (默认开), config `stages.shorts_pip`.
 - 与横屏 `pip` (31_pip, 永久关) 区别: 横屏本身全景套小窗=冗余; 竖屏裁切丢画面, 小窗补全景=信息互补.
-- 守门: `tests/test_short_vertical_pip.py` (6 tests, compute_pip_rect 不变量). 验证靠像素 (抽帧检测小窗白边框), 不靠日志.
+- 守门: `tests/test_short_vertical_pip.py` (7 tests, compute_pip_rect 不变量 + 背向补头). 验证靠像素 (抽帧检测小窗白边框 + MSE 对齐), 不靠日志.
 
 ### 10. 高燃预览开场 hook (2026-07-07)
 
-YouTube Shorts 完播率前 3 秒决定 70%, 但 ShortsStage 旧版固定裁前 30s — 开场是第 0 秒, 领操刚起步动作幅度小平淡. hook 在 **yt_shorts** (仅 Shorts, douyin 隔离零改动) 前拼一段**全片最燃窗** (默认 4s 静音 + "🔥 高燃预警"橙红字幕), 把"慢热起步"变"最燃动作直击":
+YouTube Shorts 完播率前 3 秒决定 70%, 但 ShortsStage 旧版固定裁前 30s — 开场是第 0 秒, 领操刚起步动作幅度小平淡. hook 在 **yt_shorts + douyin 都加** (2026-07-07: 旧版仅 yt_shorts, 用户报"抖音版没有爆燃预警片段"→ `short_vertical.py:846` gate 放开 `profile in ("yt_shorts","douyin")` + `39_shorts.py` douyin 调用补 `hook_enabled/hook_dur`) 前拼一段**全片最燃窗** (默认 4s 静音 + "🔥 高燃预警"橙红字幕), 把"慢热起步"变"最燃动作直击":
 - **窗口选择** (`compute_hook_window`): 复用 `35_intensity_burst:58-78` 逐帧 motion 食谱 (conf>0.3 关键点位移均值), 滑动窗 (hook_dur×fps 帧) 取 mean-motion 最大起点, **排除首尾各 10%** (避片头诗词/片尾噪声), 滑动窗自身抗单帧尖刺. hook_crop_x = 窗口落段的 crop_x, 钳到 `[padding, w-crop_w-padding]`.
 - **4 步编码** (`make_vertical` hook_enabled=True): step0 (hook 静音段 + 字幕 PNG, 静态 crop) → step1 (正片不变, opening/cta/pip/crop 一字不改) → step1.5 (concat demuxer `-c copy` 零重编码) → step2 (音频合并). hook off 走原 step1→step2.
 - **⚠ 音频必须用 `anullsrc`+concat, 不能用 `adelay`** (memory `adelay-silence-gapless-strip`): `adelay={ms}` 产生的前导静音被 AAC gapless 当 encoder_delay side data, 解码时整体丢弃 → 主音频从 t=0 越过预览播放 = **音视频错位**. 容器层 -c copy 看不出 (raw 帧真静音), 必须 decode 后测才暴露. 修复 = `anullsrc` lavfi 源产真零样本静音 + `[2:a][a1]concat=n=2:v=0:a=1` 拼主音频.
 - **字幕**: `render_short_overlay.render_preview` → 🔥 高燃预警 (橙红 255,80,30, 110px bold, 与 opening 黄/CTA 黄区分) + 先睹为快 (黄 48px), 中部半透明黑底 (y 38-56%). 全教练统一, 不调 coach_profiles.
+- **⚠ 🔥 emoji 字体 (Bug2, 2026-07-07)**: `msyhbd.ttc` **无 🔥(U+1F525) 字形** → 渲成方框(tofu, 用户报"开头符号变方框"). 改用 `FONT_EMOJI=C:/Windows/Fonts/seguiemj.ttf` (Segoe UI Emoji) 经 `draw_emoji_cjk_centered` 单独渲染 🔥 + msyhbd 渲"高燃预警"拼接 (emoji 不加描边, 避免糊掉 seguiemj 彩色字形). 实测 6858px 火焰 vs 2484px 方框.
 - **为什么 concat demuxer 不破坏正片 t 语义**: concat 是流级拼接只改输出 PTS, step1 filter (pip `enable='between(t,...)` / crop_x_expr) 在 concat 前已把 t-based 效果 baked 成像素, demuxer 改不了 → 正片节奏零偏移. 像素证据 (李刚1): hook 帧 271 == nohook 帧 150 (nonzero=0 逐字节同帧).
 - CLI `--with-hook`/`--no-hook` (**默认开**, 2026-07-07 用户拍板"功能稳定后要默认开"已执行) + `--hook-duration` (默认 4, 可调 3-5); config `shorts_hook`/`shorts_hook_dur`. 守门 `tests/test_short_vertical_hook.py` (10 tests, 纯算法层).
 

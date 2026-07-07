@@ -4,6 +4,40 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-07 22:35（**4 bug 修复+提交+验证 — 张杰1_2 主管线跑批中**）:
+
+**【本轮任务】**: 用户上传艳青1_2 后报 4 问题 → 修复后跑张杰1_2 验证"文档问题是否解决".
+1. 抖音版无开头爆燃预警(hook)片段
+2. YT Shorts hook 开头🔥变方框(tofu 未识别)
+3. 竖屏 PIP 领操人背向时覆盖头一部分
+4. 竖屏 PIP 和主视频不同步
+
+**【4 bug 修复 (commit 3d45fc5, pre-commit 35 测试过, 全验证)】**:
+- **Bug1 抖音无hook**: `39_shorts.py` douyin 调用补 `hook_enabled/hook_dur`; `short_vertical.py:846` hook gate `profile in ("yt_shorts","douyin")` (旧仅 yt_shorts). 现 yt_shorts + douyin 都有 hook.
+- **Bug2 🔥tofu**: `render_short_overlay.py` msyhbd 无🔥(U+1F525)字形→方框; 加 `FONT_EMOJI=seguiemj.ttf` + `draw_emoji_cjk_centered` 用 seguiemj 渲🔥+msyhbd 渲"高燃预警"拼接(emoji 不加描边避糊色). 实测 6858px 火焰 vs 2484px 方框; 输出mp4 标题区火焰 34611px.
+- **Bug3 PIP背向挡头**: 背向时脸kp(0-6)低置信度被过滤→bbox丢头→PIP压(后)脑检测不到. `compute_pip_rect` 脸不可见但双肩(11,12)可见时, 从肩宽推断头位(肩中点上方~1×肩宽,横±0.5×肩宽)补进 bbox. 新增背向守门测试, **7/7 pip 测试过**.
+- **Bug4 PIP提前4s不同步** ⭐核心: `face_swap_path` 是 **workout-only**(stage37 跑在 export07 之前, export 才加 intro/outro; ffprobe 实测 **179.6s vs final 188.6s** 差正好 intro4+outro5). 旧代码 PIP 输入无条件 `-ss skip`(=intro4s)→face_swap 被多跳4s→PIP 比主画面**提前4s**. 修: `pip_seek = skip if pip_src==src_path(final含片头) else 0`. 端到端验证(艳青1_2 yt_shorts): PIP内容 vs face_swap@11.5s(对齐)**MSE 1274** vs @15.5s(旧bug)**MSE 3412**, 对齐帧匹配 2.7×.
+
+**【关键认知 (钉死)】**:
+- `face_swap_path` 是 **workout-only**(无片头无片尾). 任何复用它做时间对齐的逻辑**不能套用 final 的 intro skip** — 这正是 Bug4 根因.
+- `msyhbd.ttc` **无 emoji 字形**, 渲 emoji 必须用 `seguiemj.ttf`.
+
+**【张杰1_2 主管线 (跑批中, 后台 task bavv4d7yg)】**:
+- 合并: `张杰1.mp4(173MB)+张杰2.mp4(165MB)` → `source_videos/张杰1_2_merged.mp4` (158MB, 4747帧, ~158s, 1920×1080@30fps)
+- 命令: `uv run python -u main.py process "source_videos/张杰1_2_merged.mp4" --preset youtube --shorts-coach 张杰`
+- 张杰**无换脸源照**(tools/ 无 zhangjie) → face_swap 自动走**抽帧自美化**路线(memory face-swap-no-source-self-beautify, 彩娥2/李刚2 验证过); face_swap_path 仍生成(workout-only)→PIP seek=0 对齐.
+- coach_profile 张杰齐全: 花名**神行太保** + 判词"万里征途始于足下,飞毛腿疾如风,马拉松魂燃细柳营" + shorts_poem"天高云淡路远/帅哥美女争先/遥见一骑如烟/细柳营中张哥" + focus 持久有氧 + en ENDURANCE BURN.
+- 输出落 output/2026-07-07/(merged mtime=今天). 跑前清旧中间产物腾到 **30G 空闲**(艳青1_2 中间产物已删, 保留三件套+faceswap+kp+intro 供将来 cheap 重跑 shorts).
+
+**【下一步】**:
+1. 张杰管线完成 → 验证 4 bug 在张杰产物上生效(抖音有hook / 🔥不tofu / PIP背向不挡头 / PIP同步)
+2. 张杰三件套出齐 → 待用户拍板上传(long【神行太保】张杰燃脂跟练|持久有氧耐力燃脂|细柳营健身, **public 立即发布**; 抖音手工)
+3. (可选) 艳青1_2 重跑 shorts+douyin 生成修复版供重传(用户已上传旧bug版, 重跑需用户拍板, 非 agent 自作主张)
+
+**【待用户拍板】**: 张杰上传; 艳青1_2 是否要修复版重传.
+
+---
+
 最后更新: 2026-07-07 21:14（**艳青1+2 合并→主管线→三件套 全齐 — hook 默认开首次实战验证 6/6 过**）:
 
 **【本轮任务】**: 用户"有新视频艳青1，艳青2，合并后进行处理，验证一下新功能" (验证 hook 默认开).
