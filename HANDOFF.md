@@ -27,9 +27,9 @@
 **【CLAUDE.md 同步】**: 永久关 Stage 表 pip 行澄清 (横屏 31_pip 关 vs 竖屏 shorts_pip 开) + Post-2026-06-27 加 #9 竖屏画中画 + CLI flag 表加 `--with-pip`
 
 **【待用户拍板】**:
-1. 看 `_temp/pip_test/` 带小窗的 yt_shorts/douyin 确认效果 (尺寸 480 够不够 / 白边 / 位置)
-2. 满意 → 功能默认开, 下次跑主管线所有新视频自动带小窗; 旧视频 (李刚1/枫林红/彩娥/郭海军) 要补小窗需重跑 shorts
-3. 调参: `compute_pip_rect` 的 `target_w=480` / `overlap_thr=0.08` / `margin=24` 都可调
+1. ✅ 尺寸定 **600** (用户 2026-07-07 拍板「就定这个尺寸」). yt_shorts+douyin 600 版像素验证通过 (小窗 600x338@(456,24) 避开领操人, 诗词后全程常驻).
+2. 功能默认开, 下次跑主管线所有新视频自动带 600 小窗; 旧视频 (李刚1/枫林红/彩娥/郭海军) 要补小窗需重跑 shorts (用户未要求, 不主动重跑 per memory no-auto-rerun).
+3. 调参点 (备用): `compute_pip_rect` 默认 `target_w=600`/`overlap_thr=0.08`/`margin=24`; `make_vertical(pip_target_w=...)` 可逐视频传.
 
 **【尺寸迭代 (2026-07-07 用户反馈"空白足够")】**: 默认 `target_w` 480→600 (占宽 44%→56%). `compute_pip_rect` 默认改 + `make_vertical +pip_target_w` 可传参 (方便以后调). 实测李刚1 小窗 **600x338@(456,24)**, y=24 仍靠上 (领操人中下不挡), 像素白边 0.76 同 480 版. test 去硬编码尺寸, 6 passed.
 
