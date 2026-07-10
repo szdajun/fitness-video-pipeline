@@ -191,3 +191,22 @@ python tools/bg_swap.py --preset fitness --help | grep grounding   # 显示默�
 
 **自建预设**: 复制 `bgswap_clean.yaml` → 改名 `bgswap_<name>.yaml` → 调 `bg_swap:` 下 knobs → `--preset <name>`. 可调项: matte/feather/erode/despill/color_match/light_wrap/parallax/grounding/shadow_strength/dynamic_bg/follow_cam/bg_frame.
 
+
+### vertical_native (2026-07-10 新增)
+
+**适用**: 手机原生 9:16 源, 或 EXIF 旋转后实际像素是 9:16 的源 (蜂王/李娜踩过).
+
+**自动触发**: 主管线检测到 9:16 源自动应用 `vertical_native`, 用户不需 `--preset`.
+
+**输出**:
+- YT Shorts (≤175s, ≤3 分钟 buffer)
+- 抖音竖版完整版 (9:16 全长)
+- 不出 YT 16:9 long
+
+**元素精简** (用户拍板: 9:16 幅面小, 不能堆):
+- ✅ 保留: 爆燃文字 (核心信息) + hook 高燃预警 (4s) + smart_crop 跟领操 + **诗词片头 (v2 保留)**
+- ❌ 砍掉: 能量条 + 汉印 + 水印 + 弹幕 + PIP + mascot + intro_outro + face_swap
+
+**face_swap**: 默认 false, 用户手动开.
+
+**与 fengwang/douyin_long 区别**: 元素极少, 几乎只有爆燃 + hook.

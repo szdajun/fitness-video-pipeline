@@ -141,6 +141,8 @@ def _build_all_known_keys() -> set:
         "shorts_yt", "shorts_douyin", "shorts_pip",  # ShortsStage 开关 (shorts_pip 2026-07-07)
         "shorts_hook", "shorts_hook_dur",  # hook 高燃预览开场 (2026-07-07)
         "shorts_duration", "shorts_coach", "shorts_intro_seconds",
+        "normalize_orientation",  # 2026-07-10 竖屏源 EXIF 旋转自动修复
+        "smart_crop",  # 2026-07-10 竖屏源 smart_crop 9:16 跟领操
     })
     # output section sub-keys
     known.update({

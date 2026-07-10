@@ -1,0 +1,50 @@
+# 竖屏源视频 (9:16 native) — YT Shorts + 抖音完整版 双出
+# 用户拍板 (2026-07-10): 元素精简 (9:16 幅面小, 不能堆)
+# 保留: 爆燃文字 + hook 高燃预警 + smart_crop 跟领操 + 诗词片头 (用户拍板 v2)
+# 砍掉: 能量条 + 汉印 + 水印 + 弹幕 + PIP + mascot + intro_outro + face_swap
+# 区别 fengwang: 元素极少, 双出 shorts + douyin (fengwang 只 douyin)
+# 区别 douyin_long: face_swap 默认 false; 砍掉水印/弹幕/能量条/mascot
+
+stages:
+  normalize_orientation: true    # 自动 EXIF 修复 (手机原生 9:16 不需; EXIF 旋转的源必跑)
+  pre_deblock: false
+  h2v_convert: false             # 源已是 9:16, 不转
+  stabilize: false
+  beat_flash: true
+  highlight: false               # 砍 (9:16 幅面小)
+  energy_bar: false              # ⭐ 砍
+  intro_outro: false             # 砍 (竖源无片头片尾)
+  ken_burns: false
+  body_warp: false
+  pip: false                     # 砍 (竖源不需)
+  mascot: false                  # ⭐ 砍 (左下吉祥物占位)
+  watermark: false               # ⭐ 砍 (顶部汉印/水印占位)
+  danmaku: false                 # ⭐ 砍 (弹幕占位)
+  intensity_burst: true          # ⭐ 保留 (爆燃文字, 核心元素)
+  smart_crop: true               # 保留 (9:16 逐帧跟领操防出画)
+  face_swap: false               # 砍 + 用户拍板默认 false
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+  skin_smooth: false
+  shorts: true
+  shorts_yt: true
+  shorts_douyin: true
+  shorts_duration: 175           # ⭐ ≤180s buffer, 用户拍板 (YouTube Shorts ≤3 分钟)
+  shorts_pip: false              # 砍
+  shorts_hook: true              # ⭐ 保留 (前 4s 高燃预警)
+  shorts_hook_dur: 4
+
+output:
+  width: 1080
+  height: 1920
+  formats: []
+
+color_grade:
+  brightness: 0
+  clahe: true

@@ -45,6 +45,7 @@ def _import_stage(module_name, class_name):
     return getattr(importlib.import_module(f"stages.{module_name}"), class_name)
 
 PreDeblockStage = _import_stage("00_pre_deblock", "PreDeblockStage")
+NormalizeOrientationStage = _import_stage("00_normalize_orientation", "NormalizeOrientationStage")  # 2026-07-10 竖屏源 EXIF 修复
 PoseDetectStage = _import_stage("01_pose_detect", "PoseDetectStage")
 StabilizeStage = _import_stage("02_stabilize", "StabilizeStage")
 H2VConvertStage = _import_stage("03_h2v_convert", "H2VConvertStage")
@@ -97,7 +98,7 @@ def build_single_parser():
     p.add_argument("-o", "--output", help="输出视频路径")
     p.add_argument("--output-dir", help="输出目录（默认: output/视频日期/）")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
-    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts", "youtube_long", "douyin_long"],
+    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts", "youtube_long", "douyin_long", "fengwang", "vertical_native"],
                    help="使用预设风格")
     p.add_argument("--preview", action="store_true", help="预览模式（只处理前3秒）")
     p.add_argument("--preview-seconds", type=int, default=3, help="预览秒数")
@@ -208,7 +209,7 @@ def build_batch_parser():
     p.add_argument("--segment", type=int, default=45, help="切割时长秒数 (默认45, 0=不切割)")
     p.add_argument("--no-segment", action="store_true", help="不切割")
     p.add_argument("-c", "--config", help="配置文件路径 (.yaml)")
-    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts", "youtube_long", "douyin_long"],
+    p.add_argument("--preset", choices=["natural", "dramatic", "clean", "sexy", "night_gym", "gimbal", "beauty", "youtube", "shorts", "night_square_dance", "douyin", "xiaohongshu", "youtube_shorts", "youtube_long", "douyin_long", "fengwang", "vertical_native"],
                    default=None, help="预设风格 (默认: sexy)")
     p.add_argument("--skip-stages", default="", help="跳过的 stage，逗号分隔")
     p.add_argument("--continue", action="store_true", dest="continue_mode",
@@ -301,6 +302,16 @@ def run_single(args):
     if not _check_resolution(input_path):
         return
 
+    # 2026-07-10: 自动检测竖屏源, 强制 preset=vertical_native (除非用户显式指定)
+    if not args.preset:
+        try:
+            from lib.source_detection import is_vertical_video
+            if is_vertical_video(str(input_path)):
+                args.preset = "vertical_native"
+                print("  [auto-preset] 检测到 9:16 竖屏源 → preset=vertical_native")
+        except Exception as e:
+            print(f"  [auto-preset] 竖屏检测失败, 保持默认: {e}")
+
     config = load_config(args.config or "config.yaml")
     if args.preset:
         deep_merge(config, load_preset(args.preset), copy=False)
@@ -361,6 +372,10 @@ def run_single(args):
 
     engine.add_stage("pre_deblock", PreDeblockStage(),
                      enabled=stages_cfg.get("pre_deblock", False))
+    # 2026-07-10: normalize_orientation 必须在 pre_deblock 之后, pose_detect 之前
+    # (spp 去块在原 EXIF 像素上跑, pose_detect 拿 baked 像素)
+    engine.add_stage("normalize_orientation", NormalizeOrientationStage(),
+                     enabled=stages_cfg.get("normalize_orientation", False))
     engine.add_stage("pose_detect", PoseDetectStage(),
                      enabled=stages_cfg.get("pose_detect", True))
     engine.add_stage("stabilize", StabilizeStage(),
@@ -872,7 +887,7 @@ def _process_video_task(task):
 
 
 ALL_STAGES = [
-    "pre_deblock", "pose_detect", "stabilize", "h2v_convert",
+    "pre_deblock", "normalize_orientation", "pose_detect", "stabilize", "h2v_convert",
     "body_warp", "ken_burns", "face_warp", "color_grade",
     "skin_smooth", "skin_tone_filter", "denoise", "audio",
     "skeleton_overlay", "person_count", "lead_box", "lead_ghost",

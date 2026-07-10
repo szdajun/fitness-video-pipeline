@@ -410,3 +410,31 @@ ShortsStage 跑通 (cx 裁切, intro 跳过, 抖音完整版都 OK), 但 **YouTu
 **附带修复 (2026-06-29 同期)**: make_vertical 还有两个 bug 一并修了 (详见 memory `shorts-vertical-duration-audio-bug`):
 - douyin(duration=None) 被 fallback 成 30s → 改用完整时长 (douyin 现 194s)
 - audio_src 用 source 导致音视频错位 4s + 截短到 190s → 改用 final_path 对齐
+
+## 竖屏源自动检测 (vertical_native preset) — 2026-07-10
+
+**用户拍板**: 竖屏源 (9:16) 只出 2 个产品 (YT Shorts + 抖音完整版), 不出 YT 16:9 long.
+
+**自动触发**: 主管线 `run_single` 入口 + batch 子进程 ffprobe 测源, 9:16 → preset 强制 `vertical_native`. 用户显式 `--preset fengwang` 等不覆盖.
+
+**阶段管线**: `normalize_orientation` → `pre_deblock` → `pose_detect` → ... → `export` → `shorts`
+
+**normalize_orientation** (新 stage `stages/00_normalize_orientation.py`):
+- ffprobe tag:rotate + side_data displaymatrix + cv2 首帧 shape 兜底
+- EXIF 旋转 → ffmpeg `-vf transpose=1,scale=1080:1920:flags=lanczos` 转码锁进 1080×1920
+- 输出 `source_videos/_normalized/{stem}_normalized.mp4`
+- 增量跳过: ctx.normalized_path 已存在直接复用, 仍把 ctx.input_path 指向它
+- 已是 9:16 像素 + rotation=0 → passthrough 不调 ffmpeg
+
+**产物**:
+- `{stem}_final_9x16_1080x1920_yt_shorts.mp4` (≤175s, YouTube Shorts)
+- `{stem}_final_9x16_1080x1920_douyin.mp4` (9:16 全长)
+- 不出 YT 16:9 long (preset `export:false` 语义 — shorts 阶段直接拿 normalized_path 接力)
+
+**元素精简** (用户拍板: 9:16 幅面小, 不能堆):
+- ✅ 保留: 爆燃文字 + hook + smart_crop + 诗词片头 (v2)
+- ❌ 砍掉: 能量条/汉印/水印/弹幕/PIP/mascot/intro_outro/face_swap
+
+**已知坑**: 蜂王/李娜 EXIF 隐式旋转 90° (ffprobe 说横屏但实际像素是竖屏), normalize 必跑.
+
+**测试**: `test_source_detection` (11) + `test_normalize_orientation` (8) 共 19 个新测试, 主管线 156 → 172 全绿.

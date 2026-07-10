@@ -595,6 +595,29 @@ def _resolve_ffmpeg() -> str:
 FFMPEG = _resolve_ffmpeg()
 
 
+# ── 2026-07-10: 竖屏源端到端通路 — 探测 src 真实宽高 ──────────────────────────
+def _get_video_size(video_path: str) -> Tuple[int, int]:
+    """ffprobe 探测 (w, h), 失败返 (0, 0). 抄 stages/07_export.py:235-243 模板."""
+    try:
+        # 复用 _resolve_ffmpeg 的 ffmpeg 候选路径思路找 ffprobe.exe
+        for cand in (FFMPEG.replace("ffmpeg.exe", "ffprobe.exe"),
+                     r"C:\Users\18091\ffmpeg\ffprobe.exe",
+                     "ffprobe"):
+            r = subprocess.run(
+                [cand, "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height",
+                 "-of", "csv=p=0", str(video_path)],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=10,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                w, h = r.stdout.strip().split(",")[:2]
+                return int(w), int(h)
+    except Exception:
+        pass
+    return 0, 0
+
+
 def compute_hook_window(
     kp_dict: dict,
     crop_segments: List[Tuple[int, int, int]],
@@ -715,7 +738,12 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
                   pip_target_w: int = 600,
                   hook_enabled: bool = False,
                   hook_dur: float = 4.0,
-                  overwrite: bool = True) -> Optional[str]:
+                  overwrite: bool = True,
+                  # 2026-07-10: 竖屏源端到端通路
+                  is_native_vertical: bool = False,
+                  src_w: Optional[int] = None,
+                  src_h: Optional[int] = None,
+                  force_intro_skip: Optional[float] = None) -> Optional[str]:
     """单入口生成 9:16 竖版 (抖音或 YouTube Shorts).
 
     设计 (2026-06-27 重构):
@@ -790,13 +818,15 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
 
     # 2. -ss 跳过宽屏 intro
     skip = resolve_intro_skip(intro_path=intro_path,
-                              intro_seconds=intro_seconds)
+                              intro_seconds=intro_seconds if force_intro_skip is None else force_intro_skip)
     print(f"    [skip] -ss {skip:.2f}s (跳过宽屏 intro)")
 
     # 3. duration 处理 (2026-06-27 修复:
     #    抖音完整版也要截掉 outro, 不然片尾调出 5s 出来
     #    yt_shorts 在 duration 小于总长时也要 -t, 不然会包含 outro
-    outro_dur = resolve_intro_skip(intro_path=None, outro_path=outro_path)
+    # 2026-07-10: 竖源无片尾, force_intro_skip=0 时 outro_dur 也强制 0
+    outro_dur = (0.0 if force_intro_skip == 0.0
+                 else resolve_intro_skip(intro_path=None, outro_path=outro_path))
     if duration is None:
         # 抖音完整版: -t = total - outro_dur (intro 已 -ss 跳过)
         total_dur = _get_duration(src_path)
@@ -832,6 +862,16 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
     crop_vf = (f"crop={DEFAULT_CROP_W}:1080:{crop_x_expr}:0,"
                f"scale=1080:1920:flags=lanczos")
 
+    # 2026-07-10: 竖屏源 (9:16 native) 不裁, 只 scale 到 1080x1920
+    if is_native_vertical and src_h and src_w and src_h > src_w:
+        crop_vf = "scale=1080:1920:flags=lanczos:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
+        crop_x_expr = "0"
+        # 跳过 cx 跟领操 + PIP (竖源本来就全屏)
+        pip_rect = None
+        pip_enabled = False
+        pip_src = None
+        print(f"    [native-vertical] {src_w}x{src_h} → scale 1080x1920, 跳过 cx/PIP")
+
     # 5. 2026-06-28: 用 3 段 ffmpeg + concat, 避开 ffmpeg 8.1 的 enable=between + audio input bug
     #    段1 (0~3.5s): 视频 + opening PNG 整段 overlay (无 enable 表达式)
     #    段2 (3.5~cta_start): 视频, 无 overlay
@@ -859,7 +899,12 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
         total_dur = float(duration)
     # 高燃预览开场 (2026-07-07): 选全片最燃 hook_dur 秒窗, 拼到竖版最前.
     # yt_shorts + douyin 都加 (2026-07-07: 用户要抖音版也有爆燃预警片段).
+    # 2026-07-10: 竖屏源用户拍板"幅面小元素不能堆", hook 关掉; 抖音 9:16 也保留 hook (用户拍板保留)
     if hook_enabled and profile in ("yt_shorts", "douyin") and kp_dict:
+        # 2026-07-10: 竖源 hook 关掉 (user 拍板 9:16 元素精简)
+        if is_native_vertical:
+            print("    [native-vertical] hook 已关 (9:16 幅面小, 元素精简)")
+            hook_enabled = False
         try:
             hook_window = compute_hook_window(
                 kp_dict, crop_segments, fps=fps,
@@ -1023,9 +1068,15 @@ def make_vertical(src_path: str, output_dir: str, profile: str,
             "-i", src_path,
             "-loop", "1", "-t", f"{hook_dur:.3f}", "-i", hook_png,
             "-filter_complex",
-            f"[0:v]crop={DEFAULT_CROP_W}:1080:{hook_crop_x}:0,"
-            f"scale=1080:1920:flags=lanczos,setpts=PTS-STARTPTS[bg];"
-            f"[1:v]format=rgba[ol];[bg][ol]overlay=0:0[vout]",
+            # 2026-07-10: 竖源 hook 用 scale 替代 crop, hook_crop_x 不再用
+            (f"[0:v]scale=1080:1920:flags=lanczos:force_original_aspect_ratio=decrease,"
+             f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setpts=PTS-STARTPTS[bg];"
+             f"[1:v]format=rgba[ol];[bg][ol]overlay=0:0[vout]")
+            if is_native_vertical
+            else
+            (f"[0:v]crop={DEFAULT_CROP_W}:1080:{hook_crop_x}:0,"
+             f"scale=1080:1920:flags=lanczos,setpts=PTS-STARTPTS[bg];"
+             f"[1:v]format=rgba[ol];[bg][ol]overlay=0:0[vout]"),
             "-map", "[vout]",
             "-c:v", "libx264", "-preset", "fast", "-crf", "20",
             "-pix_fmt", "yuv420p", "-an",

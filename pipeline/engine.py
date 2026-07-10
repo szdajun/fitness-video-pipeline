@@ -55,6 +55,7 @@ class PipelineEngine:
         # ctx key → 所属 stage 名 (用于判断是否被禁用)
         _key_to_stage = {
             "keypoints": "pose_detect", "pre_deblock_path": "pre_deblock",
+            "normalized_path": "normalize_orientation",  # 2026-07-10 竖屏源 EXIF 修复
             "stabilized_path": "stabilize", "h2v_path": "h2v_convert",
             "warped_path": "body_warp", "face_path": "face_warp",
             "color_path": "color_grade", "ken_burns_path": "ken_burns",
@@ -80,6 +81,9 @@ class PipelineEngine:
         existing_patterns = {
             "keypoints": [f"{video_stem}_keypoints.json"],
             "pre_deblock_path": [f"{video_stem}_deblocked.mp4"],
+            # 2026-07-10: normalize_orientation 输出在 source_videos/_normalized/, 路径依赖 input_path.parent
+            # 增量扫描时特殊处理: 看 input_path.parent/_normalized/{stem}_normalized.mp4 也算
+            "normalized_path": [f"{video_stem}_normalized.mp4"],
             "stabilized_path": [f"{video_stem}_stabilized.mp4"],
             "h2v_path": [f"{video_stem}_h2v.mp4"],
             "skin_tone_filter_path": [f"{video_stem}_h2v_skin_tone.mp4"],
@@ -165,7 +169,19 @@ class PipelineEngine:
             if stage_name and stage_name in disabled_stages:
                 continue
             for fname in fnames:
-                fpath = ctx.output_dir / fname
+                # 2026-07-10: normalized_path 候选位置 = ctx.input_path.parent/_normalized/ (vs 常规 output_dir/)
+                if key == "normalized_path":
+                    candidates = [
+                        ctx.input_path.parent / "_normalized" / fname,
+                        ctx.output_dir / fname,
+                    ]
+                else:
+                    candidates = [ctx.output_dir / fname]
+                for fpath in candidates:
+                    if _pe(str(fpath)):
+                        break
+                else:
+                    continue
                 if _pe(str(fpath)):
                     # 关键点需要加载为数据，不是路径字符串
                     if key == "keypoints":
@@ -253,7 +269,17 @@ class PipelineEngine:
             if enabled:
                 output_keys = self.STAGE_OUTPUT_KEYS.get(name, [])
                 if output_keys and all(ctx.get(k) is not None for k in output_keys):
-                    print(f"  [已有] {name}")
+                    # 2026-07-10: normalize_orientation 改写 ctx.input_path → 已有产物时也恢复
+                    # 否则下游仍用原 EXIF 路径, 旋转未修
+                    if name == "normalize_orientation":
+                        p = ctx.get("normalized_path")
+                        if p and Path(str(p)).exists() and str(p) != str(ctx.input_path):
+                            ctx.input_path = Path(str(p))
+                            print(f"  [已有] {name} (input_path 已指向 normalized)")
+                        else:
+                            print(f"  [已有] {name}")
+                    else:
+                        print(f"  [已有] {name}")
                     continue
 
             # 检查是否可从 manifest 恢复（stage 内部已设置了输出路径）
@@ -299,6 +325,7 @@ class PipelineEngine:
     STAGE_OUTPUT_KEYS = {
         "pose_detect":       ["keypoints_path", "video_info"],
         "pre_deblock":       ["pre_deblock_path"],
+        "normalize_orientation": ["normalized_path", "source_orientation"],  # 2026-07-10
         "stabilize":         ["stabilized_path"],
         "h2v_convert":       ["h2v_path", "h2v_size", "cropped_keypoints"],
         "body_warp":         ["warped_path"],
