@@ -139,6 +139,45 @@ class TestMaleCoachNoFemaleTerms:
             f"男性集合缺: {required - _MALE_NICKNAMES}"
 
 
+class TestUniversalHashtags:
+    """2026-07-12 用户拍板: Shorts 加 3 个常驻通用 hashtag (参考小马达频道 5-7 hashtag/视频).
+
+    数据依据: 用户频道 5月 #kpop 2939 / #每天坚持运动打卡 2426 / #dance 2115 是黄金 hashtag.
+    通用 hashtag (健身操/全身燃脂/居家健身) 跟小马达标题风格对齐.
+    """
+
+    def test_short_title_has_at_least_5_hashtags(self):
+        """Shorts 标题至少含 5 个 hashtag (黄金模板: #身材词 + #Shorts + #extra + #每天坚持运动打卡 + 3 常驻通用 = 6)"""
+        import re
+        for coach in ["郭海军", "艳青", "丽丽", "建玲", "小红豆", "枫林红"]:
+            title = build_title(coach, "", "short", duration_sec=30)
+            count = len(re.findall(r'#\S+', title))
+            assert count >= 5, f"{coach}: hashtag 太少 ({count}), 标题: {title}"
+
+    @pytest.mark.parametrize("coach", ["郭海军", "艳青", "丽丽", "建玲", "小红豆", "枫林红"])
+    def test_short_title_has_3_universal_hashtags(self, coach):
+        """3 个常驻通用 hashtag: #健身操 + #全身燃脂 + #居家健身"""
+        title = build_title(coach, "", "short", duration_sec=30)
+        for tag in ["#健身操", "#全身燃脂", "#居家健身"]:
+            assert tag in title, f"{coach}: 缺常驻 hashtag {tag}: {title}"
+
+    def test_male_short_has_at_least_6_hashtags(self):
+        """男教练 hashtag 数 ≥ 6 (1 身材词 + 1 Shorts + 1 dance/kpop + 1 #每天 + 3 通用)"""
+        import re
+        for coach in ["郭海军", "李刚", "小飞侠", "张杰", "蜂王"]:
+            title = build_title(coach, "", "short", duration_sec=30)
+            count = len(re.findall(r'#\S+', title))
+            assert count >= 6, f"{coach} (男): hashtag {count}: {title}"
+
+    def test_female_short_has_at_least_6_hashtags(self):
+        """女教练 hashtag 数 ≥ 6 (1 身材词 + 1 Shorts + 1 dance/kpop + 1 #每天 + 3 通用)"""
+        import re
+        for coach in ["艳青", "丽丽", "建玲", "小红豆", "枫林红"]:
+            title = build_title(coach, "", "short", duration_sec=30)
+            count = len(re.findall(r'#\S+', title))
+            assert count >= 6, f"{coach} (女): hashtag {count}: {title}"
+
+
 class TestTitleStructure:
     """所有长视频标题必须有统一结构 (回归保护)."""
 

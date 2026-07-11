@@ -45,7 +45,8 @@ def _today_str() -> str:
 _MALE_NICKNAMES = {"虎痴", "托塔天王", "雷震子", "神行太保", "老兵不老"}
 _MALE_BODY_TERMS = ["腹肌燃脂", "力量塑形", "暴汗塑形", "全身燃脂"]
 _FEMALE_BODY_TERMS = ["性感小蛮腰", "美腰美腿", "美腿翘臀", "瘦身减脂"]
-_GOLDEN_HASHTAGS = ["#Shorts", "#dance", "#每天坚持运动打卡", "#kpop"]
+# 通用常驻 hashtag (用户 2026-07-12 拍板加, 参考小马达健身燃脂 5-7 hashtag/视频风格)
+_UNIVERSAL_HASHTAGS = ["#健身操", "#全身燃脂", "#居家健身"]
 
 
 def _is_male_coach(nickname: str) -> bool:
@@ -99,9 +100,11 @@ def build_title(coach: str, record_date: str = "", video_type: str = "long",
         extra_hashtag = "#dance"  # 女教练主推 #dance
 
     if video_type == "short":
-        # 黄金模板: {N秒}{痛点开头} | {nickname}{coach} #{身材词} #Shorts #dance #每天坚持运动打卡 #kpop
-        # 简化版 (避免过长被截): {N秒}{shorts_focus} | {nickname}{coach} #{身材词} #{hashtags}
-        hashtag_str = " ".join(["#Shorts", extra_hashtag, "#每天坚持运动打卡"])
+        # 黄金模板: {N秒}{痛点开头} | {nickname}{coach} #{身材词} #Shorts #{extra} #每天坚持运动打卡 #健身操 #全身燃脂 #居家健身
+        # 2026-07-12 加 3 个常驻通用 hashtag (用户拍板, 参考小马达频道 5-7 hashtag/视频)
+        hashtag_str = " ".join(
+            ["#Shorts", extra_hashtag, "#每天坚持运动打卡"] + _UNIVERSAL_HASHTAGS
+        )
         return f"{duration_sec}秒{shorts_focus} | {nickname}{coach} #{body_term} {hashtag_str}"
 
     # Long 模板保留 (CLAUDE 钉死 title_tpl)
