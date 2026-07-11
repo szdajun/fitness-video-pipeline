@@ -201,14 +201,24 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 
 ### YouTube 上传标题模板（钉死的规则）
 
-**模板**： `【{nickname}】{coach}{focus}操 | {focus}跟练 | 细柳营健身`
+**Long 模板**（保留 2026-06-27 钉死规则）: `【{nickname}】{coach}{focus}操 | {focus}跟练 | 细柳营健身`
+- 例: 【老兵不老】郭海军刚劲塑形操 | 刚劲塑形跟练 | 细柳营健身
+- 例: 【胭脂虎】艳青塑腰臀操 | 塑腰臀跟练 | 细柳营健身
 
-**示例**：
-- 【老兵不老】郭海军力量燃脂操 | 刚劲塑形跟练 | 细柳营健身
-- 【胭脂虎】艳青暴汗燃脂操 | 塑腰弯跟练 | 细柳营健身
+**Shorts 模板**（2026-07-12 用户拍板回归 5 月黄金期, 数据驱动 195 视频分析）:
+- `{N秒}{shorts_focus} | {nickname}{coach} #{身材词} #Shorts #{额外hashtag} #每天坚持运动打卡`
+- 例 (女): `30秒暴汗燃脂 | 长安腰女丽丽 #性感小蛮腰 #Shorts #dance #每天坚持运动打卡`
+- 例 (男): `30秒暴汗燃脂 | 老兵不老郭海军 #腹肌燃脂 #Shorts #kpop #每天坚持运动打卡`
 
-**来源**：`lib/upload_utils.py:build_title()`，从 `lib/coach_profiles.py:COACH_PROFILES.{coach}.nickname/focus` 自动取。
-**不要改**为 `细柳营·{coach} | 有氧健身操·燃脂暴汗 | {date}` —— 旧版扁平标题，已弃用。
+**5 月黄金期 Top 1 (2939 view)**: `Day1 15秒暴汗燃脂 胭脂虎艳青 #Shorts #dance #每天坚持运动打卡 #kpop` (Day{N} + 15秒 + 多 hashtag 是 5 月核心爆款特征)
+
+**男女区分 (用户 2026-07-12 拍板: 男教练别用小蛮腰了)**:
+- 男教练 nickname 黑名单: `{虎痴, 托塔天王, 雷震子, 神行太保, 老兵不老}` → 用男身材词 `#腹肌燃脂` + `#kpop`
+- 女教练 → 用女身材词 `#性感小蛮腰` + `#dance`
+- 守门 `tests/test_upload_title.py` (TestMaleCoachNoFemaleTerms 11 tests)
+
+**来源**: `lib/upload_utils.py:build_title()`, 从 `lib/coach_profiles.py:COACH_PROFILES.{coach}.nickname/focus/shorts_focus` 自动取。
+**不要改回** `细柳营·{coach} | 有氧健身操·燃脂暴汗 | {date}` —— 旧版扁平标题，已弃用 (5 月 Top 1 风格证明这版无效)。
 
 上传完成后必须 `records/upload_manifest.json` 留痕（`lib/upload_utils.upload_video()` 自动写）。
 
@@ -258,7 +268,14 @@ Pose 检测默认使用 GPU + FP16（`model.half()`）。可通过 `--no-pose-gp
 
 YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_shorts preset。
 
-**⚠ YT 上传必须"立即发布"**（`privacy=public`, `publish_at=None`）— scheduled/延迟发布（`publishAt`）的长视频近期全部**挂死在平台得不到处理**（HD processing 卡死）。代码 `upload_pair`/`tools/upload_youtube.py` 默认即立即，`upload_utils.upload_video` 对 `video_type=="long"` 强制 `publish_at=None`（即便传了也忽略+告警）。**别加 `--publish-at`/schedule**。详见 memory `yt-long-video-publish-immediately`。
+**⚠ YT 长视频上传必须"立即发布"**（`privacy=public`, `publish_at=None`）— scheduled/延迟发布（`publishAt`）的长视频近期全部**挂死在平台得不到处理**（HD processing 卡死）。代码 `upload_pair`/`tools/upload_youtube.py` 默认即立即，`upload_utils.upload_video` 对 `video_type=="long"` 强制 `publish_at=None`（即便传了也忽略+告警）。**别加 `--publish-at`/schedule**。详见 memory `yt-long-video-publish-immediately`。用户 2026-07-12 拍板: "**长视频我来发**" — 历史已经证明自动发都得不到处理, 主管线不替你发, 你手工触发.
+
+**Shorts 黄金时段自动发布**（2026-07-12 用户拍板"自动发, 人容易忘记"）:
+- 黄金窗口: 10-14 / 19-23 北京时间 (UTC+8). 数据依据: 5月黄金期均 view 1376 (13-14) / 935 (22-23) / 862 (19-20). 避开 8-10 (98 view) + 16-18 (低谷).
+- 实现: `lib/upload_utils.py:wait_for_golden_hour()` 客户端 `time.sleep` 等到下一个黄金时段, 然后**立即调用** `upload_video(publish_at=None)`. **不用 publishAt**, 绕开 YT 长视频挂死 bug (Long 触发, Shorts 不触发, 但同 API 路径).
+- `upload_pair()` 默认 `wait_for_short_golden_hour=True`. 手工禁用: 传 `wait_for_short_golden_hour=False`.
+- Long 上传**不走黄金时段等待** (走你手工触发), Shorts 才走.
+- 守门: `tests/test_upload_golden_hour.py` 12 tests (算法层 + upload_pair 默认值 + short/long 不传 publish_at + wait_for_golden_hour 不传 publishAt).
 
 ### .gitignore 原则
 

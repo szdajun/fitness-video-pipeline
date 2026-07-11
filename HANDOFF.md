@@ -4,6 +4,83 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构查 `docs/PROJECT_DESIGN.md`，规则查 `CLAUDE.md`，历史坑查 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-12（**Shorts 自动黄金时段发布上线 — 用户拍板"自动发人容易忘记", 数据驱动 10-14 / 19-23 北京时间 ✅**）:
+
+**【本轮任务】**: 用户 193 视频/57 订阅沮丧 → Gemini 反馈 + 拉 YT 数据 5 维度诊断 → 拍板"不动时长, 拍发布时机" → 短片走自动黄金时段, 长视频手工发.
+
+**【5 维度诊断 (用户频道真实数据, 195 视频)】**:
+1. **教练 IP 矩阵**: 8+ 教练分散精力, 新 IP 首爆 (三宝妈 2521/雷震子 891/节拍战神 1843) 比老 IP 高
+2. **时间趋势**: 2026-05 黄金期 1344/视频 → 2026-07 跌到 384, 频道在衰减
+3. **Shorts vs Long**: ROI 14.7x, 96 个 Long 只拿 6.2% 流量, 全面转 Shorts
+4. **hashtag**: 2026-07 之后用的 #暴汗燃脂瘦全身 等全军覆没 (25 view/视频), 黄金期 #kpop (2939) #每天坚持运动打卡 (2426) #dance (1892) 是天花板
+5. **标题模式**: 当前模板 (488 view) 比早期"性感词+多 hashtag"模板 (2042 view) 差 4 倍
+
+**【拍板决策】**:
+- ❌ 标题改 (Gemini 三方案用户拍板"意义不大")
+- ❌ 时长改 (用户拍板"不动时长")
+- ✅ 发布时机改: **两高峰任一优先 (10-14 / 19-23 北京)**, **任意 (不挑剔 13 / 22)**
+- ✅ Shorts **自动等黄金时段发** + **Long 你手工发** (历史已证明自动发挂死)
+
+**【改动 — lib/upload_utils.py】**:
+- 新增 `_is_golden_hour()` + `seconds_until_next_golden()` + `wait_for_golden_hour()`
+- `upload_pair()` 加 `wait_for_short_golden_hour=True` 默认参数
+- short 上传分支**先 sleep 等黄金时段再立即发** (不用 publishAt, 绕开 YT 长视频挂死 bug)
+- long 上传**保持"立即发布"规则不变**, 不走黄金时段等待 (历史教训)
+
+**【守门 — 199 tests 全绿】**:
+- `tests/test_upload_golden_hour.py` 新增 12 tests:
+  - `_is_golden_hour()` 4 tests: 黄金窗口内/外/边界
+  - `seconds_until_next_golden()` 4 tests: 黄金内返 0 / 早晨到 10 / 下午到 19 / 深夜到明天 10
+  - 集成 4 tests: upload_pair 默认 True / short 不传 publish_at / long 不传 publish_at / wait_for_golden_hour 不传 publishAt
+- 199 tests 全绿零回归 (187 → 199)
+
+**【下一步候选】**:
+1. 抖音 douyin 手工传 (7 套待传)
+2. 下一个视频 (source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2)
+3. (可选) 修李娜1 long 16:9 侧躺
+
+**【待用户拍板】**: 抖音上传; 下一个视频; 标题模板改回已落.
+
+---
+
+最后更新: 2026-07-12（**Shorts 标题改回 5 月黄金模板 + 男教练别用小蛮腰 + 守门 36 tests ✅**）:
+
+**【本轮任务】**: 用户拍板"我看看黄金模板"+"男教练别用小蛮腰了". 数据驱动回归 5 月爆款风格.
+
+**【改动 — lib/upload_utils.py:build_title()】**:
+- 新增 `_MALE_NICKNAMES = {虎痴, 托塔天王, 雷震子, 神行太保, 老兵不老}` 黑名单
+- 新增 `_MALE_BODY_TERMS / _FEMALE_BODY_TERMS / _GOLDEN_HASHTAGS` 词表
+- 新增 `_is_male_coach(nickname)` 判断函数
+- Shorts 模板改成: `{N秒}{shorts_focus} | {nickname}{coach} #{身材词} #Shorts #{额外} #每天坚持运动打卡`
+- Long 模板保留 2026-06-27 钉死规则 (用户没改 long)
+
+**【实际输出示例】**:
+- 郭海军 SHORT: `30秒暴汗燃脂 | 老兵不老郭海军 #腹肌燃脂 #Shorts #kpop #每天坚持运动打卡`
+- 艳青 SHORT: `30秒暴汗燃脂 | 胭脂虎艳青 #性感小蛮腰 #Shorts #dance #每天坚持运动打卡`
+- 蜂王 SHORT: `30秒生猛爆汗 | 虎痴蜂王 #腹肌燃脂 #Shorts #kpop #每天坚持运动打卡`
+
+**【守门 — tests/test_upload_title.py 53 tests (从 17 → 53, +36)】**:
+- TestLongTitle: 4 tests (旧 long 模板保留)
+- TestShortTitleGoldenTemplate: 14 tests (黄金模板结构)
+  - 结构验证 (6): 时长词 + #Shorts + #每天坚持运动打卡 + 教练名 + 分隔符
+  - 痛点开头 (1): 标题以"30秒"开头
+  - | 后是教练+身材词+多 hashtag (1)
+  - 含身材词 hashtag (6): 8 教练 × 各含身材词
+- TestMaleCoachNoFemaleTerms: 11 tests (用户拍板 男教练别用小蛮腰)
+  - 男 nickname 识别 (5): {老兵不老/托塔天王/雷震子/神行太保/虎痴}
+  - 女 nickname 识别 (1): 8 女教练
+  - 男教练 short 不含禁词 (5): 小蛮腰/美腿/美腰/翘臀/瘦身减脂/性感 6 个全 no
+  - 男教练 short 含男身材词 (5): 腹肌燃脂/力量塑形/暴汗塑形/全身燃脂 至少 1
+  - 女教练 short 含女身材词 (5): 性感小蛮腰/美腰美腿/美腿翘臀/瘦身减脂 至少 1
+  - 5 个男 nickname 集合完整 (1)
+- TestTitleStructure: 6 tests (回归保护)
+
+**【235 tests 全绿零回归】**: 199 → 235.
+
+**【历史已发布视频冻结】**: 不回改. 抖音待传的手工判断要不要传新模板版.
+
+---
+
 最后更新: 2026-07-12（**竖屏 hook 高燃预览开场 取消 — 用户拍板"竖屏的产品最前面的 hook 感觉很乱不如取消"+"抖音和 youtube 都关" ✅**）:
 
 **【本轮任务】**: 用户对小红豆插画路线拍板废弃后, 又指出竖屏产品的 hook 高燃预览开场 (4s 静音+橙红字幕+最燃窗) "看起来很乱", 要求取消.
