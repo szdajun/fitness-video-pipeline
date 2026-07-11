@@ -4,6 +4,43 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构查 `docs/PROJECT_DESIGN.md`，规则查 `CLAUDE.md`，历史坑查 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+## 📦 存档模式 (2026-07-12 用户拍板)
+
+**当前状态**: 等晚上新视频到了处理, 无活跃任务. 长期任务标在这里, 短期任务在下面"最后更新"段.
+
+### ✅ 已落地 (5 commits @ origin/main = 16b7ac8)
+1. **Shorts 自动黄金时段发布** (10-14 / 19-23 北京时间, 客户端 sleep + 立即发, 不用 publishAt)
+2. **Shorts 标题改回 5 月黄金模板** (痛点开头 + 时长 + 多 hashtag)
+3. **男教练别用小蛮腰** (5 男 nickname 黑名单 → 男身材词 #腹肌燃脂 + #kpop)
+4. **Shorts 加 3 个常驻通用 hashtag** (#健身操 / #全身燃脂 / #居家健身, 跟小马达水平对齐)
+5. **HANDOFF 取消候选清理** (修李娜1 + 变现路径 → 删除线标注)
+
+### 📊 最终测试状态: **244 tests 全绿零回归** (235 → 244, +9 多 hashtag 守门)
+
+### 🎯 长期任务 (等新视频触发)
+1. **等新视频到了处理** → 主管线 `auto_publish.py` 跑全流程, **Shorts 自动黄金时段 + 新模板标题**, **Long 你手工发**
+2. **抖音 douyin 手工传** → 你自己的事, 共 7 套待传 (蜂王1 / 李娜1 / 海军1_2 / 丽丽1_2 / 建玲1_2 / 铁娘子1_2 / 小飞侠1_2)
+3. **下一个视频** → source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2 (你拍板)
+4. ❌ ~~修李娜1 long 16:9 侧躺~~ (用户拍板取消)
+5. ❌ ~~变现路径规划~~ (联盟/课程/付费会员/直播, 用户拍板暂时取消)
+
+### 🗑️ 已知 untracked 文件 (历史调研残留, 不入 git, 下次会话自决)
+- `memory/research-free-fitness-video-gen.md` (7-11 调研)
+- `scripts/_parse_csdn.py` (CSDN 解析工具)
+- `tools/experimental/` (head_swap_opera.py / meme_assembly.py / __pycache__)
+- `tools/忆秦娥1_head_rgba.png` / `tools/旦角_head_rgba.png`
+
+### 🔗 引用入口
+- **5 commits 历史**: `git log --oneline -5`
+- **5 个新增 memory 文件**:
+  - `memory/panci-ink-paint-failed-and-abandoned.md` (小红豆插画废弃)
+  - `memory/shorts-hook-disabled-2026-07-12.md` (竖屏 hook 取消)
+  - `memory/shorts-golden-hour-auto-publish-2026-07-12.md` (黄金时段发布)
+  - `memory/youtube-title-golden-template-2026-07-12.md` (黄金标题模板)
+  - `memory/panci-fengwang-huchi.md` (蜂王判词)
+
+---
+
 最后更新: 2026-07-12（**Shorts 自动黄金时段发布上线 — 用户拍板"自动发人容易忘记", 数据驱动 10-14 / 19-23 北京时间 ✅**）:
 
 **【本轮任务】**: 用户 193 视频/57 订阅沮丧 → Gemini 反馈 + 拉 YT 数据 5 维度诊断 → 拍板"不动时长, 拍发布时机" → 短片走自动黄金时段, 长视频手工发.
