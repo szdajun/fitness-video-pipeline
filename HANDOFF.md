@@ -1,8 +1,126 @@
 # HANDOFF.md — 当前迭代状态（活文档）
 
 > **新会话先读本文件**（见 `CLAUDE.md` 的"会话开局协议"）。
-> 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构看 `docs/PROJECT_DESIGN.md`，规则看 `CLAUDE.md`，历史坑看 `memory/`）。
+> 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构查 `docs/PROJECT_DESIGN.md`，规则查 `CLAUDE.md`，历史坑查 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
+
+最后更新: 2026-07-11（**李娜1 long 16:9 侧躺修复 — normalize 锁元数据 + preset youtube 重跑 ✅**）:
+
+**【本轮任务】**: 用户选 #4 修李娜1 long 16:9 侧躺. 上次跑李娜1 时源 EXIF rotation=-90 隐式旋转, youtube preset 16:9 出侧躺版 (long 视野旋转, 不传), 只走了 douyin 优. 这次用户重新下载源.
+
+**【根因诊断】**:
+- ffprobe `李娜1.mp4` 报 1920×1080 16:9, cv2 解码实际 1080×1920 (即像素 9:16). `side_data_list: [{'side_data_type': 'Display Matrix', 'rotation': -90}]` = EXIF 隐式旋转 -90°.
+- **不是源被错误压缩**, 而是安卓拍摄纵向视频加 EXIF rotate=-90 后, 某些读方(ffmpeg/cv2)不应用 rotate 但 ffprobe 报告转后尺寸. 主管线 youtube preset 16:9 输出按照 ffprobe 报告尺寸拉 → 视野横躺.
+
+**【修复 — 双重尝试, 第二次对 (per memory)】**:
+1. ❌ 第一次 `ffmpeg -vf "transpose=1,scale=1080:1920..."` 触发双重旋转, 视频倒 90° (地平线横, 人在地). **罪证**: normalized t0 帧横向躺着.
+2. ✅ 第二次按 memory `exif-normalize-no-noautorotate` **钉死**: 不加 `-noautorotate` + 不加 `transpose` (ffmpeg 默认已处理 rotate), 只 `scale + format=yuv420p + -metadata rotate=0` 锁元数据:
+   ```bash
+   ffmpeg -y -i source_videos/李娜1.mp4 \
+     -vf "scale=1080:1920:flags=lanczos,format=yuv420p" \
+     -r 30 -pix_fmt yuv420p \
+     -color_range tv -colorspace bt709 \
+     -c:v libx264 -crf 23 -preset fast \
+     -c:a aac -b:a 128k -ar 48000 \
+     -movflags +faststart -metadata rotate=0 \
+     source_videos/_normalized/李娜1_normalized.mp4
+   ```
+   → 64.8MB 1080×1920 30fps yuv420p stereo 80.63s **2451** 帧 (源 60fps 但 clip 4-5s 沉默丢帧, 实际入帧 ~2419). cv2 验证方向正确.
+
+**【跑批 (exit 0, 2111s = 35min)】**:
+- 命令: `uv run python -u main.py process source_videos/_normalized/李娜1_normalized.mp4 --preset youtube --shorts-coach 李娜 --full-video`
+- stage: pose 46.7 → color 439.3 → beat 0.4 → energy_bar 257.0 → intro_outro 77.8 → watermark 312.9 → face_swap 253.7 → intensity_burst 232.2 → danmaku 259.3 → export 126.6 → shorts 103.9 → ✅
+- face_swap 253.7s = 李娜无源照自动抽源成功 (per memory face-swap-no-source-self-beautify) → tools/李娜_face.png 已有, 复用; 实测 swap=4487/4741 = 94.6% (198 背面跳过, 56 无 pose — 跟上轮一致)
+
+**【三件套 + vision 抽帧验证 long 不侧躺 ✅】**:
+| 产物 | 时长 | 大小 | 评估 |
+|------|------|------|------|
+| `output/2026-07-11/李娜1_normalized_full_16x9_1920x1080.mp4` | 89.63s | 173MB | **真 16:9 横屏, 不侧躺, 全员站直** ✅ 可传 YT |
+| `output/2026-07-11/李娜1_normalized_full_16x9_1920x1080_douyin.mp4` | — | 125MB | douyin 优 (上轮已验证过)|
+| `output/2026-07-11/李娜1_normalized_full_16x9_1920x1080_yt_shorts.mp4` | — | 50MB | yt_shorts OK |
+
+vision 抽 t=5/8/30/50/70/80s 帧 ✅:
+- t=5/8s: 李娜领操 (右一黄衣) + 中间女黑背心 + 学员 5+ 人 — **全员站直, 城市远景在上面, 路灯亮** → 不侧躺 ✅
+- t=30/50s: 16:9 横屏, 活动横幅可见, 弹幕密度高 (这视频自带舞蹈歌词弹幕 "蜜桃臀我来啦!" / "练好身体守住家" / "闺蜜问我瘦了多少!") — 元素节奏
+- t=70/80s: 末段, 不侧躺
+
+**【教训 (钉)】**:
+- **EXIF rotate 源不要加 `transpose` 也不要加 `-noautorotate`** (per memory `exif-normalize-no-noautorotate`). ffmpeg 默认已处理.
+- normalize 流程已 commit 在 `stages/00_normalize_orientation.py` (per CLAUDE "竖屏源自动检测" 段, 2026-07-10 commit `ca8bcf2`). 李娜1 这种 EXIF rotation + 真 1080×1920 像素的竖屏源, 应该走这个 stage 自动锁, 不再手 ffmpeg.
+- 实战: 李娜1 这种"ffprobe 16:9 但 cv2 9:16 + EXIF rotate=-90"的情况, normalize stage 也应当自动 fallback 处理.
+
+**【本轮 commits】**: 无 (per memory no-auto-rerun-after-fix 不主动, 没改主管线代码; 修复用 ffmpeg normalize + preset youtube 既有)
+
+**【下一步候选】**:
+1. (可选) 测 `stages/00_normalize_orientation.py` 是否能自动处理李娜1 这种 source (per CLAUDE vertical_native 自动触发条件 = ffprobe 9:16, 但李娜1 ffprobe 16:9, 现有 stage 不会触发; 需要增强 stage 检 cv2 实际像素 fallback 触发)
+2. 抖音手工传 蜂王1 + 李娜1 douyin (用户拍板)
+3. 下一个视频 (source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2)
+
+**【本轮 YT 上传 ✅ 2026-07-11】**:
+- long:  https://www.youtube.com/watch?v=kY7OZ6-eBMM (【辣妹娜姐】李娜火辣塑形操 | 火辣塑形跟练 | 细柳营健身)
+- short: https://www.youtube.com/watch?v=jYR-Ya_y6uk (【辣妹娜姐】李娜30秒火辣塑形操 | 火辣挑战 | 细柳营健身 #Shorts)
+- 用户拍板"上传吧"后传 long + short (上轮 long 不传因侧躺, 这次修复完一并传)
+- wait_processed 30s OK 双双 succeeded, manifest 自动写
+- (上轮预提: douyin 抖音手工不传 YT)
+
+**【待用户拍板】**: 抖音 douyin 上传; 下一个视频.
+
+---
+
+最后更新: 2026-07-11（**蜂王1 长视频 跑通 — 544×960 9:16 源 + fengwang preset + 后置拼接片头片尾 ✅**）:
+
+**【本轮任务】**: 用户"有个新视频蜂王1，时间比较长，分比率可能较低，你看如何处理比较好？" → 用户拍板"先提升画质看看，原则是尽量用现成管线，不要影响现成的管线"+"先跑后看"
+
+**【跑前 4 检查 (钉)】**:
+1. 源: 544×960 9:16 h264 yuv420p 30fps aac mono, 238.67s 7160 帧 41.7MB — **真 9:16 不需 normalize**
+2. preset `fengwang.yaml`: output 1080×1920 + face_swap:false + intro_outro:true + pip:true + mascot + watermark + shorts:false + douyin:true ✅
+3. F 盘 24G free; 7160 帧 × 临时 = 谷底可能 ~25G 临时, 跑批监控
+4. 蜂王本人脸 = 黄金资源 (判词"男儿水做成"扣本人脸)
+
+**【跑批 (exit 0, 3158.5s = 52.6min)】**:
+- pose 100.8s → color 394.5s → beat 0.4s → energy_bar 270.1s → intro_outro 41.3s → watermark 319.6s → mascot 208.8s → smart_crop 305.1s → intensity_burst 641.6s → danmaku 708.8s → pip 113.0s → **export 53.1s (⚠️ 片头片尾拼接失败)**
+- face_swap 自动跳过 (preset 关), 蜂王本人光头红背心保留 = "金顶赤胆"
+- smart_crop 跟 cx=0.500 中央 (lead_cx=0.556 实际), 未检测分段点 = 视频稳定
+
+**【关键问题 + 修复 — 片头片尾拼接】** ⭐:
+- 症状: export `片头片尾拼接失败: written into output file, because at least one of its streams received no packets` → fallback 输出无片头片尾版 (238.67s, 458MB)
+- 根因: intro_outro 渲染产物 `intro.mp4 (544×960 yuv444p 无 audio)` + `outro.mp4 (544×960 yuv444p 无 audio)` 分辨率/像素格式/无音频 与 main (1080×1920 yuv420p aac mono) 不一致, 主线 concat demuxer 链失败
+- **修复 — 后置拼接 (不重跑主管线)**: ffmpeg filter_complex 拉齐 + anullsrc 补音频:
+  ```bash
+  ffmpeg -y \
+    -f lavfi -t 4 -i anullsrc=cl=stereo:r=48000 \
+    -i intro.mp4 -i main.mp4 \
+    -f lavfi -t 5 -i anullsrc=cl=stereo:r=48000 \
+    -i outro.mp4 \
+    -filter_complex "[1:v]scale=1080:1920:flags=lanczos,format=yuv420p[v1]; [2:v]scale=1080:1920:flags=lanczos,format=yuv420p[v2]; [4:v]scale=1080:1920:flags=lanczos,format=yuv420p[v4]; [v1][0:a][v2][2:a][v4][3:a]concat=n=3:v=1:a=1[v][a]" \
+    -map "[v]" -map "[a]" -c:v h264_nvenc -preset p6 -cq 18 -c:a aac -b:a 128k -movflags +faststart -shortest \
+    蜂王1_full_9x16_1080x1920_with_io.mp4
+  ```
+- 输出 499MB / 247.67s (4+238.67+5) ✅
+
+**【vision 抽帧验证 ✅】**:
+| 帧 | 内容 | 评估 |
+|----|------|------|
+| t=1-3s 片头 | 白字"胭脂虎健身团"+ 黄字"带操人：蜂王" + 底部黑底白字"汉细柳营故地·时代广场/2026-04-20" | ✅ 中文片头 OK, 但"胭脂虎"是默认频道水印, 与蜂王"虎痴"花名重叠 |
+| t=5/30/60/120/200s 正片 | 全元素齐 (左上汉印+右上水印+左下mascot+右下能量条+弹幕) | ✅ 视野宽, 蜂王本人脸清晰 |
+| t=240s 末段 | 同 t=5s, 元素稳定 | ✅ |
+| **Lanczos upscale 画质** | ⚠️ **蜂王本人中景脸/手清晰**, 但**远景学员脸糊** | 可接受, 用户拍板"先跑后看"+原则"不增新代码" → 不后置上采样 |
+
+**【产物 — 最终保留】**:
+- `output/2026-07-08/蜂王1_full_9x16_1080x1920.mp4` 499MB / 247.67s / 9:16 1080×1920 — 抖音完整版 (含片头片尾+全元素+不换脸)
+- 中间产物全部白名单清掉 (8 个 mvp_* 文件 + intro/outro)
+
+**【本轮 commits】**: 无 (仅后置 ffmpeg 拼接, 不改主管线代码; fengwang preset 已在上一批 commit)
+
+**【下一步候选】**:
+1. 抖音手工传 蜂王1 完整版 (用户拍板)
+2. **是否要修 intro_outro → export 拼接链** (未来 fengwang preset 跑会自动触发). 修复方向: 在 stages/07_export.py 片头片尾拼接前对 intro/outro 拉齐 (lanczos 1080×1920 + yuv420p) + 用 anullsrc 补 audio. 待你拍板 (per memory no-auto-rerun-after-fix 不主动修)
+3. 下一个视频 (source_videos/ 状态待查)
+4. (可选) 修李娜1 long 16:9 侧躺
+
+**【待用户拍板】**: 抖音上传蜂王1; 是否修 intro_outro 拼接.
+
+---
 
 最后更新: 2026-07-09（**matting-studio 整体冻结 (用户拍板) — 复制人组 SAM2 胳膊根治 v1-v4 全部失败, 单源 alpha+pose 几何补全数学上无解**）:
 
