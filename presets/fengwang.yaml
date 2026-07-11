@@ -54,9 +54,9 @@ danmaku:
   interval: 60
   stroke_width: 4
 
-# hook 高燃预览 (蜂王"惊天动地"特别适合 hook)
-shorts_hook: true
-shorts_hook_dur: 4
+# hook 高燃预览 (2026-07-12 用户拍板取消, 抖音+Shorts 都不开)
+shorts_hook: false
+shorts_hook_dur: 4  # 保留配置, --with-hook 还能 opt-in
 shorts_pip: true
 shorts_intro_seconds: 4
 

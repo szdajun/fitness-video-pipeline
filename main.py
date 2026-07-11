@@ -141,11 +141,11 @@ def build_single_parser():
     p.add_argument("--no-pip", dest="with_pip", action="store_false",
                    help="不生成竖屏画中画小窗")
     p.add_argument("--with-hook", dest="with_hook", action="store_true",
-                   default=None, help="yt_shorts 高燃预览开场 (最前拼最燃~4s静音+字幕, 默认开)")
+                   default=None, help="【已废弃 2026-07-12】竖屏高燃预览开场 (抖音+Shorts 最前拼最燃~4s静音+字幕). 用户拍板取消, 默认不开, 此 flag 保留 opt-in")
     p.add_argument("--no-hook", dest="with_hook", action="store_false",
-                   help="不生成高燃预览开场")
+                   help="不生成高燃预览开场 (默认, 2026-07-12 用户拍板)")
     p.add_argument("--hook-duration", type=float, default=4.0,
-                   help="高燃预览时长(秒), 默认 4 (范围 3-5)")
+                   help="高燃预览时长(秒), 默认 4 (范围 3-5). 仅 --with-hook 生效")
 
     # 身体变形参数
     p.add_argument("--leg-lengthen", type=float, help="腿部拉长比例 (1.0-1.4)")

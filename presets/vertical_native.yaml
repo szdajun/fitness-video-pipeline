@@ -37,8 +37,8 @@ stages:
   shorts_douyin: true
   shorts_duration: 175           # ⭐ ≤180s buffer, 用户拍板 (YouTube Shorts ≤3 分钟)
   shorts_pip: false              # 砍
-  shorts_hook: true              # ⭐ 保留 (前 4s 高燃预警)
-  shorts_hook_dur: 4
+  shorts_hook: false             # ❌ 取消 (2026-07-12 用户拍板: 竖屏最前 hook 看起来很乱)
+  shorts_hook_dur: 4             # 保留配置, --with-hook 还能 opt-in
 
 output:
   width: 1080

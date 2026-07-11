@@ -114,8 +114,9 @@ class ShortsStage:
                     pip_src = str(_cand)
                     break
 
-        # 2026-07-07 高燃预览开场. 2026-07-10: 竖源 preset 默认 True 但 make_vertical 内部强关
-        hook_enabled = cfg.get("shorts_hook", True)
+        # 2026-07-07 高燃预览开场. 2026-07-12 用户拍板取消 (竖屏 hook 看起来很乱): 默认 False
+        # 抖音 + Shorts 都不再加 hook. --with-hook CLI 还能 opt-in.
+        hook_enabled = cfg.get("shorts_hook", False)
         hook_dur = float(cfg.get("shorts_hook_dur", 4.0))
 
         # 公共 kwargs (含 2026-07-10 新参数)

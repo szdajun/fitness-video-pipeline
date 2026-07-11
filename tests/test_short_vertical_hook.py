@@ -2,6 +2,10 @@
 
 不跑 ffmpeg, 纯算法层: 选全片最燃 hook_dur 秒窗, 排除首尾 10%,
 单帧尖刺不污染 (滑动窗自身稀释), crop_x 钳制, skip_sec 正片相对映射.
+
+2026-07-12: 用户拍板取消 hook 默认开 (抖音+Shorts 都不加).
+算法本身仍可用, --with-hook 还能 opt-in. 10 个算法测试不动.
+新增 test_hook_disabled_by_default: cfg 默认 False 守门.
 """
 import sys
 from pathlib import Path
@@ -10,6 +14,9 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from stages.short_vertical import compute_hook_window
+from stages import short_vertical as sv_module  # noqa: F401
+import importlib
+_mod_39 = importlib.import_module("stages.39_shorts")
 
 
 def _make_person(cx=0.5, cy=0.5, scale=0.15, conf=0.95):
@@ -163,3 +170,41 @@ class TestComputeHookWindow:
         # usable = 20*0.8=16, hook_dur=17 >= 16 → None
         assert compute_hook_window({0: [_make_person()]}, [(0, 100, 656)],
                                    fps=10, total_dur=20, hook_dur=17) is None
+
+
+class TestHookDisabledByDefault:
+    """2026-07-12 用户拍板取消 hook 默认开. 抖音+Shorts 都不再加 hook.
+    算法 compute_hook_window 仍可用 (--with-hook 还能 opt-in).
+    这些守门是防止未来 PR/合并把默认改回 True.
+    """
+
+    def test_39_shorts_default_hook_enabled_is_false(self):
+        """stages/39_shorts.py: cfg.get('shorts_hook', False) — 2026-07-12 后."""
+        src = Path("stages/39_shorts.py").read_text(encoding="utf-8")
+        assert 'cfg.get("shorts_hook", False)' in src, (
+            "stages/39_shorts.py 必须默认 shorts_hook=False "
+            "(2026-07-12 用户拍板: hook 看起来很乱, 取消默认开)"
+        )
+
+    def test_vertical_native_yaml_hook_false(self):
+        """presets/vertical_native.yaml: shorts_hook: false."""
+        src = Path("presets/vertical_native.yaml").read_text(encoding="utf-8")
+        assert "shorts_hook: false" in src, (
+            "presets/vertical_native.yaml shorts_hook 必须改 false "
+            "(2026-07-12 用户拍板取消 hook 默认开)"
+        )
+
+    def test_fengwang_yaml_hook_false(self):
+        """presets/fengwang.yaml: shorts_hook: false."""
+        src = Path("presets/fengwang.yaml").read_text(encoding="utf-8")
+        assert "shorts_hook: false" in src, (
+            "presets/fengwang.yaml shorts_hook 必须改 false "
+            "(2026-07-12 用户拍板取消 hook 默认开)"
+        )
+
+    def test_main_py_with_hook_help_mentions_deprecated(self):
+        """CLI --with-hook help 文案要标【已废弃 2026-07-12】, 防误用."""
+        src = Path("main.py").read_text(encoding="utf-8")
+        assert "已废弃 2026-07-12" in src, (
+            "main.py --with-hook help 文案必须标【已废弃 2026-07-12】"
+        )
