@@ -1,8 +1,9 @@
 """YouTube 上传工具 — 标题/描述/标签模板"""
 
 import sys
+import time
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -32,20 +33,36 @@ def _today_str() -> str:
     return date.today().strftime("%Y-%m-%d")
 
 
+# ====== 黄金期标题模板 (2026-07-12 用户拍板回归) ======
+# 数据依据: 用户频道 5 月黄金期 195 视频分析
+# Top 1 (2939 view):  Day{N} 15秒暴汗燃脂 {nickname} #Shorts #dance #每天坚持运动打卡 #kpop
+# Top 2 (2288 view):  30秒暴汗燃脂 | {nickname}{coach} #性感小蛮腰 #Shorts
+# 关键共性: 痛点开头 + 时长词 + 多 hashtag (#Shorts #dance #每天坚持运动打卡)
+#
+# 男教练禁用"小蛮腰"等女性身材词 (用户 2026-07-12 拍板)
+# 男教练痛点: 腹肌/力量塑形/暴汗塑形
+# 女教练痛点: 性感小蛮腰/美腰美腿/瘦身减脂
+_MALE_NICKNAMES = {"虎痴", "托塔天王", "雷震子", "神行太保", "老兵不老"}
+_MALE_BODY_TERMS = ["腹肌燃脂", "力量塑形", "暴汗塑形", "全身燃脂"]
+_FEMALE_BODY_TERMS = ["性感小蛮腰", "美腰美腿", "美腿翘臀", "瘦身减脂"]
+_GOLDEN_HASHTAGS = ["#Shorts", "#dance", "#每天坚持运动打卡", "#kpop"]
+
+
+def _is_male_coach(nickname: str) -> bool:
+    """根据 nickname 判定教练性别. 用户 2026-07-12 拍板: 男教练不用女性身材词."""
+    return nickname in _MALE_NICKNAMES
+
+
 def build_title(coach: str, record_date: str = "", video_type: str = "long",
                 duration_sec: int = 30) -> str:
-    """生成视频标题 — 使用教练 nickname + focus 模板
+    """生成视频标题 — 黄金期模板 (2026-07-12 用户拍板回归 5 月爆款风格)
 
-    长视频模板 (钉死, CLAUDE.md 2026-06-27):
-        【{nickname}】{coach}{focus}操 | {focus}跟练 | 细柳营健身
-        例: 【老兵不老】郭海军力量燃脂操 | 刚劲塑形跟练 | 细柳营健身
+    数据依据: 用户频道 195 视频, 5 月黄金期均 view 1500+, 7 月跌到 488. 黄金模板:
+    - Shorts: {N秒}{痛点开头} | {nickname}{coach} #{身材词} #Shorts #dance #每天坚持运动打卡 #kpop
+    - Long:   【{nickname}】{coach}{痛点}操 | {细分痛点}跟练 | 细柳营健身
 
-    Shorts 模板 (钉死, CLAUDE.md 2026-06-27):
-        【{nickname}】{coach}{N秒}{shorts_focus}操 | {shorts_challenge} | 细柳营健身 #Shorts
-        例: 【长安腰女】丽丽30秒暴汗燃脂操 | 瘦腰瘦腿挑战 | 细柳营健身 #Shorts
-
-    Args:
-        duration_sec: Shorts 时长(秒), 写入标题. 默认 30.
+    男教练 (虎痴/托塔天王/雷震子/神行太保/老兵不老) 禁用女性身材词 (用户拍板).
+    改回原模板: CLAUDE.md 2026-06-27 钉死的 title_tpl. 历史已发布视频冻结不重传.
     """
     # 取教练画像 (nickname + focus + shorts_focus + shorts_challenge)
     nickname = coach
@@ -61,7 +78,7 @@ def build_title(coach: str, record_date: str = "", video_type: str = "long",
         if profile.get("focus"):
             focus = profile["focus"]
             focus_trail = focus
-        # 2026-06-27: 优先用 shorts_focus + shorts_challenge, fallback focus
+        # 优先用 shorts_focus + shorts_challenge, fallback focus
         if profile.get("shorts_focus"):
             shorts_focus = profile["shorts_focus"]
         else:
@@ -73,9 +90,21 @@ def build_title(coach: str, record_date: str = "", video_type: str = "long",
     except Exception:
         pass
 
-    if video_type == "short":
-        return f"【{nickname}】{coach}{duration_sec}秒{shorts_focus}操 | {shorts_challenge} | 细柳营健身 #Shorts"
+    # 2026-07-12: 按性别选身材词 (用户拍板 男教练不用女性身材词)
+    if _is_male_coach(nickname):
+        body_term = _MALE_BODY_TERMS[0]  # 腹肌燃脂 (默认)
+        extra_hashtag = "#kpop"  # 男教练主推 #kpop
+    else:
+        body_term = _FEMALE_BODY_TERMS[0]  # 性感小蛮腰 (默认)
+        extra_hashtag = "#dance"  # 女教练主推 #dance
 
+    if video_type == "short":
+        # 黄金模板: {N秒}{痛点开头} | {nickname}{coach} #{身材词} #Shorts #dance #每天坚持运动打卡 #kpop
+        # 简化版 (避免过长被截): {N秒}{shorts_focus} | {nickname}{coach} #{身材词} #{hashtags}
+        hashtag_str = " ".join(["#Shorts", extra_hashtag, "#每天坚持运动打卡"])
+        return f"{duration_sec}秒{shorts_focus} | {nickname}{coach} #{body_term} {hashtag_str}"
+
+    # Long 模板保留 (CLAUDE 钉死 title_tpl)
     return f"【{nickname}】{coach}{focus}操 | {focus_trail}跟练 | 细柳营健身"
 
 
@@ -328,7 +357,8 @@ def _write_manifest(file_path: str, coach: str, video_type: str,
 
 def upload_pair(coach: str, long_path: str, short_path: str,
                 record_date: str = "", privacy: str = "public",
-                short_duration: int = 30):
+                short_duration: int = 30,
+                wait_for_short_golden_hour: bool = True):
     """上传长视频+短视频一对。record_date 为录制日期，省略则用当天。
 
     Args:
@@ -336,6 +366,12 @@ def upload_pair(coach: str, long_path: str, short_path: str,
                    **不要传 *_full_16x9.mp4** (那是去头去尾的副本, 不适合 YT).
         short_path: YT Shorts 路径. *_yt_shorts.mp4.
         short_duration: Shorts 时长(秒), 写入 YT Shorts 标题 (默认 30).
+        wait_for_short_golden_hour: 短片是否等黄金时段 (10-14 / 19-23 北京时间) 再上传.
+            True (默认): 客户端 sleep 到下一个黄金窗口, 然后立即上传 — 不用 publishAt,
+                          绕开 YT 长视频 scheduled 挂死 bug.
+            False: 立即上传 (跳过黄金时段检查).
+
+    用户 2026-07-12 拍板: "长视频我来发 (历史已证明自动发挂死), Shorts 自动发 (人容易忘记)".
     """
     results = {}
 
@@ -372,6 +408,10 @@ def upload_pair(coach: str, long_path: str, short_path: str,
         print(f"  => https://youtube.com/watch?v={vid}")
 
     if short_path and Path(short_path).exists():
+        # 2026-07-12 用户拍板: Shorts 自动等黄金时段再发 (人容易忘记).
+        # 历史教训: 长视频不能 scheduled (挂死), 所以短片用客户端 sleep + 立即发, 绕开 publishAt.
+        if wait_for_short_golden_hour:
+            wait_for_golden_hour()
         title = build_title(coach, date_str, "short", duration_sec=short_duration)
         desc = build_description(coach, date_str, video_type="short")
         print(f"[上传] 短视频: {title}")
@@ -381,3 +421,75 @@ def upload_pair(coach: str, long_path: str, short_path: str,
         print(f"  => https://youtube.com/watch?v={vid}")
 
     return results
+
+
+# ====== Shorts 黄金时段等待 (2026-07-12 用户拍板) ======
+# 数据依据 (用户频道 195 视频分析):
+#   - 黄金时段 10-14 / 19-23 北京时间 (UTC+8)
+#   - 5 月黄金期均 view 1376 (13-14) / 935 (22-23) / 862 (19-20)
+#   - 避开 8-10 (98 view), 16-17 (199 view 样本偏少)
+# 不用 publishAt: 避开 YT 长视频 scheduled 挂死 bug.
+def _is_golden_hour(now: datetime = None) -> bool:
+    """当前时刻是否落在黄金时段 (10-14 / 19-23 北京时间)."""
+    if now is None:
+        now = datetime.now(timezone(timedelta(hours=8)))
+    h = now.hour
+    return (10 <= h < 14) or (19 <= h < 23)
+
+
+def seconds_until_next_golden(now: datetime = None) -> int:
+    """到下一个黄金时段开始的秒数. 不在黄金时段时调用."""
+    if now is None:
+        now = datetime.now(timezone(timedelta(hours=8)))
+    h = now.hour
+    if (10 <= h < 14) or (19 <= h < 23):
+        return 0
+    # 下一个窗口起点
+    if h < 10:
+        next_start = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    elif 14 <= h < 19:
+        next_start = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    else:  # h >= 23
+        # 等明天 10 点
+        tomorrow = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+        return int((tomorrow - now).total_seconds())
+    return int((next_start - now).total_seconds())
+
+
+def wait_for_golden_hour(check_interval_sec: int = 60,
+                         progress_print_min: int = 5):
+    """客户端 sleep 等到黄金时段 (10-14 / 19-23 北京时间).
+
+    当前在黄金时段 → 立即返回.
+    否则打印倒计时, 每分钟 check 一次是否到了.
+
+    Args:
+        check_interval_sec: 检查间隔秒数 (默认 60, 不要太小免得 CPU 浪费).
+        progress_print_min: 进度打印间隔分钟 (默认 5, 避免刷屏).
+
+    不用 publishAt — 避开 YT 长视频 scheduled 挂死 bug (per memory yt-long-video-publish-immediately).
+    """
+    now = datetime.now(timezone(timedelta(hours=8)))
+    if _is_golden_hour(now):
+        print(f"  [golden] 当前 {now.hour:02d}:xx 已在黄金时段 (10-14 / 19-23 北京), 立即上传")
+        return
+
+    secs = seconds_until_next_golden(now)
+    target = now + timedelta(seconds=secs)
+    print(f"  [golden] 当前 {now.hour:02d}:xx 不在黄金时段, 等到 {target.strftime('%Y-%m-%d %H:%M')} (≈ {secs//3600}h {(secs%3600)//60}m)")
+    print(f"          注: 不用 publishAt — 客户端 sleep 到时间再立即发布, 绕开 YT 长视频 scheduled 挂死 bug")
+
+    last_print_min = -1
+    slept = 0
+    while True:
+        time.sleep(check_interval_sec)
+        slept += check_interval_sec
+        if _is_golden_hour():
+            elapsed = datetime.now(timezone(timedelta(hours=8)))
+            print(f"  [golden] 到达黄金时段 {elapsed.hour:02d}:{elapsed.minute:02d}, 继续上传")
+            return
+        cur_min = slept // 60
+        if cur_min - last_print_min >= progress_print_min:
+            last_print_min = cur_min
+            remaining = secs - slept
+            print(f"  [golden] 已等 {cur_min}m, 还需 ≈ {remaining//60}m 到黄金时段")
