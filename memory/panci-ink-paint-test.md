@@ -1,62 +1,99 @@
 ---
-name: panci-ink-paint-test
-description: 【2026-07-12】判词水墨插画测试 — DreamShaper_8 SD1.5 出图 + 防暴露修复 + 测试视频合成
+name: panci-ink-paint-failed-and-abandoned
+description: 【2026-07-12 废弃】小红豆 4 句判词 AI 插画路线全失败 — 古风水墨风格冲突/多肢/SDXL下不到, 用户拍板废弃
 metadata:
   type: project
 ---
 
-# 判词水墨插画 — 2026-07-12 测试产物
+# 判词 AI 插画路线 — 2026-07-12 废弃
 
 ## 状态
-**仅测试阶段, 未接入主管线**. 用户拍板"先测试" → 走轻量路径, 4 张静态图 + 8s 测试视频.
+**已废弃 (用户拍板)**. AI 插画路线不适合本项目 (主管线真人 vs AI 风格冲突 + SD1.5 多肢 + SDXL 国内下不到). 主管线零影响零回归, 180 tests 全绿.
 
-## 产物
-- 4 张原图: `tools/panci_paint/xiaohongdou/{1,2,3,4}.png` (512×896 SD1.5 出图, ~30s/张)
-- 测试视频: `output/2026-07-12/_test_xhd_panci.mp4` (8s, 4×2s Ken Burns 慢推)
-- 生成脚本: `scripts/gen_panci_paint.py` (走 ComfyUI HTTP API)
-- 测试视频合成: `scripts/test_panci_overlay.py`
+## 时间线 (钉死)
 
-## 技术路径
-1. 启动 ComfyUI server (cd ComfyUI && python main.py --listen 0.0.0.0 --port 8188)
-2. workflow = `ComfyUI/custom_nodes/workflows/text_to_image.json` (用 DreamShaper_8 SD1.5 checkpoint)
-3. 4 prompt 各 1 张, 512×896 竖版, 25 steps, euler_ancestral + karras, seed 固定
-4. ffmpeg zoompan 把单图变 2s 视频 (1.0x→1.08x 缓推) → concat 4 段 = 8s
+| 阶段 | 用户原话 | 行动 | 结果 |
+|------|----------|------|------|
+| 起 | "水墨画我看了, 感觉和健身视频太不协调了, 而且最后一张眼睛有点问题" | 看 4 张图 | 确认: 4 张风格撕裂 + 黑底 SD1.5 渲弱 |
+| 1 | "试 2 换视觉风格" | 用户拍板换风格 | 走线条插画路线 |
+| 2 | "手绘运动插画" | 选子风格 | 干净线条 + 高饱和能量色 (子风) |
+| 3 | "只上 1 个总插画 + 判词 4 句字幕" | 选长度 | 单图路线 |
+| 4 | "下底模 (Recommended)" | 选底模来源 | Anything v5 gated → 改 Anything v3 FP16 |
+| 5 | "Anything v3 FP16 (2.13GB) (Recommended)" | 下 1.987GB | AdamOswald1/Anything-Preservation 公开镜像 |
+| 6 | "挺可爱的, 能否将颜色改变为黑白色调" | 改 prompt 加 monochrome | 出黑白版 |
+| 7 | "腿 3 条, 胳膊一条, 吓人" | SD1.5 多肢 bug | 改站姿 → 还是多肢 → 改半身图稳定 |
+| 8 | "一个腿抬起来了, 支撑腿只看到一半" | 9:16 全身被裁 | 加 far shot + cropped negative → 还是被裁 |
+| 9 | "三条腿了" | SD1.5 老问题反复 | 改半身图 (胸口以上) → 终于稳 |
+| 10 | "这个只有上半身, 是这样要求的吗" | 用户问姿势 | 解释半身图是 SD1.5 bug 折衷方案 |
+| 11 | "重下 SDXL/换底模" | 用户拍板换 SDXL | HF 全 401 + CivitAI 401 (要 token) + 国内镜像站跳回 HF = 全死 |
+| 12 | "废弃" | 拍板废弃插画路线 | 删产物/脚本/底模 |
+| 13 | "ComfyUI 留着有用的" | 拍板保留 ComfyUI | 主体 + ckpts + custom_nodes 全留, 只清插画相关产物 |
 
-## 关键坑
+## 教训 (钉死, 不要再走)
 
-### 防暴露 (CLAUDE.md 弹幕/字幕内容审查基线)
-**首跑**: 图 2 (婚纱感) + 图 4 (高开叉露大腿) 触发"性暗示"基线 ⚠️.
-**修复**:
-- 加 negative: `nudity, lingerie, bikini, cleavage, bare shoulders, exposed chest, wedding dress, white dress, slit, high slit, thigh gap, navel, sexy, sensual, suggestive, revealing outfit, see-through, short skirt, mini skirt, bare legs, bare thighs, high boots, knee high slit, side slit, leg visible, midriff, action pose, dynamic pose, dancing wildly`
-- prompt 里 "dancing wildly" / "flowing" / "dynamic" 等暗示词改成 "gentle" / "graceful" / "modest"
-- 重跑后 4 张全部合规 ✅
+### 1. AI 风格插画 vs 主管线真人视频 = 视觉语言冲突
+- 古风水墨 (静态/写意/古装) vs 现代健身 (动态/现代/广场) = 撕裂
+- 二次元萌系 vs 真人跟练视频 = 不协调
+- **不要再走 AI 插画路线**. 主管线已经是真人视频 (face_swap), 加插画不如加汉印/水印/能量条这些"已融入"的元素
 
-### diffusers single_file 不兼容 SD1.5
-- ComfyUI venv (torch 2.12+cu130, diffusers 0.32+) 调 `StableDiffusionPipeline.from_single_file()` 报 `CLIPTextModel has no attribute text_model` (新版 transformers 改 CLIPTextModel 内部结构)
-- 解: 走 **ComfyUI HTTP server + workflow API**, 不直接调 diffusers
-- ComfyUI 自己加载 checkpoint + KSampler 没问题
+### 2. SD1.5 9:16 全身 + 复杂姿态 = 多肢 bug 老问题
+- SD1.5 Anything v3 在 (踢腿+展臂+抱头) 任何组合都会出 3-4 条腿/胳膊
+- 修法 1: 改半身图 (胸口以上) — 稳, 但人物不完整
+- 修法 2: 改静态站姿 (双脚并拢+单臂上举) — 50% 概率稳
+- 修法 3: 加 negative `extra limbs, three legs, four arms` — 减弱不根治
+- 修法 4: 换 SDXL — 国内下不到 (HF/CivitAI 全 401)
+- **未来如果再做**: 用 SDXL 在线 (CivitAI online) 或 Comfy cloud, 别本地
 
-## 视觉评估
-- 图 1 红豆生来俏模样: 红衣女子 + 红梅枝 + 白墙 ✅ 含蓄水墨工笔
-- 图 2 香汗淋漓透红妆: 红衣舞动 + 飘袖 ✅ 红梅 + 烟水意境
-- 图 3 娇喘微微惹人怜: 红衣侧脸 + 流苏 + 牡丹窗光 ✅ 最佳, 真有工笔仕女图感
-- 图 4 花枝乱颤舞霓裳: 黑红裙 + 飘带 + 优雅动作 ✅
+### 3. HF 限流 + CivitAI token 双重死结
+- HF 主仓: `andite/anything-v5.0`, `Linaqruf/animagine-xl-v3.1`, `ProGamerGov/AnyLoRA`, `Yuno779/AnythingXL` 全部 401 (限流 / gated)
+- hf-mirror.com 镜像站: 全 308 跳回 HF 本体 = 没用
+- CivitAI `/api/download/models/{id}` 直接: 401 (需 token)
+- CivitAI 在线: 可达, 可浏览, 但下载需登录 token
+- **唯一出路**: 用户手动从某渠道下好后给本地路径
 
-## 下一步候选 (待用户拍板)
-1. 接主管线 (新 stage `45_panci_paint.py`, opening 期间 4×2s 切图)
-2. 试 SDXL 出图 (更大模型, 风格更稳, 显存需 ≥10GB, RTX 4070 12GB 可行)
-3. 走"真动态"路径 (Pika/Runway 图生视频, 每段 4s, 投入大)
-4. 给其他教练做 (蜂王/李娜/铁娘子 4 句判词各异)
+### 4. Anything v3 FP16 = 2.0GB 实际大小 (不是 2.13GB)
+- 标称 2.13GB 是 v3 full, FP16 pruned 实际 1.987GB
+- 功能无影响, 注意 ckpt 文件大小描述
 
-## 已知限制
-- DreamShaper_8 是 SD1.5 衍生, 风格倾向"性感动态", 即便 negative 控住仍偶尔出黑丝/短裙
-- 1080×1920 不在 SD1.5 原生分辨率, 当前 512×896 上采样后单图细节略糊
-- 没有 SDXL base checkpoint (本机只有 DreamShaper 8 = SD1.5 衍生, 2GB)
+## 当前 ComfyUI 状态 (用户拍板"留有用的")
+
+### 留的
+- `F:\wkspace\ComfyUI\` 主体完整
+- `models/checkpoints/DreamShaper_8_pruned.safetensors` 2.0GB — 主管线长期依赖
+- `models/checkpoints/ltx-video-2b-v0.9.5.safetensors` 6.0GB — 未来视频生成
+- `models/configs/anything_v3.yaml` — 占用极小, 留着 (孤儿)
+- `custom_nodes/ComfyUI-LTXVideo` + `AnimateDiff-Evolved` + `Impact-Pack/Subpack` + `VideoHelperSuite` + `Manager` — 主管线未来用
+- `custom_nodes/ComfyUI-CogVideoXWrapper` — IMPORT FAILED 是没装依赖不是坏, 完整仓库, 留着
+- `custom_nodes/daily.py` + `content_gen.py` + `hosts.py` + `heygem_*` + `face_restore.py` + `download_models.py` + `post_process.py` + `batch_producer.py` + `client_secret.json` + `published_scripts.json` + `example_node.py.example` — ComfyUI 自带, 跟本项目无关, 全留
+
+### 清掉的 (本轮)
+- `tools/panci_paint/xiaohongdou/` (4 张水墨图原图) — 旧 commit 3884f00 留存, 工作目录删
+- `tools/panci_paint/xiaohongdou_v2/main.png` (本轮半身图最终版) — 删
+- `scripts/gen_panci_paint_v2.py` (本轮出图脚本) — 删
+- `scripts/_parse_csdn.py` (本轮调研用, 后来没用上) — 留 (untracked)
+- `ComfyUI/models/checkpoints/anything-v3-fp16-pruned.safetensors` 1.987GB — 删 (用户拍板)
+- `ComfyUI/custom_nodes/pipeline.py` (1KB) — 删 (本轮之前的孤儿, IMPORT FAILED)
+- `ComfyUI/custom_nodes/auto_daily.py` — 删 (同上)
+- `_temp/wawa_probe/` — 删 (本轮调研临时帧)
+- `_temp/civitai_search.json` — 删 (本轮搜索结果)
+- `output/2026-07-12/_test_xhd_panci.mp4` — 删 (本轮 8s 测试视频)
+
+### 留的 (跟本轮无关)
+- `output/2026-07-12/小红豆1_2_merged_*` 三件套 — 上轮跑通的产品, 抖音待传
+- `gen_panci_paint.py` (旧 4 张水墨图脚本) — 在 git 历史 commit 3884f00
+- ComfyUI server 已停
 
 ## 守门 (TODO)
-- 没加. 主线零影响 (无主管线接入), 仅作素材工具
-- 如接入主管线需加: 4 张图存在性守门 + 内容审查 negative 不变 + duration=8s
+- 无. 主管线零影响, 没改任何代码
+
+## 重启信号 (不要主动重启)
+1. 用户拍板 OR
+2. 主管线改用真动态视频路线 (LTX-Video) 实战 (现在 LTX-Video 还在) OR
+3. AI 插画路线有明确收益目标 (例如小红豆卡通立绘 IP)
+
+不主动重启.
 
 ## 关联
 - 主管线 0 代码改动
-- 未来接 `stages/45_panci_paint.py` 时, 复用 `gen_panci_paint.py` + coach_profiles.PANCI
+- 180 tests 全绿零回归
+- commit 3884f00 @ feat(panci_paint): 小红豆 4 句判词水墨插画生成 + 8s 测试视频 — git 历史留存 (不在工作目录)
