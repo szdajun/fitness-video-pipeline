@@ -116,8 +116,16 @@ def build_description(coach: str, record_date: str = "",
 def upload_video(video_path: str, title: str, description: str,
                  tags: list, privacy: str = "public", channel: str = "fitness",
                  publish_at: str = None, thumbnail_path: str = None,
-                 coach: str = None, video_type: str = "long"):
-    """上传单个视频到 YouTube, 自动写 manifest"""
+                 coach: str = None, video_type: str = "long",
+                 wait_processed: bool = True, wait_timeout: int = 1200):
+    """上传单个视频到 YouTube, 自动写 manifest.
+
+    wait_processed (默认 True, 2026-07-10 用户要求):
+        上传完成后等 YT 平台 processingStatus=processed 再返回, 防止
+        父进程提前 return 后 YT 平台 HD processing 卡死无人接管.
+        wait_timeout=1200s (20min) 上限避免死等; 超时仍返回 ytid + 警告,
+        不影响 manifest 已写入 (上传已完成, 仅平台处理未完).
+    """
     # 2026-07-02 用户新规: YT 宽幅长视频必须"立即发布", scheduled(publishAt)延迟发布会挂死在
     # 平台得不到处理 (HD processing 卡死). 长视频即便调用方传了 publish_at 也强制立即发布.
     if video_type == "long" and publish_at:
@@ -136,6 +144,17 @@ def upload_video(video_path: str, title: str, description: str,
             ytid = _verify_uploaded_ytid(ytid, title, channel=channel)
         except Exception as e:
             logger.warning("verify ytid 失败 (不影响上传): %s", e)
+        # 2026-07-10: 等平台 processingStatus=processed 再返回, 防父进程退出后
+        # YT HD processing 没人接管挂死 (用户痛点: 上传返回后平台没处理, 需人工)
+        if wait_processed:
+            try:
+                status = _wait_processing_complete(ytid, channel=channel, timeout=wait_timeout)
+                if status != "processed":
+                    print(f"  [WARN] YT 处理未在 {wait_timeout}s 内完成 (current={status}), "
+                          f"上传已成功, manifest 已写, short 继续传")
+            except Exception as e:
+                # 2026-07-10: GBK/Unicode 编码错误等不应阻断 manifest 写入和 short 继续上传
+                print(f"  [WARN] wait_processed 异常 (已忽略): {type(e).__name__}: {e}")
         # 自动写 manifest (避免下次重复上传)
         try:
             _write_manifest(video_path, coach or "", video_type, ytid, title, privacy, publish_at)
@@ -215,6 +234,63 @@ def _verify_uploaded_ytid(ytid: str, expected_title: str,
         time.sleep(wait)
     print(f"  [verify][WARN] 无法确认真实 videoId (返回 {ytid}), 请手动核对 manifest!")
     return ytid  # 兜底
+
+
+def _wait_processing_complete(ytid: str, channel: str = "fitness",
+                              timeout: int = 1200, poll_interval: int = 15) -> str:
+    """等 YT 平台 processingStatus=processed 再返回 (2026-07-10 用户要求).
+
+    长视频 (尤其 1080p+) 上传后 YT 平台需 HD processing, 父进程若提前 return
+    → 平台无人接管挂死 (HD processing 卡死). 此函数轮询 videos.list?part=status,
+    每 15s 查一次, 状态变 processed 即返回.
+
+    Args:
+        ytid: 视频 ID
+        channel: 频道
+        timeout: 上限秒数 (默认 1200s = 20min, 正常 <5min 完成)
+        poll_interval: 轮询间隔秒
+
+    Returns:
+        最终状态 (processed / processing / failed / rejected / timeout / error).
+        调用方按返回值决定是否告警, 不抛异常 (上传已完成, 不应因轮询失败报错).
+    """
+    import time
+    from youtube_upload import get_authenticated_service
+    yt = get_authenticated_service(channel=channel)
+    start = time.time()
+    last_status = "unknown"
+    print(f"  [wait-processed] 等 YT 处理完成, 最多 {timeout}s ...")
+    while time.time() - start < timeout:
+        try:
+            # YT Data API v3: processingStatus 在 part=processingDetails 不在 part=status
+            # (我 v1+v2 写错两次; 2026-07-11 验证: part=status 不返回 processingStatus)
+            r = yt.videos().list(part="processingDetails", id=ytid).execute()
+            items = r.get("items", [])
+            if items:
+                pd = items[0].get("processingDetails", {})
+                # processingDetails 字段: processingStatus / processingProgress / processingFailureReason
+                # processingStatus = processing / processed / failed / uploaded (新版)
+                # 老版本可能只有 processingFailureReason 字段 (状态空)
+                ps = pd.get("processingStatus", "?")
+                last_status = ps
+                # YT API processingStatus 值: processing / succeeded / failed / terminated
+                # (历史叫 'processed', 现版本叫 'succeeded', 都表示完成成功)
+                if ps in ("processed", "succeeded"):
+                    print(f"  [wait-processed] OK {ps} (elapsed {int(time.time()-start)}s)")
+                    return "processed"
+                if ps in ("failed", "rejected", "terminated"):
+                    reason = pd.get("processingFailureReason", "?")
+                    print(f"  [wait-processed] FAIL {ps}: {reason}")
+                    return ps
+                # processing / uploaded / ? → 继续轮询
+                prog = pd.get("processingProgress", {})
+                pct = prog.get("partsProcessed", 0) / max(prog.get("partsTotal", 1), 1) * 100
+                print(f"  [wait-processed] {ps} {pct:.0f}% ... ({int(time.time()-start)}s)")
+        except Exception as e:
+            logger.warning("wait_processed 轮询失败: %s", e)
+        time.sleep(poll_interval)
+    print(f"  [wait-processed] TIMEOUT {timeout}s, current={last_status}")
+    return "timeout"
 
 
 def _write_manifest(file_path: str, coach: str, video_type: str,

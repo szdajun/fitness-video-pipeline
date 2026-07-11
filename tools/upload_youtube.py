@@ -39,6 +39,14 @@ def main():
     ap.add_argument("--short-duration", type=int, default=30,
                     help="Shorts 时长秒, 写入标题 (默认 30)")
     ap.add_argument("--title", help="自定义标题 (覆盖模板, 学员等场景用)")
+    ap.add_argument("--wait-processed", dest="wait_processed", action="store_true",
+                    default=True,
+                    help="等 YT 平台 processingStatus=processed 再返回 (默认开, "
+                         "2026-07-10 用户要求: 防父进程退出后 HD processing 卡死)")
+    ap.add_argument("--no-wait-processed", dest="wait_processed", action="store_false",
+                    help="跳过等平台处理完 (上传完立刻返回)")
+    ap.add_argument("--wait-timeout", type=int, default=1200,
+                    help="等平台处理的上限秒数 (默认 1200=20min)")
     args = ap.parse_args()
 
     if not args.long_path and not args.short_path:
@@ -60,7 +68,9 @@ def main():
         print(f"[upload] long  ({lp.stat().st_size // 1048576}MB): {title}")
         res["long"] = upload_video(str(lp), title, desc, LONG_TAGS,
                                    privacy=args.privacy, coach=args.coach,
-                                   video_type="long")
+                                   video_type="long",
+                                   wait_processed=args.wait_processed,
+                                   wait_timeout=args.wait_timeout)
         print(f"  => https://www.youtube.com/watch?v={res['long']}")
 
     if args.short_path:
@@ -74,7 +84,9 @@ def main():
         print(f"[upload] short ({sp.stat().st_size // 1048576}MB): {title}")
         res["short"] = upload_video(str(sp), title, desc, SHORTS_TAGS,
                                     privacy=args.privacy, coach=args.coach,
-                                    video_type="short")
+                                    video_type="short",
+                                    wait_processed=args.wait_processed,
+                                    wait_timeout=args.wait_timeout)
         print(f"  => https://www.youtube.com/watch?v={res['short']}")
 
     print("\n[done]")
