@@ -1,0 +1,72 @@
+# 蜂王 (虎痴) 专用 preset — 9:16 源, 不换脸, 全元素
+# 设计: 蜂王源是 9:16 竖屏 (元数据已锁 source_videos/_normalized/), 跑出 9:16 完整版
+# 用户拍板 (2026-07-09): 蜂王本人脸是黄金资源 (判词"男儿水做成"), 不换脸
+# 用户拍板: 全元素 (汉印/时间戳/爆燃/片头/弹幕/能量条/PIP/hook)
+# 与 douyin_long 区别: face_swap:false + intro_outro:true + pip:true + hook
+
+stages:
+  h2v_convert: false       # 源是 9:16, 不转
+  stabilize: false
+  beat_flash: true
+  highlight: true
+  energy_bar: true
+  intro_outro: true        # 蜂王全片头片尾 (vs douyin_long 关)
+  ken_burns: false         # 9:16 视野, 不拉远 (源已经看清)
+  body_warp: false
+  pip: true                # 蜂王全 PIP (vs douyin_long 关)
+  mascot: true             # 蜂王全 mascot (vs douyin_long 关)
+  watermark: true          # 蜂王全 watermark
+  danmaku: true
+  intensity_burst: true
+  smart_crop: true         # 9:16 逐帧跟踪领操人
+  face_swap: false         # ⭐ 蜂王特殊处理: 不换脸 (用户拍板)
+  skeleton_overlay: false
+  person_count: false
+  lead_box: false
+  lead_ghost: false
+  face_blur: false
+  motion_heatmap: false
+  sync_score: false
+  bgm_beat: false
+  skin_smooth: false
+  shorts: false            # 9:16 源, 不再产横屏 long (用户自己传 YT long/shorts 再说)
+  douyin: true             # 9:16 完整版
+
+# 9:16 1080x1920 输出
+output:
+  width: 1080
+  height: 1920
+  formats: []
+
+# 全 watermark (汉印 + 时间戳)
+watermark:
+  watermark_text: "细柳营·虎痴"
+  watermark_position: top-right
+  watermark_size: 22
+  watermark_alpha: 0.7
+  show_date: true
+  show_seal: true
+
+# 弹幕
+danmaku:
+  enabled: true
+  font_size: 44
+  interval: 60
+  stroke_width: 4
+
+# hook 高燃预览 (蜂王"惊天动地"特别适合 hook)
+shorts_hook: true
+shorts_hook_dur: 4
+shorts_pip: true
+shorts_intro_seconds: 4
+
+color_grade:
+  brightness: 0
+  clahe: true
+
+# mascot 默认尺寸
+mascot:
+  enabled: true
+  size: 180
+  position: bottom-left
+  bounce_range: 15
