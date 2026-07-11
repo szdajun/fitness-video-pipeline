@@ -4,6 +4,93 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构查 `docs/PROJECT_DESIGN.md`，规则查 `CLAUDE.md`，历史坑查 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+最后更新: 2026-07-12（**竖屏 hook 高燃预览开场 取消 — 用户拍板"竖屏的产品最前面的 hook 感觉很乱不如取消"+"抖音和 youtube 都关" ✅**）:
+
+**【本轮任务】**: 用户对小红豆插画路线拍板废弃后, 又指出竖屏产品的 hook 高燃预览开场 (4s 静音+橙红字幕+最燃窗) "看起来很乱", 要求取消.
+
+**【改动清单 — 全部落 commit, 187 tests 全绿】**:
+- **代码层**: `main.py:143-148` CLI help 标【已废弃 2026-07-12】, `stages/39_shorts.py:118` `cfg.get("shorts_hook", True)` → `False` 默认
+- **配置层**: `presets/vertical_native.yaml` + `presets/fengwang.yaml` 改 `shorts_hook: false` (保留 `shorts_hook_dur: 4` 让 --with-hook opt-in 可用)
+- **测试层**: `tests/test_short_vertical_hook.py` 新增 `TestHookDisabledByDefault` 4 个守门 (扫源码/preset/cli 文案, 防未来 PR 改回默认开)
+- **文档层**: CLAUDE.md 第 10 段+ 第 315/384/436 行全部同步取消状态, memory `shorts-hook-disabled-2026-07-12.md` 新增
+
+**【算法 + 字幕链路完整保留】**: `compute_hook_window` 10 算法测试不动, `render_short_overlay.render_preview` 没改, 4 步编码链路 (step0/step1/step1.5/step2) 没改, anullsrc+concat 音频修复没改, 🔥 Segoe UI Emoji 字体没改. `--with-hook` 还能 opt-in 单文件/单次任务.
+
+**【历史视频冻结】**: per memory `coach-rename-frozen-published`, 已发布的 (蜂王1/李娜1/铁娘子1+2/小飞侠/海军1_2/丽丽1_2/建玲1_2) 不重传. 抖音待传的你手工判断要不要传无 hook 版 (共 7 套 douyin 待传).
+
+**【守门 — 防止 PR 误改回默认开】**:
+- `test_39_shorts_default_hook_enabled_is_false`: 扫 `stages/39_shorts.py` 必须 `cfg.get("shorts_hook", False)`
+- `test_vertical_native_yaml_hook_false` + `test_fengwang_yaml_hook_false`: 扫 yaml 必须 `shorts_hook: false`
+- `test_main_py_with_hook_help_mentions_deprecated`: 扫 main.py help 必须标"已废弃 2026-07-12"
+
+**【下一步候选】**:
+1. 抖音 douyin 手工传: 蜂王1 + 李娜1 (用户拍板手工)
+2. 下一个视频 (source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2)
+3. (可选) 修李娜1 long 16:9 侧躺 — per memory fengwang-finalize 修法
+4. (可选) 增强 `stages/00_normalize_orientation.py` 自动 fallback cv2 像素检测
+
+**【待用户拍板】**: 抖音上传; 下一个视频.
+
+---
+
+最后更新: 2026-07-12（**小红豆插画路线废弃 — 用户拍板"不协调"+"4 张水墨风格冲突"+"图4眼睛", 走线条插画, 半身图 OK, SDXL 多肢问题想换底模, SDXL 全 401 限流, 拍板废弃 ✅**）:
+
+**【本轮任务】**: 用户对小红豆 4 张水墨图 (tools/panci_paint/xiaohongdou/1-4.png, commit 3884f00, DreamShaper_8 SD1.5) 不满意, "风格和健身视频太不协调, 图 4 眼睛有问题".
+
+**【视觉评估】**:
+- 4 张图风格撕裂: 图 1/3 真人 CG 写实, 图 2 扁平插画, 图 4 戏剧舞台风 → 同人物 4 个不同风格 = 视觉撕裂
+- 主管线 (真人健身视频, 现代风) vs 古风水墨 (静态/写意/古装) = 视觉语言冲突
+- 图 4 黑底 SD1.5 渲弱: 左眼虹膜被渲成不规则碎片
+
+**【探索 — 用户拍板】**:
+1. 选方向: 试 2 (换视觉风格, 改更贴健身)
+2. 子风格: 手绘运动插画
+3. 长度: 只上 1 个总插画 + 判词 4 句字幕
+4. 底模: 下 Anything v5 (主仓 gated) → 改 Anything v3 FP16 1.987GB (AdamOswald1 公开镜像)
+5. 改黑白: 用户拍板黑白色调 (避免跟彩色主管线元素冲突)
+6. 出图过程: 6 张迭代 (彩色版 → 黑白版 → 修多肢 → 修裁切 → 半身图稳定版)
+7. 用户报"3 条腿": SD1.5 老问题, 半身图 (胸口以上) 稳
+8. 想换 SDXL: HF/CivitAI 全 401 (限流+token), 下载卡死
+
+**【最终状态 — 用户拍板废弃 + ComfyUI 留有用的】**:
+- 主图 (半身图): 已删 (项目根目录 `tools/panci_paint/` 已 rm -rf)
+- 脚本 `scripts/gen_panci_paint_v2.py`: 已删
+- 底模 `anything-v3-fp16-pruned.safetensors` (1.987GB): **已删** (用户拍板)
+- 测试视频 `output/2026-07-12/_test_xhd_panci.mp4`: 已删
+- ComfyUI 孤儿 `custom_nodes/pipeline.py` + `auto_daily.py`: 已删 (IMPORT FAILED 警告源, 跟本项目无关)
+- ComfyUI server: 已停 (用户拍板废弃插画路线)
+- **ComfyUI 留的 (用户拍板"留有用的")**:
+  - `F:\wkspace\ComfyUI\` 主体完整
+  - `models/checkpoints/DreamShaper_8_pruned.safetensors` 2.0GB — 主管线长期依赖
+  - `models/checkpoints/ltx-video-2b-v0.9.5.safetensors` 6.0GB — 未来视频生成
+  - `models/configs/anything_v3.yaml` — 之前就有, 留着 (底模删了, 配置失去意义但占用极小)
+  - `custom_nodes/ComfyUI-LTXVideo` + `AnimateDiff-Evolved` + `Impact-Pack/Subpack` + `VideoHelperSuite` + `Manager` — 主管线未来用
+  - `custom_nodes/ComfyUI-CogVideoXWrapper` — IMPORT FAILED 是没装依赖不是坏, 完整仓库, 留着
+  - `daily.py` + `content_gen.py` + `hosts.py` + `heygem_*` + `face_restore.py` + `download_models.py` + `post_process.py` + `batch_producer.py` + `client_secret.json` + `published_scripts.json` + `example_node.py.example` — ComfyUI 自带, 跟本项目无关, 全留
+- 主管线零影响零回归
+- 180 tests 全绿 (没改任何代码)
+- `gen_panci_paint.py` (旧 4 张水墨图脚本) 在 git 历史里 (commit 3884f00), 不删
+- `output/2026-07-12/小红豆1_2_merged_*` 三件套保留 (上轮跑通的产品, 抖音待传, 跟本轮插画路线无关)
+
+**【教训 (钉)】**:
+- AI 风格插画 vs 真人视频 = 视觉语言冲突 (类似古风 vs 现代)
+- 二次元 + 健身 = 偏萌/可爱, 适合 wowen + 部分女生场 (胭脂虎/铁娘子类)
+- SD1.5 (1.5GB 模型) 9:16 全身 + 复杂姿态 = 多肢 bug 老问题. 半身图稳, SDXL 更好但本机下不到
+- HF 限流 + CivitAI token 双重死结, 国内镜像站 (hf-mirror.com) 跳回 HF 本体, 等于没用
+- 不要再走 AI 插画路线: (a) 跟主管线真人视频语言冲突 (b) 硬件/底模受限
+
+**【抖音 douyin 仍然待传】**: 蜂王1 + 李娜1 douyin (待用户拍板手工传)
+
+**【下一步候选】**:
+1. 抖音 douyin 手工传: 蜂王1 + 李娜1
+2. 下一个视频 (source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2)
+3. (可选) 修李娜1 long 16:9 侧躺 — per memory fengwang-finalize 修法
+4. (可选) 增强 `stages/00_normalize_orientation.py` 自动 fallback cv2 像素检测
+
+**【待用户拍板】**: 抖音上传; 下一个视频.
+
+---
+
 最后更新: 2026-07-11（**李娜1 long 16:9 侧躺修复 — normalize 锁元数据 + preset youtube 重跑 ✅**）:
 
 **【本轮任务】**: 用户选 #4 修李娜1 long 16:9 侧躺. 上次跑李娜1 时源 EXIF rotation=-90 隐式旋转, youtube preset 16:9 出侧躺版 (long 视野旋转, 不传), 只走了 douyin 优. 这次用户重新下载源.

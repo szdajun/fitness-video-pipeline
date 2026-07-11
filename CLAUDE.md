@@ -312,7 +312,7 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 --shorts-duration <sec>    Shorts 时长 (默认 30)
 --shorts-coach <name>      教练名 (用于片头诗词 + 英文标题)
 --with-pip / --no-pip      竖屏画中画小窗 (诗词后右上全景 16:9, 默认开)
---with-hook / --no-hook    yt_shorts 高燃预览开场 (前 N 秒拼全片最燃段+静音字幕, 默认开)
+--with-hook / --no-hook    yt_shorts 高燃预览开场 (前 N 秒拼全片最燃段+静音字幕, **2026-07-12 用户拍板取消默认开**, 抖音+Shorts 默认都不加)
 --hook-duration <sec>      hook 时长 (默认 4, 范围 3-5)
 ```
 
@@ -372,7 +372,9 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 - 与横屏 `pip` (31_pip, 永久关) 区别: 横屏本身全景套小窗=冗余; 竖屏裁切丢画面, 小窗补全景=信息互补.
 - 守门: `tests/test_short_vertical_pip.py` (7 tests, compute_pip_rect 不变量 + 背向补头). 验证靠像素 (抽帧检测小窗白边框 + MSE 对齐), 不靠日志.
 
-### 10. 高燃预览开场 hook (2026-07-07)
+### 10. 高燃预览开场 hook (2026-07-07 上线, **2026-07-12 用户拍板取消默认开**)
+
+**【状态】**: 算法 + 字幕 + 4 步编码链路**完整可用**, `--with-hook` CLI flag **保留** opt-in, 但**抖音 + Shorts 默认都不再加** hook. 用户原话"竖屏的产品, 最前面的 hook, 感觉很乱, 不如取消了" + "抖音和 youtube 都关". 历史已发布视频**冻结不重传** (per memory `coach-rename-frozen-published`).
 
 YouTube Shorts 完播率前 3 秒决定 70%, 但 ShortsStage 旧版固定裁前 30s — 开场是第 0 秒, 领操刚起步动作幅度小平淡. hook 在 **yt_shorts + douyin 都加** (2026-07-07: 旧版仅 yt_shorts, 用户报"抖音版没有爆燃预警片段"→ `short_vertical.py:846` gate 放开 `profile in ("yt_shorts","douyin")` + `39_shorts.py` douyin 调用补 `hook_enabled/hook_dur`) 前拼一段**全片最燃窗** (默认 4s 静音 + "🔥 高燃预警"橙红字幕), 把"慢热起步"变"最燃动作直击":
 - **窗口选择** (`compute_hook_window`): 复用 `35_intensity_burst:58-78` 逐帧 motion 食谱 (conf>0.3 关键点位移均值), 滑动窗 (hook_dur×fps 帧) 取 mean-motion 最大起点, **排除首尾各 10%** (避片头诗词/片尾噪声), 滑动窗自身抗单帧尖刺. hook_crop_x = 窗口落段的 crop_x, 钳到 `[padding, w-crop_w-padding]`.
@@ -381,7 +383,7 @@ YouTube Shorts 完播率前 3 秒决定 70%, 但 ShortsStage 旧版固定裁前 
 - **字幕**: `render_short_overlay.render_preview` → 🔥 高燃预警 (橙红 255,80,30, 110px bold, 与 opening 黄/CTA 黄区分) + 先睹为快 (黄 48px), 中部半透明黑底 (y 38-56%). 全教练统一, 不调 coach_profiles.
 - **⚠ 🔥 emoji 字体 (Bug2, 2026-07-07)**: `msyhbd.ttc` **无 🔥(U+1F525) 字形** → 渲成方框(tofu, 用户报"开头符号变方框"). 改用 `FONT_EMOJI=C:/Windows/Fonts/seguiemj.ttf` (Segoe UI Emoji) 经 `draw_emoji_cjk_centered` 单独渲染 🔥 + msyhbd 渲"高燃预警"拼接 (emoji 不加描边, 避免糊掉 seguiemj 彩色字形). 实测 6858px 火焰 vs 2484px 方框.
 - **为什么 concat demuxer 不破坏正片 t 语义**: concat 是流级拼接只改输出 PTS, step1 filter (pip `enable='between(t,...)` / crop_x_expr) 在 concat 前已把 t-based 效果 baked 成像素, demuxer 改不了 → 正片节奏零偏移. 像素证据 (李刚1): hook 帧 271 == nohook 帧 150 (nonzero=0 逐字节同帧).
-- CLI `--with-hook`/`--no-hook` (**默认开**, 2026-07-07 用户拍板"功能稳定后要默认开"已执行) + `--hook-duration` (默认 4, 可调 3-5); config `shorts_hook`/`shorts_hook_dur`. 守门 `tests/test_short_vertical_hook.py` (10 tests, 纯算法层).
+- CLI `--with-hook`/`--no-hook` (**2026-07-12 用户拍板取消默认开, 当前默认关, opt-in 仍可用**) + `--hook-duration` (默认 4, 可调 3-5); config `shorts_hook: false`/`shorts_hook_dur: 4` (两个 preset 都改 false). 守门 `tests/test_short_vertical_hook.py` (10 算法 + 4 新守门"默认关", 防止未来 PR 误改回默认开).
 
 
 ## ~~2026-06-27 ShortsStage CTA 已知问题 (ffmpeg 8.1 bug)~~ 【已解决 2026-06-29】
@@ -432,7 +434,8 @@ ShortsStage 跑通 (cx 裁切, intro 跳过, 抖音完整版都 OK), 但 **YouTu
 - 不出 YT 16:9 long (preset `export:false` 语义 — shorts 阶段直接拿 normalized_path 接力)
 
 **元素精简** (用户拍板: 9:16 幅面小, 不能堆):
-- ✅ 保留: 爆燃文字 + hook + smart_crop + 诗词片头 (v2)
+- ✅ 保留: 爆燃文字 + smart_crop + 诗词片头 (v2)
+- ❌ 砍掉: hook (2026-07-12 用户拍板取消默认开, 抖音+Shorts 都不加)
 - ❌ 砍掉: 能量条/汉印/水印/弹幕/PIP/mascot/intro_outro/face_swap
 
 **已知坑**: 蜂王/李娜 EXIF 隐式旋转 90° (ffprobe 说横屏但实际像素是竖屏), normalize 必跑.
