@@ -105,3 +105,31 @@ pause
 - 2026-07-13 upload reminder 修 .bat 4 类坑一次踩全, commit `0652b05` 修好
 - 修了后 uninstall 干净 (6 个 [WARN] "may not exist)" exit 0)
 - install 跑出 "Access is denied" → 用户需右键管理员
+
+## 坑 5: PowerShell 7 stdout 默认 GBK 中文乱码
+
+**症状**: Python 内部用 UTF-8 写中文, 但 PowerShell 7 输出编码默认 GB2312, `print("[胭脂虎健身团]...")` 在 PS 终端显示成 `[??????????]`. (cmd 默认也是 GBK, 同问题.)
+
+**修法**: `main()` 顶部 + `_render_header` 顶部加:
+```python
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, OSError):
+    pass
+```
+**3.7+ 才有 `reconfigure`, 旧版 (e.g. Python 3.6) 会抛 AttributeError, 吞掉退化** (虽然项目锁 3.11).
+
+**不能**用 `print(..., flush=True, file=sys.stdout)` 配 `PYTHONIOENCODING=utf-8` env, 因为:
+- Task Scheduler 跑 .bat 不带 env var
+- `PYTHONIOENCODING` 在 Python 3.7+ 是 `_PYTHONIOENCODING` 行为, 不可靠
+
+**演示** (commit ea8f7f5 修后):
+```
+$ uv run python tools/upload_reminder.py --skip-golden-check
+[胭脂虎健身团] 上传提醒 - 2026-07-13 05:18 北京     ← 中文 OK
+当前不在黄金时段, 距下一个 ≈ 4h 41m
+[1] LONG  小飞侠1_2_merged_full_16x9_1920x1080  347MB  2026-07-10
+    路径: F:\wkspace\fitness-video-pipeline\output\2026-07-10\小飞侠1_2_merged_full_16x9_1920x1080.mp4
+    标题: 【雷震子】小飞侠律动全身操 | 律动全身跟练 | 细柳营健身
+```
+
