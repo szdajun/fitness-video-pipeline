@@ -1,58 +1,80 @@
 @echo off
-REM 安装上传提醒到 Windows Task Scheduler.
-REM 6 个黄金时段时点 (北京 UTC+8): 10:00 12:00 14:00 19:00 21:00 23:00
-REM
-REM 双击运行, 看到 "SUCCESS" 即可关闭. 卸载用 uninstall_reminder_task.bat.
-
+chcp 65001 >nul
 setlocal
-set "TASK_NAME=FitnessVideoPipeline_UploadReminder"
+
+REM Install upload reminder to Windows Task Scheduler.
+REM 6 daily golden-hour timepoints (Beijing UTC+8): 10:00 12:00 14:00 19:00 21:00 23:00
+REM Double-click to run; on "[OK] 6 timepoints registered" close.
+REM Use uninstall_reminder_task.bat to remove.
+
+set "TASK_BASE=FitnessVideoPipeline_UploadReminder"
 set "PROJECT_DIR=F:\wkspace\fitness-video-pipeline"
 set "PYTHON_EXE=%PROJECT_DIR%\.venv\Scripts\python.exe"
 set "SCRIPT=%PROJECT_DIR%\tools\upload_reminder.py"
 
-REM 检查 venv python
+REM Check venv python
 if not exist "%PYTHON_EXE%" (
-    echo [ERR] 找不到 %PYTHON_EXE%
-    echo       请先跑 uv sync 创建 .venv
+    echo [ERR] Cannot find %PYTHON_EXE%
+    echo       Run uv sync first to create .venv
     pause
     exit /b 1
 )
 
-REM 删除旧的 (如果存在)
-schtasks /delete /tn "%TASK_NAME%_10" /f >nul 2>&1
-schtasks /delete /tn "%TASK_NAME%_12" /f >nul 2>&1
-schtasks /delete /tn "%TASK_NAME%_14" /f >nul 2>&1
-schtasks /delete /tn "%TASK_NAME%_19" /f >nul 2>&1
-schtasks /delete /tn "%TASK_NAME%_21" /f >nul 2>&1
-schtasks /delete /tn "%TASK_NAME%_23" /f >nul 2>&1
+REM Build the full TR string once (avoids block-scope variable expansion issues in for-loops)
+set "TASK_TR=\"%PYTHON_EXE%\" \"%SCRIPT%\""
 
-for %%H in (10 12 14 19 21 23) do (
-    echo 注册 %%H:00 触发器...
-    schtasks /create ^
-        /tn "%TASK_NAME%_%%H" ^
-        /tr "\"%PYTHON_EXE%\" \"%SCRIPT%\"" ^
-        /sc daily ^
-        /st %%H:00:00 ^
-        /rl highest ^
-        /ru "%USERNAME%" ^
-        /f >nul
-    if errorlevel 1 (
-        echo [ERR] 创建 %%H:00 触发器失败
-        pause
-        exit /b 1
-    )
-)
+REM Delete any old tasks (ignore errors)
+schtasks /delete /tn "%TASK_BASE%_10" /f >nul 2>&1
+schtasks /delete /tn "%TASK_BASE%_12" /f >nul 2>&1
+schtasks /delete /tn "%TASK_BASE%_14" /f >nul 2>&1
+schtasks /delete /tn "%TASK_BASE%_19" /f >nul 2>&1
+schtasks /delete /tn "%TASK_BASE%_21" /f >nul 2>&1
+schtasks /delete /tn "%TASK_BASE%_23" /f >nul 2>&1
+
+REM Register 6 daily tasks. Explicit per-hour calls (more reliable than for-loop with carets).
+echo Registering 10:00 trigger...
+schtasks /create /tn "%TASK_BASE%_10" /tr "%TASK_TR%" /sc daily /st 10:00:00 /rl highest /ru "%USERNAME%" /f
+if errorlevel 1 goto err
+
+echo Registering 12:00 trigger...
+schtasks /create /tn "%TASK_BASE%_12" /tr "%TASK_TR%" /sc daily /st 12:00:00 /rl highest /ru "%USERNAME%" /f
+if errorlevel 1 goto err
+
+echo Registering 14:00 trigger...
+schtasks /create /tn "%TASK_BASE%_14" /tr "%TASK_TR%" /sc daily /st 14:00:00 /rl highest /ru "%USERNAME%" /f
+if errorlevel 1 goto err
+
+echo Registering 19:00 trigger...
+schtasks /create /tn "%TASK_BASE%_19" /tr "%TASK_TR%" /sc daily /st 19:00:00 /rl highest /ru "%USERNAME%" /f
+if errorlevel 1 goto err
+
+echo Registering 21:00 trigger...
+schtasks /create /tn "%TASK_BASE%_21" /tr "%TASK_TR%" /sc daily /st 21:00:00 /rl highest /ru "%USERNAME%" /f
+if errorlevel 1 goto err
+
+echo Registering 23:00 trigger...
+schtasks /create /tn "%TASK_BASE%_23" /tr "%TASK_TR%" /sc daily /st 23:00:00 /rl highest /ru "%USERNAME%" /f
+if errorlevel 1 goto err
 
 echo.
-echo [OK] 6 个时点已注册:
-echo   %TASK_NAME%_10  每天 10:00
-echo   %TASK_NAME%_12  每天 12:00
-echo   %TASK_NAME%_14  每天 14:00
-echo   %TASK_NAME%_19  每天 19:00
-echo   %TASK_NAME%_21  每天 21:00
-echo   %TASK_NAME%_23  每天 23:00
+echo [OK] 6 daily timepoints registered.
+echo   %TASK_BASE%_10  daily 10:00
+echo   %TASK_BASE%_12  daily 12:00
+echo   %TASK_BASE%_14  daily 14:00
+echo   %TASK_BASE%_19  daily 19:00
+echo   %TASK_BASE%_21  daily 21:00
+echo   %TASK_BASE%_23  daily 23:00
 echo.
-echo 卸载跑: tools\uninstall_reminder_task.bat
+echo To uninstall run: tools\uninstall_reminder_task.bat
 echo.
 pause
 endlocal
+exit /b 0
+
+:err
+echo.
+echo [ERR] schtasks /create failed (see error above).
+echo.
+pause
+endlocal
+exit /b 1
