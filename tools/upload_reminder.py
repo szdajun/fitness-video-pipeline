@@ -103,6 +103,11 @@ def scan_pending_videos(output_dir: str = "output", state: Optional[dict] = None
 
 # ====== CLI 入口 (Task 3 加 _render_and_interact 完整实现) ======
 def main() -> int:
+    # 强制 stdout UTF-8, 兼容 PowerShell 7 (默认 GBK) + cmd 弹窗
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
     ap = argparse.ArgumentParser(
         description="上传提醒弹窗 (Task Scheduler 触发)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -175,6 +180,11 @@ HELP_TEXT = """
 
 def _render_header(state: dict, pending: list) -> None:
     """顶部: 黄金期状态 + 总览."""
+    # 强制 stdout UTF-8, 兼容 PowerShell 7 (默认 GBK) + cmd (GBK) + 弹窗
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
     print(_c("bold", f"[胭脂虎健身团] 上传提醒 - {datetime.now().strftime('%Y-%m-%d %H:%M')} 北京"))
     print("=" * 50)
     if _is_golden_hour():
