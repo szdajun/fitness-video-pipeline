@@ -4,9 +4,34 @@
 > 这里只记"现在在做什么 / 上次停在哪 / 下一步 / 待用户确认"，不重复架构（架构查 `docs/PROJECT_DESIGN.md`，规则查 `CLAUDE.md`，历史坑查 `memory/`）。
 > **每次会话结束前更新本文件**——这是会话衔接的核心。
 
+---
+
+最后更新: 2026-07-13（**Upload Reminder 工具上线 — Windows 定时任务 + 命令行弹窗, 黄金时段提醒手工上传 YouTube/抖音 ✅**）:
+
+**【本轮任务】**: 用户"以后遇到这些竖屏录制/低分辨率...直接放弃" + "新需求: Windows 定时任务弹命令行窗口提醒人工上传" (per spec + plan).
+
+**【本轮完成 — 5 commits, 21 new tests, 零主管线改动】**:
+
+1. **铁娘子5+6 误诊 (找到原因即可)**: 源 12.5MB 544×1296 rotation=90 手机原始 9:16 + 部分播放器不应用 EXIF rotation 视觉错觉. 主管线 vertical_native 正确. memory `tnz-vertical-native-stretched-misdiagnosis`
+2. **源素材准入门槛 (钉死)**: 短边 ≥720 + 码率 ≥5Mbps + 时长足够, 不达标直接放弃. 加 CLAUDE.md + memory `source-quality-gate-2026-07-13`
+3. **小飞侠1+2 合并 + 主管线 跑通**: 1 行 ffmpeg 跨 E 盘合并 1920×1080 30fps 112.37s + youtube preset 50min. 三件套 output/2026-07-13/. face_swap swap=3085/3371 (91.5%, 286 背跳, 0 无pose)
+4. **Upload Reminder 工具上线**: 4 文件 (reminder_state.py + upload_reminder.py + install/uninstall_reminder_task.bat) + 3 套测试 (state 7 + scan 6 + golden 8 = 21) + spec/plan + memory. 0 修改主管线. 双击 install 装 6 时点
+5. **CLAUDE.md / HANDOFF / memory 同步**: 准入门槛段 + 工具段 + 索引
+
+**【测试状态】**: 244 → 265 (244 + 21 new), 0 回归.
+
+**【下一步候选】**:
+1. 用户拍板双击 `tools/install_reminder_task.bat` 装上 6 时点
+2. 抖音 douyin 手工传 (8 套待传: 蜂王1+2 / 李娜1 / 海军1_2 / 丽丽1_2 / 建玲1_2 / 铁娘子1_2 / 艳青1_2 / **小飞侠1_2 (新)**)
+3. 下一个视频 (source_videos/ 还剩: 彩娥 1/2/merged, 枫林红 1/2)
+
+**【待用户拍板】**: 装 reminder 任务 + 抖音上传 + 下一个视频.
+
+---
+
 ## 📦 存档模式 (2026-07-12 用户拍板)
 
-**当前状态**: 等晚上新视频到了处理, 无活跃任务. 长期任务标在这里, 短期任务在下面"最后更新"段.
+**当前状态**: 艳青1+2 已跑通三件套, 待你拍板上传. 无活跃跑批任务. 长期任务标在这里, 短期任务在下面"最后更新"段.
 
 ### ✅ 已落地 (5 commits @ origin/main = 16b7ac8)
 1. **Shorts 自动黄金时段发布** (10-14 / 19-23 北京时间, 客户端 sleep + 立即发, 不用 publishAt)
@@ -15,11 +40,23 @@
 4. **Shorts 加 3 个常驻通用 hashtag** (#健身操 / #全身燃脂 / #居家健身, 跟小马达水平对齐)
 5. **HANDOFF 取消候选清理** (修李娜1 + 变现路径 → 删除线标注)
 
+### 🎬 待上传产物 (2026-07-12 艳青1+2 跑通, 等你拍板)
+- `output/2026-07-12/艳青1_2_merged_full_16x9_1920x1080.mp4` 274MB / 134.87s (long)
+- `output/2026-07-12/艳青1_2_merged_full_16x9_1920x1080_yt_shorts.mp4` 68MB / 30s
+- `output/2026-07-12/艳青1_2_merged_full_16x9_1920x1080_douyin.mp4` 280MB / 126.87s
+- YT 标题: long 【胭脂虎】艳青力量燃脂操 | 塑腰臀跟练 | 细柳营健身
+- YT 标题: shorts 30秒暴汗燃脂 | 胭脂虎艳青 #性感小蛮腰 #Shorts #dance #每天坚持运动打卡
+- 长视频你手工发, shorts 走自动黄金时段, 抖音手工传
+
+### ⚠️ 本会话教训 (复刻彩娥3 误删案) — 已更新 memory
+- 用白名单 glob 关键字 `*_final_*` 抄错, 实际文件名是 `*_full_*` → 白名单"保留"不匹配任何文件 = 全删
+- 强化的 3 步验证流程已写入 memory `cleanup-output-safelist.md` (删前 ls / 执行 / 删后 ls 验证)
+
 ### 📊 最终测试状态: **244 tests 全绿零回归** (235 → 244, +9 多 hashtag 守门)
 
 ### 🎯 长期任务 (等新视频触发)
 1. **等新视频到了处理** → 主管线 `auto_publish.py` 跑全流程, **Shorts 自动黄金时段 + 新模板标题**, **Long 你手工发**
-2. **抖音 douyin 手工传** → 你自己的事, 共 7 套待传 (蜂王1 / 李娜1 / 海军1_2 / 丽丽1_2 / 建玲1_2 / 铁娘子1_2 / 小飞侠1_2)
+2. **抖音 douyin 手工传** → 7 套待传 (蜂王1 / 李娜1 / 海军1_2 / 丽丽1_2 / 建玲1_2 / 铁娘子1_2 / **艳青1_2 (新)**)
 3. **下一个视频** → source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2 (你拍板)
 4. ❌ ~~修李娜1 long 16:9 侧躺~~ (用户拍板取消)
 5. ❌ ~~变现路径规划~~ (联盟/课程/付费会员/直播, 用户拍板暂时取消)
@@ -1861,3 +1898,55 @@ ffmpeg -y -i 小飞侠1.mp4 -i 小飞侠2.mp4 \
 1. 抖音手工传 `铁娘子3_normalized_douyin.mp4`
 2. (可选) YT 手动传 yt_shorts
 3. (可选) commit 代码改动 (per CLAUDE 钉死 "commit only when user asks")
+
+---
+
+最后更新: 2026-07-12（**艳青1+2 合并处理跑通 — 三件套齐, 复刻彩娥3 误删教训后重跑修复 ✅**）:
+
+**【本轮任务】**: 用户"现在有新视频艳青1, 艳青2, 合并后处理". 中途试装 Superpowers (不生效 — Windows hook 注入失败), 走老流程.
+
+**【跑前 4 检查 ✅】**:
+1. ffprobe 源: 艳青1 (1920×1080 30fps yuv420p h264 aac, 76.58s) + 艳青2 (50.26s) — **真 16:9, 无 EXIF 旋转, 参数完全一致**
+2. 磁盘: F 112G free, E 73G free → 合并产物放 E (跟海军1+2 同)
+3. 站位/构图: 学员多+视野宽 (跟海军1+2 同) → 适合合并
+4. profile: 艳青=胭脂虎, 已有 (无源照=自动抽源) → tools/艳青_gfpgan.png 333KB 复用
+
+**【1 行 ffmpeg 跨盘合并】**:
+```bash
+ffmpeg -y -i "艳青1.mp4" -i "艳青2.mp4" -filter_complex "[0:v]scale=1920:1080:flags=lanczos,setpts=PTS-STARTPTS[v0]; [1:v]scale=1920:1080:flags=lanczos,setpts=PTS-STARTPTS[v1]; [0:a]asetpts=PTS-STARTPTS[a0]; [1:a]asetpts=PTS-STARTPTS[a1]; [v0][v1]concat=n=2:v=1:a=0[v]; [a0][a1]concat=n=2:v=0:a=1[a]" -map "[v]" -map "[a]" -c:v libx264 -crf 23 -preset fast -pix_fmt yuv420p -r 30 -c:a aac -b:a 128k -movflags +faststart "E:/yq_run/艳青1_2_merged.mp4"
+```
+→ 3806 帧 / 126.87s / 114MB / 1920×1080 30fps
+
+**【主管线 (exit 0, 56.3min) — bc7jucm3i 重跑】**:
+- pose_detect 82.5s → color 809.7s → energy_bar 457.8s → intro_outro 103.6s → watermark 515.2s → **face_swap 318.4s (swap=3806/3806 = 100%, 0 背面, 0 无 pose)** → burst 376.4s → danmaku 440.1s → export 149.9s → shorts 125.4s
+- face_swap 100% 完美 (复用 tools/艳青_gfpgan.png, 沿用之前艳青4 的源照)
+- smart_crop v21 自动分段: [0-2225] cx=610 (艳青1 段) / [2225-3806] cx=1282 (艳青2 段) — 两段都跟住
+
+**【vision 抽帧验证 (t=10/60/110s long + t=5/15/28s shorts + t=5/40/100s douyin) — 大部分 ✅】**:
+- ✅ long (16:9) 全元素齐 (汉印+水印+能量条+弹幕+换脸+爆燃) — t=10/60s 全齐, t=110s 末段机位切换部分元素跟丢 (smart_crop v21 已知局限)
+- ✅ yt_shorts 完美: opening 4 句诗词 "胭脂虎啸震四方 / 踏步如风腰似浪 / 刚柔并济铌锵行 / 细柳营中第一将" + PIP + CTA "关注订阅 / 点赞·分享·收藏 / SUBSCRIBE for more fitness / @xiliuying_fit 细柳营健身"
+- ✅ douyin 大部分好: opening/CTA/PIP 全正常, t=5s 主画面视野偏 (smart_crop 第1段把左边学员裁了)
+
+**【本轮 ⚠️ 复刻教训 — 白名单 glob 抄错】**:
+- 我清理中间产物时, 白名单 glob 用了 `*_final_*`, 但 export stage 输出文件名是 `*_full_*`, glob 不匹配任何文件 = "保留"实际=全删 = 误删三件套 274+281+69 = 624MB
+- 用户拍板 "a" 重跑主管线 56.3min 恢复
+- **跟 memory `cleanup-output-safelist.md` 2026-07-06 彩娥3 案一模一样的复刻** — 上次教训是"按视频名前缀删 = 删三件套", 这次升级为"白名单关键字写错 = 等同黑名单"
+- memory 已强化 3 步验证流程 (删前 ls / 执行 / 删后 ls), 关键字锁定 `*_full_*`
+
+**【三件套 (output/2026-07-12/) — 已清理 ✅】**:
+- `艳青1_2_merged_full_16x9_1920x1080.mp4` 274MB / 134.87s (long, 含片头片尾+全元素+换脸)
+- `艳青1_2_merged_full_16x9_1920x1080_yt_shorts.mp4` 68MB / 30s
+- `艳青1_2_merged_full_16x9_1920x1080_douyin.mp4` 280MB / 126.87s
+
+**【YT 标题 (per CLAUDE 钉死模板)】**:
+- Long: 【胭脂虎】艳青力量燃脂操 | 塑腰臀跟练 | 细柳营健身
+- Shorts: 30秒暴汗燃脂 | 胭脂虎艳青 #性感小蛮腰 #Shorts #dance #每天坚持运动打卡 (女身材词 #性感小蛮腰 + #dance)
+
+**【本轮 commits】**: 无 (纯跑管线 + 清理, 主管线零代码改动; 244 tests 已守门; cleanup glob 教训已写 memory)
+
+**【下一步候选】**:
+1. 抖音 douyin 手工传 艳青1_2
+2. YT long 你手工发 + shorts 自动黄金时段发布
+3. 下一个视频 (source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2)
+
+**【待用户拍板】**: YT 上传; 抖音手工传.
