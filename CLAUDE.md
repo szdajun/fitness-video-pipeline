@@ -72,6 +72,27 @@
 | `night_gym` | 低光环境优化 |
 | `clean` | 最小处理 |
 
+## ⚠️ 源素材准入门槛（2026-07-13 用户拍板, 钉死）
+
+**不达标的源直接放弃，不强行处理**：
+
+| 维度 | 最低要求 | 原因 |
+|------|----------|------|
+| **短边像素** | ≥ 720 | 平台最低 720×1280 / 1280×720，低于此主管线 upscale 不补细节 |
+| **码率** | ≥ 5 Mbps | 低于此运动场景明显压缩痕迹 / 色块, 平台传上去糊 |
+| **时长** | ≥ 30s (Shorts) / ≥ 60s (Long) | 太短不够完播率 |
+
+**判断方式（铁娘子5+6 案, 2026-07-13）**:
+```bash
+ffprobe -v error -show_entries stream=width,height,r_frame_rate -show_entries format=bit_rate input.mp4
+```
+- 短边 < 720 → 拒绝
+- 码率 < 5Mbps → 拒绝
+- 源方向是 9:16 → vertical_native 路径; 16:9 → youtube preset 路径
+- 源是 EXIF rotation=±90 → 用 ffmpeg 显式 scale+lock 元数据 (per [[exif-normalize-no-noautorotate]]), 让主管线拿到正确的最终方向
+
+**未达标的源直接跟用户说"建议重新下载更高分辨率/码率的版本"**, 不要主管线硬上. 详细案例见 memory `tnz-vertical-native-stretched-misdiagnosis`.
+
 ## CLI Usage
 
 ```bash
@@ -307,6 +328,7 @@ YouTube Shorts 直接用抖音 9:16 成品裁前 30 秒，不单独跑 youtube_s
 - `tools/prefilter_person.py` — 换背景前清洗: pose 逐帧判人物完整性, 剪掉出画/缺头缺脚片段. 配合 bg_swap 用.
 - `tools/student_closeup.py` — 学员特写 (认人+推近+暖调+节拍闪).
 - `tools/face_swap.py` — 换脸核心 (被 stages/37 和 bg_swap 复用).
+- `tools/upload_reminder.py` — Windows Task Scheduler 触发, 黄金时段弹窗提醒手工上传 YouTube/抖音, 编号勾选已传, 3 次未标自动归档 (per `upload-reminder-tool` memory + spec 2026-07-13); 状态 `records/upload_reminder_log.json`. 双击 `tools/install_reminder_task.bat` 注册 6 时点 (10/12/14/19/21/23)
 
 
 ## Post-2026-06-27 Pipeline Improvements (verified working on 丽丽2)

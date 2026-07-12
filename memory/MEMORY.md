@@ -1,0 +1,1 @@
+- [Upload Reminder 工具](upload-reminder-tool.md) — 【2026-07-13 用户拍板】Windows Task Scheduler 6 时点 + Python CLI 弹窗, 黄金时段提醒手工上传 YouTube/抖音. 编号勾选 + 3 次未标自动归档. 21 tests, 零侵入主管线. 设计 spec/plan 落 docs/superpowers/
