@@ -33,6 +33,12 @@
 - 保留 .superpowers/ (skill 运行时数据)
 - git status: 剩 .superpowers/ 一个 untracked, 12 commits 领先 origin/main (未推送)
 
+**【本轮 reminder bug 修复 (82312db)】**:
+- user-reported 弹窗空状态 input() 卡死等 Enter, Task Scheduler 每天 6 次手动关窗烦
+- 修: 空状态 3s 自动关 (sys.stdout.flush + time.sleep(3) + return), 不阻塞
+- 守门: tests/test_reminder_empty_state.py 2 tests (线程超时 3s + main 路径无错)
+- 全套: 267 passed (265→267, +2), 零回归
+
 ---
 
 ## 📦 存档模式 (2026-07-12 用户拍板)
