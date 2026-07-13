@@ -137,6 +137,51 @@ COACH_PROFILES = {
         "shorts_poem": "雷震双翼踏乐生\n节拍入魂舞翩跹\n举手投足皆韵律\n风雷一现万巷传",
         "shorts_en_title": "THUNDER BEAT",
         "shorts_en_subtitle": "Full Body Burn ,  雷震子",
+        # ====== 自定义三件套文案 (2026-07-13 用户拍板) ======
+        "long_description": (
+            "【雷震子】小飞侠律动全身操 | 律动全身跟练 | 细柳营健身\n"
+            "\n"
+            "🔥 跟着节拍跳出汗！雷震子律动全身操，跟着音乐动起来 🔥\n"
+            "\n"
+            "📌 本期教练：小飞侠（雷震子）\n"
+            "📌 训练类型：律动全身\n"
+            "📌 节奏卡点，动作流畅，跟着音乐就能跳\n"
+            "\n"
+            "💪 适合人群：\n"
+            "  · 想边听歌边暴汗的打工人\n"
+            "  · 节奏感强、爱律动的伙伴\n"
+            "  · 想要下班放松、燃脂解压\n"
+            "\n"
+            "🎵 跟着音乐节拍，节拍入魂舞翩跹\n"
+            "   举手投足皆韵律，风雷一现万巷传\n"
+            "\n"
+            "⏰ 跟练节奏：建议每天 30 分钟\n"
+            "   难度：★★★☆☆（律动入门）\n"
+            "\n"
+            "📍 拍摄地：汉细柳营故地 · 时代广场\n"
+            "\n"
+            "【胭脂虎健身团】\n"
+            "细柳营系列健身操，在历史文化故地\n"
+            "用汗水书写当代人的健康生活\n"
+            "\n"
+            "每晚更新，记得点赞关注！\n"
+            "订阅频道：https://youtube.com/@胭脂虎健身团"
+        ),
+        "douyin_description": (
+            "雷震子带操🔥 律动全身燃脂操，跟着音乐暴汗打卡！\n"
+            "\n"
+            "教练：小飞侠（雷震子）\n"
+            "特点：节奏卡点，音乐带动，动作流畅\n"
+            "\n"
+            "跟着节拍跳就完事了 💪\n"
+            "不用想动作，跟着节拍律动起来就行\n"
+            "\n"
+            "📍 汉细柳营故地 · 时代广场\n"
+            "🕐 每晚更新\n"
+            "\n"
+            "#雷震子 #律动全身 #燃脂操 #细柳营 #胭脂虎健身团"
+        ),
+        "thumbnail_suggestion": "雷震子·律动",
     },
     "张杰": {
         "nickname": "神行太保",
@@ -412,6 +457,8 @@ def generate_description(coach: dict, config: dict, duration: str = "") -> str:
 
     结构: 判词 → 教练介绍 → 本期亮点(风格/强度/适合) → 时长 → 时间轴 → CTA → 话题标签
 
+    优先用 coach['long_description'] (教练自定义); 没设时走通用模板.
+
     Args:
         coach: get_coach() 返回的教练画像 dict。
         config: SEO 配置 dict（需含 channel/intensity/audience/tags 字段，可选）。
@@ -420,6 +467,10 @@ def generate_description(coach: dict, config: dict, duration: str = "") -> str:
     Returns:
         多行描述字符串。
     """
+    # 优先用教练自定义 long_description (2026-07-13 雷震子首用)
+    if coach.get("long_description"):
+        return coach["long_description"]
+
     channel = config.get("channel", DEFAULT_CHANNEL)
     intensity = config.get("intensity", "中等强度")
     audience = config.get("audience", "所有水平, 新手友好")
