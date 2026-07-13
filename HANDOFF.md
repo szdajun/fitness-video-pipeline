@@ -39,6 +39,33 @@
 - 守门: tests/test_reminder_empty_state.py 2 tests (线程超时 3s + main 路径无错)
 - 全套: 267 passed (265→267, +2), 零回归
 
+**【本轮 reminder 弹窗 GBK 修复 (3be2313)】**:
+- user-reported: '弹窗快速关闭, 看不到 18 条待传视频'
+- 根因: (1) stdout=GBK, '✓' UnicodeEncodeError 进程崩 (2) 非黄金时段 input() stdin EOF 未捕获崩
+- 修: _force_utf8_io() 模块级 reconfigure UTF-8 + 非黄金时段默认继续 + main 顶层 EOFError 兜底
+- 守门: 5 tests (空状态 + GBK 编码 + stdin EOF)
+- 全套: 270 passed (267→270, +3)
+
+**【本轮非交互 CLI flag (8602cb9)】**:
+- user-requested: 全部上传后批量标已传, 不要每次弹窗都列
+- 新增: --show-pending (dry-run) + --mark-all-uploaded (一次标全部)
+- 守门: 3 tests
+- 全套: 279 passed (270→279, +9)
+
+**【本轮雷震子三件套文案 (7cecc75)】**:
+- user-requested: 给雷震子 (小飞侠) 生成专属文案, 不要串台到李刚
+- 新增字段: long_description / douyin_description / thumbnail_suggestion
+- generate_description() 优先用 coach 自定义, 没设走通用模板 (其他教练零影响)
+- 守门: 6 tests (含 features 字段 + 不串台验证)
+- 全套: 276 passed (270→276, +6)
+
+**【本轮 18 条三件套全部标记已传 (2026-07-13 12:30)】**:
+- 用户确认全部上传后, 执行 --mark-all-uploaded
+- 已标: 小飞侠07-10 (3) + 彩娥 (3) + 枫林红 (3) + 小红豆 (3) + 艳青 (3) + 小飞侠07-13 (3) = 18 条
+- 状态: records/upload_reminder_log.json
+- 验证: --show-pending 返 0 条
+- 下次 Task Scheduler 触发: 直接显示"无待传视频, 窗口 3 秒后自动关闭"
+
 ---
 
 ## 📦 存档模式 (2026-07-12 用户拍板)
