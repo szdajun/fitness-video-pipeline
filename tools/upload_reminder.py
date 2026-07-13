@@ -145,8 +145,35 @@ def main() -> int:
     ap.add_argument("--output", default="output", help="output 目录 (默认 'output')")
     ap.add_argument("--skip-golden-check", action="store_true",
                     help="跳过黄金时段检查 (调试用)")
+    ap.add_argument("--show-pending", action="store_true",
+                    help="非交互: 列出待传视频 (不弹窗, 用于脚本/CI)")
+    ap.add_argument("--mark-all-uploaded", action="store_true",
+                    help="非交互: 标记全部待传为已传 (下次不弹, 谨慎!)")
     args = ap.parse_args()
 
+    # ====== 非交互模式 (脚本调用) ======
+    if args.show_pending:
+        from lib.reminder_state import load as _load_state
+        pending = scan_pending_videos(output_dir=args.output, state=_load_state())
+        print(f"待传视频: {len(pending)} 条")
+        for i, v in enumerate(pending, 1):
+            print(f"  [{i:2d}] [{v['kind']:6s}] {v['stem']}  ({v['size_mb']}MB)")
+        return 0
+
+    if args.mark_all_uploaded:
+        from lib.reminder_state import load as _load_state, save as _save_state, mark_all_uploaded as _mark_all
+        state = _load_state()
+        pending = scan_pending_videos(output_dir=args.output, state=state)
+        paths = [v["path"] for v in pending]
+        if not paths:
+            print("无待传视频, 无需标记.")
+            return 0
+        _mark_all(state, paths)
+        _save_state(state)
+        print(f"[OK] 已标记 {len(paths)} 条为已传. 下次弹窗不再列出.")
+        return 0
+
+    # ====== 交互模式 (Task Scheduler 弹窗) ======
     if not args.skip_golden_check and not _is_golden_hour():
         from lib.upload_utils import seconds_until_next_golden
         secs = seconds_until_next_golden()
