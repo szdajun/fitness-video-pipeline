@@ -9,6 +9,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -274,11 +275,11 @@ def _render_and_interact(output_dir: str) -> None:
     state = load()
     pending = scan_pending_videos(output_dir=output_dir, state=state)
     if not pending:
-        print(_c("green", "今天无待传视频, 关闭窗口即可."))
-        try:
-            input("按 Enter 继续...")
-        except EOFError:
-            pass
+        # 无待传 → 提示后直接返回, **不阻塞等输入**
+        # 避免 Task Scheduler 每天触发 6 次时手动关窗的麻烦
+        print(_c("green", "今天无待传视频, 窗口 3 秒后自动关闭."))
+        sys.stdout.flush()
+        time.sleep(3)
         return
 
     _render_header(state, pending)
