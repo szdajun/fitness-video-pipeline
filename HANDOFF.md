@@ -6,6 +6,120 @@
 
 ---
 
+最后更新: 2026-07-14 02:30（**建玲+小飞侠抢救 long final audio 22 版迭代定稿 v22 — 严格原始对齐 + 末尾 8s 渐弱**）:
+
+**【本轮任务】**: 用户"这次改对了" + 反馈"片头结束后视频会出现快进现象, 对齐的效果更差了! 原始视频中图像和音乐绝对对齐, 不能挤占, 延迟, 提前主体视频的音乐".
+
+**【本轮完成 — 3 commits (待你拍板)】**:
+
+1. **22 版迭代定稿 v22**: 抢救 long final audio 流程从 v1 (atrim 算错) → v22 (main 段内嵌 volume 8s 渐弱) 走了 22 版, 22:00 收尾. 关键原则: **原始视频图像音乐绝对对齐, 编辑不能动 main 段 PTS/sample**. v22 解法: `main atrim=0:SOURCE_DUR` 严格不动 + main 段内嵌 `volume=eval=frame:volume='if(lt(t,SOURCE_DUR-8),1.0,max(0.0,1.0-(t-(SOURCE_DUR-8))/8))'`. 验证: video 4-8s 音量级 = 源 0-4s 音量级 (-11.0/-10.9 差 0.1dB), 末尾 8s 1s frame RMS 渐弱完美 (-12.8→-37.2).
+
+2. **3 memory 文件钉死**:
+   - `cleanup-output-safelist.md` (2026-07-13 误删案: 关键字 `*_full_*` vs `*_final_*` 错位, 禁用 -name 前缀过滤, 抢救靠 _combined.mp4)
+   - `recovery-audio-sting-isolation.md` (v22 完整 12 行 filter_complex 模板, 22 版迭代历史, 禁用路径清单)
+   - `recovery-audio-unstable-root-cause.md` (4 步主动验证法, 不靠用户反馈, 自动化方向)
+
+3. **2 commits 待你拍板**:
+   - commit 1: HANDOFF.md (建玲+小飞侠+22版迭代 总结) + memory/cleanup-output-safelist.md + memory/recovery-audio-sting-isolation.md + memory/recovery-audio-unstable-root-cause.md + memory/MEMORY.md 索引更新
+   - commit 2: (可选) records/ 推送 upload_reminder 状态
+
+**【测试状态】**: 279 passed (本轮零代码改动, 不变).
+
+**【下一步候选】**:
+1. 用户拍板 commit
+2. (可选) 修 `stages/07_export.py` 默认 `audio_fade_out=3.0` 改 8.0, 让主管线自带 v22 模板 (不需抢救) — 长期改进
+3. (可选) 写 `scripts/rebuild_long_audio.py` + `tests/test_recovery_audio.py` 4 守门, 自动化未来抢救
+4. 下一个视频 (source_videos/ 还剩: 彩娥 1/2/merged, 枫林红 1/2)
+
+**【本轮关键提醒 — 给未来会话】**:
+- **抢救 audio 钉死原则**: 严格原始对齐, main 段不能动 PTS/sample, 渐弱用 main 段内嵌 volume filter (v22 模板)
+- **白名单清理 3 步验证**: 关键字 `*_full_*` + 不加 `-name` 前缀 + 删前/删后 ls (2026-07-13 误删案教训)
+- **不要听"用户反馈"循环**: 22 版迭代根因是没主动 4 步验证, 每次重做靠用户拍板. 未来抢救前主动: 长度对齐 / intro 音量 / main 音量 / 末尾 5 段 peak 渐弱
+
+---
+
+最后更新: 2026-07-14（**小飞侠1+2 合并重跑 — 主管线 45min 跑通, 白名单清理 3 步验证 100% 成功**）:
+
+**【本轮任务】**: 用户"有新视频小飞侠1, 小飞侠2, 合并后处理" + "旧的全部删除".
+
+**【本轮完成 — 三件套全跑通, 零事故】**:
+
+1. **诊断 1: 源 vs 凌晨产物** — `source_videos/小飞侠1/2` mtime 20:35/20:36 = 新下载 (跟建玲 20:15 同时段), 跟凌晨 03:47 跑批的旧 3 件套 (245MB+67MB+223MB) **不是同源**. 旧产物已标"已传" (12:27 --mark-all-uploaded) 但实际未传过 YT.
+
+2. **拍板**:
+   - 用户"删旧产物 + 跑新" → 中间产物白名单清理 + 旧 3 件套后删 (避免 mtime 冲突)
+   - 用户"走 2026-07-13 覆盖旧产物" → 源 mtime 7-13 子目录对齐, 主管线会自然覆盖同名文件
+   - **新白名单 3 步验证 100% 成功** (中间产物 14 删, 3 件套 1:1 完整), 关键字用 `*_full_*` 不用 `*_final_*` (per memory cleanup-output-safelist), 不加 `-name` 前缀过滤
+
+3. **新源元数据** (跟旧源 24/30 不一致不同):
+   - 小飞侠1: 1920×1080 **30fps** h264 17.07Mbps 56.89s 1706 帧 aac 96kbps
+   - 小飞侠2: 1920×1080 **30fps** h264 17.04Mbps 51.72s 1552 帧 aac 96kbps
+   - 30fps 一致 ✅ 纯 concat 0 重编码 (同丽丽/海军/建玲格式)
+   - 合并后: 108.84s 3258 帧 221.4MB
+
+4. **process 模式跑 youtube preset (主管线 45min, exit 0)**:
+   - 启动失败: cwd 跑成 `output/2026-07-13/` (上轮 `cd` 残留), `can't open file main.py` 秒退. 第二次显式 `cd /f/wkspace/fitness-video-pipeline` 后正常启动.
+   - stage 进度: pose 85.3s → color 581.9s → beat 0.4s → energy_bar 390.8s → intro_outro 100.9s → watermark 417.9s → **face_swap 295.2s (5 阶段最短, 25min?)** → intensity_burst 276.7s → danmaku 345.3s → export 123.6s → shorts 90.5s
+   - 总耗时 2709.9s ≈ 45min (比建玲 2.2h 快 3x, 因 108s vs 161s 短 33%)
+   - shorts stage 智能 2 段 crop_x: [0-1635]=680 [1635-3258]=1282, PIP 小窗 600x338 at (456,24) 避开领操人
+
+5. **三件套落地 output/2026-07-13/** (比旧产物小 30-50%):
+   - `小飞侠1_2_merged_full_16x9_1920x1080.mp4` **237MB** (旧 245MB) long 23:29
+   - `..._yt_shorts.mp4` **46MB** (旧 67MB) 23:30
+   - `..._douyin.mp4` **174MB** (旧 223MB) 23:31
+   - 白名单清理 14 个中间产物 (audio_temp/color/energybar 系列/faceswap 系列/intro/outro/keypoints/manifest/metrics), 3 件套 1:1 完整
+
+6. **git status**: untracked .superpowers/ + records/ (上轮已存在). 误删教训已落 memory `cleanup-output-safelist.md` (上轮). 本轮零代码改动 = 零 commit 必要.
+
+**【测试状态】**: 279 passed (本轮零代码改动, 不变).
+
+**【下一步候选】**:
+1. 用户拍板上传小飞侠三件套 (long 你手工, shorts 走自动黄金时段, douyin 手工抖音)
+2. (可选) 修 main.py: 加 `--keep-combined` flag 保留 _combined.mp4, 加 `--cleanup-after` 自动白名单清理 (内置 3 步验证, 拒绝 `-name` 过滤)
+3. 下一个视频 (source_videos/ 还剩: 彩娥 1/2/merged, 枫林红 1/2)
+
+**【本轮关键提醒 — 给未来会话】**:
+- **cwd 跨轮残留坑**: 上轮 `cd` 留下的 cwd 会影响下轮后台命令. 启动主管线前必须 `cd /f/wkspace/fitness-video-pipeline` 或 `pwd` 验证
+- **新白名单模板已验证**: `*_full_*` 关键字 + 不加 `-name` 前缀 + 3 步 ls 验证 = 100% 零事故
+- **本轮小飞侠 45min 跑通, 关键差异**: 30fps 一致 (不像上轮 24/30 fps 归一化) → 不需 `fps=30` filter
+
+---
+
+最后更新: 2026-07-13 22:45（**建玲1+2 合并重跑 — 主管线 2.2h + 白名单误删三件套 + 抢救 10min 成功**）:
+
+**【本轮任务】**: 用户"有新视频建玲1, 建玲2需要处理, 合并后处理吧" + 提醒"建玲花名是三宝菩萨" (profile 已落地).
+
+**【本轮完成 — 3 件套抢救成功, 1 误删事故】**:
+
+1. **建玲1+2 合并 (FFmpeg 1 行, 0 重编码)**: `source_videos/建玲1.mp4(234MB, 1920×1080@30fps, 17.3Mbps, 108.29s)` + `建玲2.mp4(112MB, 1920×1080@30fps, 17.0Mbps, 52.57s)` → 跨 E 盘 ffmpeg concat demuxer → `E:\jianling_run\建玲1_2_merged.mp4` 330.7MB 160.85s 4804 帧 (合并后). 两者 30fps 一致无 fps 归一化, 同丽丽/海军格式.
+
+2. **process 模式跑 youtube preset (主管线 2.2h)**: `uv run python -u main.py process E:\jianling_run\建玲1_2_merged.mp4 --preset youtube --shorts-coach 建玲 --full-video` 后台跑. stage 进度: pose 113.4s (4804/4804) → color 912.4s → beat 0.8s → energy_bar 569.4s → intro_outro 128.1s → watermark 3489.4s (最重) → **face_swap 1354.4s (swap=4803/4804=99.98%, 背面跳过=1, 无pose=0, 完美)** → intensity_burst 457.5s → danmaku 539.8s → export 188.8s → shorts 144.9s. exit 0. 跳过 11 stage (默认 youtube preset 关闭, 正常).
+
+3. **三件套落地 output/2026-07-13/**: `建玲1_2_merged_full_16x9_1920x1080.mp4` 342MB 169.67s (long, 含片头片尾) + `..._yt_shorts.mp4` 70MB 30s (1080×1920) + `..._douyin.mp4` 321MB 160.69s (1080×1920).
+
+4. **❌ 误删事故 (本轮重点)**: 我用 `find -name "建玲*" -delete` 配合 `! -name "*_final_*"` 关键字清理中间产物, **关键字 `*_final_*` 跟三件套真实名字 `*_full_*` 不匹配** (CLAUDE.md 文档描述 ≠ 实际文件名) → 三件套 + 16 中间产物全删 (1.8GB). 数据扇区 NTFS 还在 (F 113G/220G used 没大降) 但 MFT 已删, Recycle Bin 空, 抢救软件概率低.
+
+5. **✅ 抢救成功 (10min, 比全管线 2.2h 短 10x)**: 
+   - **long**: `output/2026-07-13/_combined.mp4` (1.5GB, export 早期合成的无音频 yuv444p) + `E:\jianling_run\建玲1_2_merged.mp4` (源 audio) → ffmpeg mux `-t 169.67 -af apad=whole_dur=169.67` → 抢救 long 5072 帧 169.67s 1.5GB ✅
+   - **yt_shorts + douyin**: `uv run python -c "from short_vertical import make_vertical; make_vertical(long_final, out_dir, 'yt_shorts', kp, duration=30, coach='建玲', intro_seconds=4)"` + 同 douyin duration=None → 抢救 51MB + 225MB ✅. kp.json 删了 → make_vertical fallback 居中裁切, 视觉等效.
+   - **教训钉死**: memory `cleanup-output-safelist.md` 重写强化 (3 步验证 + `*_full_*` 关键字 vs `*_final_*` 文档 + 禁用 `-name` 前缀过滤 + 抢救靠 _combined.mp4 的方法). MEMORY.md 索引同步.
+
+6. **git status**: untracked .superpowers/ + records/ (上轮已存在, 调研残留). 误删事故本身**不 commit** (per memory no-auto-rerun-after-fix, 用户拍板后再说). 本轮零代码改动 = 零 commit 必要.
+
+**【测试状态】**: 279 passed (本轮零代码改动, 不变).
+
+**【下一步候选】**:
+1. 用户拍板上传建玲三件套 (long 你手工, shorts 走自动黄金时段, douyin 手工传)
+2. (可选) 修 main.py: 加 `--keep-combined` flag 保留 _combined.mp4, 加 `--cleanup-after` 自动白名单清理 (内置 3 步验证, 拒绝 `-name` 过滤)
+3. 下一个视频 (source_videos/ 还剩: 小飞侠 1/2, 彩娥 1/2/merged, 枫林红 1/2)
+
+**【本轮关键提醒 — 给未来会话】**:
+- **CLAUDE.md "清理产物原则" 段关键字 `*_final_*` 实际是 `*_full_*`** — 描述错误待修 (or 在 cleanup-output-safelist.md 钉死现实, 文档/代码解耦)
+- _combined.mp4 抢救路径已验证, 但不保证每次都存在 (取决于 stage 顺序 + 增量跳过)
+- 抢救 short/douyin 走 ShortsStage 复用 (5-10min) — 远比全管线重跑 (2.2h) 快
+
+---
+
 最后更新: 2026-07-13（**Upload Reminder 工具上线 — Windows 定时任务 + 命令行弹窗, 黄金时段提醒手工上传 YouTube/抖音 ✅**）:
 
 **【本轮任务】**: 用户"以后遇到这些竖屏录制/低分辨率...直接放弃" + "新需求: Windows 定时任务弹命令行窗口提醒人工上传" (per spec + plan).

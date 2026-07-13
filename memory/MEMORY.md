@@ -1,1 +1,4 @@
 - [Upload Reminder 工具](upload-reminder-tool.md) — 【2026-07-13 用户拍板】Windows Task Scheduler 6 时点 + Python CLI 弹窗, 黄金时段提醒手工上传 YouTube/抖音. 编号勾选 + 3 次未标自动归档. 21 tests, 零侵入主管线. 设计 spec/plan 落 docs/superpowers/
+- [清理 output 必须白名单+3 步验证 (建玲 2026-07-13 强化)](cleanup-output-safelist.md) — 关键字 *full* vs *final* 错位 = 三件套被删, 禁用 -name 前缀过滤, 抢救靠 _combined.mp4
+- [抢救 long final 必须重建 audio 跟 intro sting 隔离](recovery-audio-sting-isolation.md) — 禁用 _combined+源audio 直接 mux, 必须 ffmpeg filter_complex sting(0-4) + 主体(4-END) + 静音outro(5) concat n=3, aresample=44100→48000
+- [抢救 long audio 不稳定根因 + 4 步验证法](recovery-audio-unstable-root-cause.md) — 6 版迭代 (v1 atrim 错 → v6 PTS+volume 8s 线性) 根因 3 层 (算术/听感/PTS 断). 4 步主动验证 (长度/intro/main/渐弱), 不靠用户反馈
