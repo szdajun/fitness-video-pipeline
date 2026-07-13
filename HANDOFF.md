@@ -21,11 +21,17 @@
 **【测试状态】**: 244 → 265 (244 + 21 new), 0 回归.
 
 **【下一步候选】**:
-1. 用户拍板双击 `tools/install_reminder_task.bat` 装上 6 时点
-2. 抖音 douyin 手工传 (8 套待传: 蜂王1+2 / 李娜1 / 海军1_2 / 丽丽1_2 / 建玲1_2 / 铁娘子1_2 / 艳青1_2 / **小飞侠1_2 (新)**)
+1. ✅ Upload Reminder 6 时点**已就绪** (2026-07-13 PowerShell 验证: Get-ScheduledTask 6 个 Ready, NextRun = 今天 10:00/12:00/14:00/19:00/21:00/23:00). pywin32 312 已补装. 首次弹窗 = 今天 10:00
+2. 抖音 douyin 手工传 (8 套待传: 蜂王1+2 / 李娜1 / 海军1_2 / 丽丽1_2 / 建玲1_2 / 铁娘子1_2 / 艳青1_2 / 小飞侠1_2)
 3. 下一个视频 (source_videos/ 还剩: 彩娥 1/2/merged, 枫林红 1/2)
 
-**【待用户拍板】**: 装 reminder 任务 + 抖音上传 + 下一个视频.
+**【待用户拍板】**: 抖音上传 + 下一个视频.
+
+**【本轮额外清理】**:
+- pywin32 312 补装 (.venv, 上轮漏装, 不补今天 10:00 弹窗 ImportError 静默挂)
+- 5 untracked 调研残留删除: memory/research-free-fitness-video-gen.md + scripts/_parse_csdn.py + tools/experimental/(整目录) + tools/忆秦娥1_head_rgba.png (81KB) + tools/旦角_head_rgba.png (67KB)
+- 保留 .superpowers/ (skill 运行时数据)
+- git status: 剩 .superpowers/ 一个 untracked, 12 commits 领先 origin/main (未推送)
 
 ---
 
