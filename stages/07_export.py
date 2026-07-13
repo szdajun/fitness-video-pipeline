@@ -254,7 +254,7 @@ class ExportStage:
         audio_bitrate = output_cfg.get("audio_bitrate", "96k")  # 默认96k，不用128k
         video_fade_out = output_cfg.get("video_fade_out", 2.0)  # 视频淡出秒数
         intro_outro_cfg = ctx.config.get("intro_outro", {})
-        audio_fade_d = intro_outro_cfg.get("audio_fade_out", 3.0)  # 音频淡出秒数
+        audio_fade_d = intro_outro_cfg.get("audio_fade_out", 8.0)  # 音频淡出秒数 (2026-07-14 改 3.0→8.0, per memory recovery-audio-sting-isolation v22)
         cut_ranges = output_cfg.get("cut_ranges", [])
 
         ctx.output_dir.mkdir(parents=True, exist_ok=True)

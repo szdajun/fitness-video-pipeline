@@ -267,6 +267,20 @@ def build_parser():
                            help="批量处理文件夹内所有视频")
     batch.set_defaults(command="batch")
 
+    # 抢救 long final audio (per memory recovery-audio-sting-isolation v22)
+    recover = sub.add_parser(
+        "recover-long-audio",
+        help="抢救 long final audio (v22: 严格原始对齐 + 末尾 8s 渐弱)",
+    )
+    recover.add_argument("input_long", help="抢救的 long video 路径 (从 _combined.mp4)")
+    recover.add_argument("source_merged", help="源合并 mp4 路径 (含完整 audio)")
+    recover.add_argument("output", help="输出 mp4 路径")
+    recover.add_argument("--intro-sting", help="sting wav 路径 (默认 music_library/intro_sting/intro_ref1.wav)")
+    recover.add_argument("--intro-dur", type=float, default=4.0)
+    recover.add_argument("--outro-dur", type=float, default=5.0)
+    recover.add_argument("--fade-dur", type=float, default=8.0)
+    recover.set_defaults(command="recover-long-audio")
+
     return p
 
 
@@ -1053,6 +1067,19 @@ def main():
         run_batch(args)
     elif args.command == "process":
         run_single(args)
+    elif args.command == "recover-long-audio":
+        from lib.recovery import rebuild_long_audio
+        try:
+            m = rebuild_long_audio(
+                args.input_long, args.source_merged, args.output,
+                intro_sting=args.intro_sting,
+                intro_dur=args.intro_dur, outro_dur=args.outro_dur,
+                fade_dur=args.fade_dur,
+            )
+            print(f'OK: {m}')
+        except RuntimeError as e:
+            print(f'FAIL: {e}', file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
