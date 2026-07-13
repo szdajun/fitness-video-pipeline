@@ -18,6 +18,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.upload_utils import _is_golden_hour, build_title
 
 
+# ====== 强制 UTF-8 stdout/stderr (Task Scheduler cmd 弹窗默认 GBK) ======
+# reconfigure 必须在第一次 print 前调用, 否则后续 print 缓存了 GBK codec
+def _force_utf8_io() -> None:
+    """强制 stdout/stderr UTF-8 编码, 兼容 PowerShell 7 + cmd 弹窗 + Task Scheduler.
+
+    2026-07-13 user-reported: Task Scheduler cmd 弹窗触发时, stdout=GBK,
+    print('✓') 抛 UnicodeEncodeError 进程崩, 窗口闪关.
+    """
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            # 兜底: 用 TextIOWrapper 包装 (Linux/Python <3.7 fallback)
+            try:
+                import io
+                buf = getattr(stream, "buffer", None)
+                if buf is not None:
+                    setattr(sys, stream_name,
+                            io.TextIOWrapper(buf, encoding="utf-8", errors="replace"))
+            except Exception:
+                pass
+
+
+_force_utf8_io()
+
+
 # ====== 文件名匹配 (三件套) ======
 _LONG_SUFFIX = "_full_16x9_1920x1080.mp4"
 _SHORT_SUFFIX = "_full_16x9_1920x1080_yt_shorts.mp4"
@@ -119,14 +148,21 @@ def main() -> int:
     args = ap.parse_args()
 
     if not args.skip_golden_check and not _is_golden_hour():
-        print("[WARN] 当前不在黄金时段 (10-14/19-23 北京时间).")
-        ans = input("还要继续吗? (y/N): ").strip().lower()
-        if ans != "y":
-            print("已取消.")
-            return 0
+        from lib.upload_utils import seconds_until_next_golden
+        secs = seconds_until_next_golden()
+        h, m = divmod(secs // 60, 60)
+        # Task Scheduler 调度 stdin 是空 pipe, 不能 input() 等用户输入
+        # 默认继续渲染, 弹窗里显示"非黄金时段"提示
+        print(f"[WARN] 当前不在黄金时段 (10-14/19-23 北京时间), 距下一个 = {h}h {m}m.")
+        print("[INFO] 直接进入弹窗 (Task Scheduler 调度不阻塞等待).")
+        time.sleep(2)
 
-    # 弹窗渲染 + 交互
-    _render_and_interact(args.output)
+    # 弹窗渲染 + 交互 (就算 stdin EOF 也要能渲染列表)
+    try:
+        _render_and_interact(args.output)
+    except EOFError:
+        # stdin EOF (Task Scheduler 默认) → 静默退出, 不抛异常
+        print("[exit] stdin EOF, 状态保留.")
     return 0
 
 
